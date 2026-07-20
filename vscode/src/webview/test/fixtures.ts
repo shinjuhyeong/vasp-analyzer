@@ -6,15 +6,15 @@ const step = (index: number): IonicStep => ({
   fractionalPositions: [[0, 0, 0], [0.5, 0.5, 0.5]],
   cartesianPositions: [[0, 0, 0], [1.5, 1.5, 1.5]],
   rawForces: [[0.1, 0, 0], [0, -0.2, 0]],
-  freeForces: [[0.1, 0, 0], [0, -0.2, 0]],
-  freeForceNorms: [0.1, 0.2],
+  freeForces: [[0.1, 0, 0], [0, 0, 0]],
+  freeForceNorms: [0.1, 0],
   totalEnergy: -10 - index,
   energyTerms: [],
   deltaEnergy: index === 0 ? null : -1,
   scfIterations: 8,
   electronicConverged: true,
   ionicConverged: index === 1,
-  strongestFreeComponent: { siteIndex: 1, axis: "y", value: -0.2, magnitude: 0.2 },
+  strongestFreeComponent: { siteIndex: 0, axis: "x", value: 0.1, magnitude: 0.1 },
   rmsFreeForce: 0.11,
 });
 
