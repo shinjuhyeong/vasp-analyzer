@@ -92,12 +92,13 @@ describe("control endpoint", () => {
     });
     endpoints.push(endpoint);
     const request = endpoint.request({ token: endpoint.token, path: "deferred" });
+    const requestResult = expect(request).rejects.toThrow("control endpoint closed before response");
     await started;
     const closing = endpoint.close();
     releaseResolution("canonical");
     await closing;
     endpoints.pop();
-    await expect(request).rejects.toThrow();
+    await requestResult;
     expect(onOpen).not.toHaveBeenCalled();
   });
 
@@ -122,12 +123,13 @@ describe("control endpoint", () => {
     });
     endpoints.push(endpoint);
     const request = endpoint.request({ token: endpoint.token, path: "deferred" });
+    const requestResult = expect(request).rejects.toThrow("control endpoint closed before response");
     await started;
     const closing = endpoint.close();
     releaseOpen();
     await closing;
     endpoints.pop();
-    await expect(request).rejects.toThrow();
+    await requestResult;
     expect(sideEffects).toBe(0);
   });
 

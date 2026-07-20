@@ -195,6 +195,10 @@ export async function createControlEndpoint(options: ControlEndpointOptions): Pr
       });
       client.once("end", () => {
         clearTimeout(timer);
+        if (response.length === 0) {
+          reject(new Error("control endpoint closed before response"));
+          return;
+        }
         try {
           resolve(JSON.parse(response.toString("utf8")) as ControlResponse);
         } catch (error) {
