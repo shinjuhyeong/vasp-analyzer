@@ -53,7 +53,24 @@ VASP calculation files
 
 ### 3.1 Python analyzer core
 
-The Python package owns file discovery, parsing, normalization, derived quantities, cache management, and analysis operations. It does not depend on VS Code.
+The Python package owns file discovery, parsing, normalization, derived quantities, cache management, and analysis operations. It does not depend on VS Code. Its feature boundaries are explicit:
+
+```text
+src/vasp_analyzer/
+|- core/             immutable shared models, configuration, and errors
+|- calculation/      discovery, calculation assembly, sessions, and cache
+|- parsing/
+|  |- adapters/      ASE and pymatgen integration
+|  |- dialects/      format detection and built-in compatibility behavior
+|  |- profiles/      versioned declarative user profiles
+|  `- recovery/      incomplete-file recovery and incremental indexing
+|- structure/        constraints, forces, bonds, and supercells
+|- convergence/      ionic and electronic convergence analysis
+|- transport/        editor and browser communication
+`- cli/              command-line entry points
+```
+
+The future `electronic/` and `volumetric/` packages are added when their first features are implemented rather than created as empty placeholders. Their contracts are defined by this design so they can consume the same calculation and site identities later.
 
 The CLI modes are:
 
@@ -63,6 +80,9 @@ The CLI modes are:
 - `analyzer --web [<path>]`: start the optional local browser fallback.
 - `analyzer --port <port>`: select a fixed browser-fallback port.
 - `analyzer --no-open`: print the browser-fallback URL without attempting to open it.
+- `analyzer <path> --profile <profile.toml>`: force a validated compatibility profile.
+- `analyzer dialect validate <path> --profile <profile.toml>`: validate a profile and show the rules it would apply without opening the UI.
+- `analyzer corpus validate <path>`: run the local calculation-corpus validation suite and produce an aggregate report without copying source files.
 
 ### 3.2 VS Code extension
 
@@ -84,7 +104,7 @@ The extension also owns a small control endpoint on the remote host: a Unix-doma
 
 ## 4. Calculation Data Model
 
-`CalculationDataset` is the shared representation of one VASP run:
+`CalculationDataset` is the shared, parser-independent representation of one VASP run. UI and analysis modules never receive ASE or pymatgen objects directly:
 
 ```text
 CalculationDataset
@@ -138,7 +158,50 @@ The parser discovers recognized files in the selected calculation directory. The
 
 Optional files are parsed lazily when their analysis module is first opened. Large results are cached using source path, size, and modification time so stale results are not reused.
 
-### 5.2 POSCAR compatibility rule
+### 5.2 Parser adapters
+
+The analyzer uses existing libraries where they provide mature VASP support:
+
+- pymatgen parses normalized `POSCAR` and `CONTCAR` files and later supplies `vasprun.xml`, DOS, band, and volumetric-file support.
+- ASE streams `OUTCAR` lattice, coordinates, energies, and forces.
+- A narrow analyzer-owned scanner extracts convergence markers not exposed consistently by those libraries, recovers complete records from interrupted files, and indexes large files incrementally.
+
+Each ASE step is converted immediately into compact immutable arrays and the temporary `Atoms` object is released. Neither library's internal objects cross the adapter boundary. This keeps structure and convergence logic independent of parser choice and avoids retaining a second heavy object graph for long trajectories.
+
+### 5.3 Dialects and user compatibility profiles
+
+A *dialect* describes compatible VASP syntax, not a Python exception type. `standard` is the default built-in dialect. `home_barrier` is the first special implementation and detects the observed `vasp.5.4.1-barrier` header. Automatic detection uses deterministic, scored literal markers; a command-line profile can override it.
+
+Users can define simple future variants in a versioned TOML profile. Profiles may declare literal detection markers, marker aliases, narrowly defined line normalization, block anchors, expected column counts, units, and incomplete-tail policy. They cannot import modules, execute Python, run shell commands, or supply unrestricted executable code. Complex layout changes that cannot be expressed safely become tested built-in dialects in the repository.
+
+An illustrative profile is:
+
+```toml
+schema_version = 1
+id = "my-home-vasp"
+display_name = "My Home VASP"
+
+[detection]
+outcar_contains = ["vasp.5.4.1-barrier"]
+priority = 100
+
+[poscar]
+drop_exact_line_after = "Selective dynamics"
+drop_exact_line = "0"
+
+[outcar.markers]
+position_force = ["POSITION", "TOTAL-FORCE"]
+total_energy = ["free energy", "TOTEN"]
+converged = ["reached required accuracy"]
+
+[validation]
+expected_force_columns = 6
+allow_incomplete_tail = true
+```
+
+Profile loading is fail-closed: an unknown schema version, unsupported operation, invalid type, ambiguous rule, or failed post-normalization validation prevents the profile from being used.
+
+### 5.4 POSCAR compatibility rule
 
 The parser accepts both standard POSCAR syntax and the home-VASP variant:
 
@@ -148,9 +211,15 @@ Selective dynamics
 Direct
 ```
 
-After `Selective dynamics`, the parser identifies the coordinate-mode line semantically. A standalone integer metadata line may appear before `Direct` or `Cartesian` and is preserved as compatibility metadata but excluded from coordinates. The rule is deliberately narrow: arbitrary unrecognized lines are not silently skipped. A malformed file produces an error containing the line number and content.
+The `home_barrier` normalizer handles the standalone `0` before handing the normalized content to pymatgen. After `Selective dynamics`, it identifies the coordinate-mode line semantically. A standalone integer metadata line may appear before `Direct` or `Cartesian` and is preserved as compatibility metadata but excluded from coordinates. The rule is deliberately narrow: arbitrary unrecognized lines are not silently skipped. A malformed file produces an error containing the line number and content.
 
-### 5.3 Structure reconciliation
+### 5.5 OUTCAR recovery and incremental parsing
+
+An interrupted OUTCAR is a supported state. A structure step is emitted only after its complete position/force block passes atom-count and column-count validation. A completed structure whose energy has not yet been written remains available with an explicit missing-energy value. An incomplete electronic iteration or partial force block at the physical end of the file is discarded with an `IncompleteTail` warning; data from a previous step is never reused to fill it.
+
+Records are joined by explicit parser step identifiers rather than by padding arrays to equal length. The cache stores the source fingerprint and last verified byte offset. An appended running file resumes from that checkpoint. Replacement, truncation, or incompatible fingerprint changes invalidate the checkpoint and cause a clean reparse.
+
+### 5.6 Structure reconciliation
 
 The parser reconciles structures from `POSCAR`, `CONTCAR`, and `OUTCAR` only when atom counts and species ordering agree. It does not guess an atom mapping when they differ. Conflicts are reported with both source filenames and counts.
 
@@ -232,7 +301,7 @@ Every volumetric field stores the source lattice, grid shape, units, field kind,
 
 Large volumetric arrays are not repeatedly serialized to the Webview. The UI requests a downsampled grid, slice, or isosurface mesh. The backend caches products by source fingerprint and rendering parameters. Heavy mesh generation runs outside the interactive message loop so atom rotation and selection remain responsive.
 
-## 8. Error Handling
+## 8. Error Handling and Provenance
 
 Failures are isolated by capability whenever the core structure dataset remains valid:
 
@@ -244,6 +313,18 @@ Failures are isolated by capability whenever the core structure dataset remains 
 - When a large or corrupt optional file fails, keep structure and convergence available.
 - If WebGL rendering fails, provide parsed structure, force, and convergence tables as a fallback.
 - When a Webview reloads, reconnect it to the Python dataset and restore the selected step and site when possible.
+
+Parser failures have stable categories:
+
+- `UnsupportedDialect`: no compatible dialect or forced profile can identify the source.
+- `ProfileValidationError`: the profile schema or a declared rule is invalid.
+- `MalformedBlock`: a required block has inconsistent atom or column counts.
+- `IncompleteTail`: the file ends inside a record that may still be written.
+- `DatasetConsistencyError`: sources or parsed step sequences cannot be reconciled safely.
+
+`IncompleteTail` is nonfatal and preserves all earlier complete results. A malformed lattice, atom-count conflict, or inconsistent completed block suppresses the affected step instead of displaying a plausible but incorrect structure.
+
+Every dataset records the adapter name and version, selected dialect and profile, normalization rules applied, ignored lines or incomplete blocks, source file size and modification time, and a cache fingerprint. Diagnostics refer to line numbers or byte offsets without copying whole blocks into logs.
 
 Logs record source paths, parser stages, and concise causes. They do not dump full OUTCAR content, charge grids, or other large calculation data.
 
@@ -279,7 +360,36 @@ Logs record source paths, parser stages, and concise causes. They do not dump fu
 - Webview reload restores analysis state.
 - Volumetric contracts preserve lattice alignment and reject incompatible grids.
 
-### 9.4 Visual and interaction tests
+### 9.4 Local OUTCAR corpus
+
+The development corpus contains 51 exact `OUTCAR` files under the user's local `VASPAgent` results tree, totaling approximately 2.121 GB. All currently identify themselves as `vasp.5.4.1-barrier`. Forty-nine contain ionic position/force blocks, with 12,853 blocks in total and between 1 and 3,000 blocks per file. Thirty-seven include the normal VASP timing footer and fourteen are running or otherwise incomplete. The largest file is approximately 0.49 GB.
+
+Raw corpus files and absolute local paths are never committed. `VASP_ANALYZER_CORPUS_DIR` selects the corpus for opt-in tests:
+
+```text
+pytest                          small, repository-safe fixtures
+pytest -m corpus               local 51-file regression corpus
+analyzer corpus validate PATH  aggregate validation report
+```
+
+Corpus acceptance requires:
+
+- all 51 files are identified without a crash as `home_barrier`;
+- the 37 complete and 14 incomplete calculations are distinguished;
+- the 49 structural files expose every complete position/force block;
+- parser step counts are compared with the 12,853 independently scanned block markers;
+- atom, coordinate, force, and constraint dimensions agree at every completed step;
+- invalid lattices, NaN, and infinite numerical values are rejected explicitly;
+- selected numerical steps agree between the ASE adapter and the supplemental scanner; and
+- interrupted tails preserve earlier complete steps and produce warnings rather than false success.
+
+Repository fixtures contain only small, reviewed, sanitized cases needed for deterministic unit and adapter-contract tests. Corpus validation writes aggregate counts, timings, peak memory, warnings, and source fingerprints; it does not embed source content.
+
+### 9.5 Performance regression tests
+
+The 0.49 GB, 3,000-step case verifies that parsing does not duplicate the complete input in memory. The test records wall time and peak resident memory rather than imposing a machine-independent timing threshold. A second run verifies cache reuse, and an appended-file test verifies resumption from the last complete byte offset.
+
+### 9.6 Visual and interaction tests
 
 - Unit-cell and axis orientation for orthogonal and skewed lattices.
 - Camera presets for crystallographic directions.
@@ -301,11 +411,16 @@ The first release is complete when:
 8. A partially written OUTCAR remains inspectable through its last complete step.
 9. The Webview works offline with bundled runtime assets.
 10. DOS, band, and volumetric extension contracts are present and tested even though their full UIs are deferred.
+11. The local 51-file corpus passes the dialect, completeness, dimensional-consistency, and interrupted-tail checks without committing calculation data.
+12. User TOML profiles can validate and alias simple format changes without executing arbitrary code; unsupported complex variants fail with actionable diagnostics.
 
 ## 11. Selected Technology Direction
 
-- Python and pymatgen-compatible domain objects for VASP parsing and materials data.
-- A narrow custom POSCAR compatibility parser for the standalone integer metadata line.
+- Compact analyzer-owned immutable domain objects at every public package boundary.
+- pymatgen adapters for normalized POSCAR/CONTCAR and future electronic/volumetric formats.
+- ASE adapters for OUTCAR trajectory, lattice, energy, and force data.
+- A narrow streaming scanner for convergence metadata, interrupted-tail recovery, and large-file indexing.
+- Versioned declarative TOML profiles plus tested built-in dialects, beginning with `home_barrier`.
 - A bundled VS Code Webview as the primary interface.
 - 3Dmol.js behind a renderer adapter for crystal interaction, unit cells, supercells, clickable atoms, vector arrows, and initial volumetric isosurfaces.
 - A chart component behind a separate plotting adapter for convergence and later DOS/band views.
