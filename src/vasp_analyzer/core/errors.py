@@ -1,3 +1,6 @@
+"""Stable analyzer exception hierarchy."""
+
+
 class AnalyzerError(RuntimeError):
     code = "analyzer_error"
 
@@ -27,3 +30,23 @@ class UnknownMethodError(AnalyzerError):
 
     def __init__(self, method: str) -> None:
         super().__init__(f"Unknown method: {method}")
+
+
+class UnsupportedDialect(AnalyzerError):
+    code = "unsupported_dialect"
+
+
+class ProfileValidationError(AnalyzerError):
+    code = "profile_validation"
+
+
+class MalformedBlock(AnalyzerError):
+    code = "malformed_block"
+
+
+class IncompleteTail(AnalyzerError):
+    code = "incomplete_tail"
+
+
+class DatasetConsistencyError(AnalyzerError):
+    code = "dataset_consistency"
