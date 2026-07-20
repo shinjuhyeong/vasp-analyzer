@@ -25,6 +25,8 @@ from vasp_analyzer.parsing.recovery import ParserCheckpoint, scan_outcar
 
 from .discovery import DiscoveredCalculation, discover_calculation
 
+_DIALECT_HEAD_BYTES = 65_536
+
 
 def inspect_source(path: Path) -> SourceFile:
     digest = sha256()
@@ -43,7 +45,8 @@ def inspect_source(path: Path) -> SourceFile:
 def detect_path_dialect(
     discovered: DiscoveredCalculation, profile: CompatibilityProfile | None = None
 ) -> Dialect:
-    head = discovered.outcar.read_bytes()[:65536].decode("utf-8", errors="replace")
+    with discovered.outcar.open("rb") as stream:
+        head = stream.read(_DIALECT_HEAD_BYTES).decode("utf-8", errors="replace")
     return detect_dialect(head, profile).dialect
 
 

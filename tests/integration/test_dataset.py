@@ -132,6 +132,24 @@ def test_source_fingerprint_streams_without_path_read_bytes(
     assert len(source.fingerprint) == 64
 
 
+def test_session_dialect_detection_uses_only_a_bounded_head_read(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = make_calculation(tmp_path / "calc")
+
+    def reject_read_bytes(self: Path) -> bytes:
+        raise AssertionError(f"read_bytes copied source: {self.name}")
+
+    monkeypatch.setattr(Path, "read_bytes", reject_read_bytes)
+
+    session = CalculationSession(root, cache=CacheStore(tmp_path / "cache"))
+    dataset = session.load()
+
+    assert dataset.provenance is not None
+    assert dataset.provenance.dialect == "standard"
+    assert len(dataset.ionic_steps) == 1
+
+
 def test_cache_identity_includes_poscar_changes(tmp_path: Path) -> None:
     root = make_calculation(tmp_path / "calc")
     write_poscar(root / "POSCAR")
