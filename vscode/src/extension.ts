@@ -2,13 +2,18 @@ import { basename } from "node:path";
 
 import * as vscode from "vscode";
 
+import { ActivationCoordinator, type ActivationCleanup } from "./activationLifecycle.js";
 import {
   AnalyzerProtocolError,
   spawnAnalyzer,
   type AnalyzerProcess,
   type Method,
 } from "./analyzerProcess.js";
-import { createControlEndpoint, resolveCalculationRoot } from "./controlEndpoint.js";
+import {
+  createControlEndpoint,
+  resolveCalculationRoot,
+  type ControlEndpoint,
+} from "./controlEndpoint.js";
 import { webviewHtml } from "./webviewHtml.js";
 
 interface WebviewRequest {
@@ -18,8 +23,16 @@ interface WebviewRequest {
   readonly params: Record<string, unknown>;
 }
 
-let activationPromise: Promise<void> | undefined;
-let disposeActive: (() => void) | undefined;
+const activationCoordinator = new ActivationCoordinator<ControlEndpoint>();
+const registeredContexts = new WeakSet<vscode.ExtensionContext>();
+
+function registerContextCleanup(context: vscode.ExtensionContext): void {
+  if (registeredContexts.has(context)) return;
+  registeredContexts.add(context);
+  context.subscriptions.push({
+    dispose: () => void activationCoordinator.deactivate(),
+  });
+}
 
 function requireActive(...signals: readonly AbortSignal[]): void {
   if (signals.some((signal) => signal.aborted)) throw new Error("VASP Analyzer is closing");
@@ -55,24 +68,27 @@ function isWebviewRequest(value: unknown): value is WebviewRequest {
   );
 }
 
-async function activateOnce(context: vscode.ExtensionContext): Promise<void> {
+function activationPlan(context: vscode.ExtensionContext): {
+  readonly factory: (signal: AbortSignal) => Promise<ControlEndpoint>;
+  readonly install: (endpoint: ControlEndpoint, signal: AbortSignal) => ActivationCleanup;
+} {
   const panels = new Map<string, vscode.WebviewPanel>();
   const processes = new Map<vscode.WebviewPanel, AnalyzerProcess>();
-  const lifecycle = new AbortController();
 
   const openCanonicalCalculation = async (
     root: string,
-    requestSignal: AbortSignal = lifecycle.signal,
+    activationSignal: AbortSignal,
+    requestSignal: AbortSignal = activationSignal,
   ): Promise<void> => {
-    requireActive(lifecycle.signal, requestSignal);
+    requireActive(activationSignal, requestSignal);
     const existing = panels.get(root);
     if (existing) {
-      requireActive(lifecycle.signal, requestSignal);
+      requireActive(activationSignal, requestSignal);
       existing.reveal();
       return;
     }
 
-    requireActive(lifecycle.signal, requestSignal);
+    requireActive(activationSignal, requestSignal);
     const webviewRoot = vscode.Uri.joinPath(context.extensionUri, "dist", "webview");
     const panel = vscode.window.createWebviewPanel(
       "vaspAnalyzer.calculation",
@@ -82,7 +98,7 @@ async function activateOnce(context: vscode.ExtensionContext): Promise<void> {
     );
     let analyzer: AnalyzerProcess;
     try {
-      requireActive(lifecycle.signal, requestSignal);
+      requireActive(activationSignal, requestSignal);
       analyzer = spawnAnalyzer(root, configuredPythonPath(), {
         requestTimeoutMs: configuredTimeout(),
       });
@@ -139,58 +155,74 @@ async function activateOnce(context: vscode.ExtensionContext): Promise<void> {
     );
   };
 
-  const openCalculation = async (candidate: string): Promise<void> => {
-    requireActive(lifecycle.signal);
+  const openCalculation = async (candidate: string, activationSignal: AbortSignal): Promise<void> => {
+    requireActive(activationSignal);
     const root = await resolveCalculationRoot(candidate);
-    requireActive(lifecycle.signal);
-    await openCanonicalCalculation(root);
+    requireActive(activationSignal);
+    await openCanonicalCalculation(root, activationSignal);
   };
 
-  const endpoint = await createControlEndpoint({ onOpen: openCanonicalCalculation });
-  context.environmentVariableCollection.replace("VASP_ANALYZER_ENDPOINT", endpoint.address);
-  context.environmentVariableCollection.replace("VASP_ANALYZER_TOKEN", endpoint.token);
-  let disposed = false;
-  const dispose = () => {
-    if (disposed) return;
-    disposed = true;
-    lifecycle.abort();
-    context.environmentVariableCollection.delete("VASP_ANALYZER_ENDPOINT");
-    context.environmentVariableCollection.delete("VASP_ANALYZER_TOKEN");
-    void endpoint.close().catch(() => undefined);
-    for (const analyzer of processes.values()) analyzer.dispose();
-    if (disposeActive === dispose) disposeActive = undefined;
-  };
-  disposeActive = dispose;
-  context.subscriptions.push({ dispose });
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("vaspAnalyzer.open", async (resource?: vscode.Uri) => {
+  return {
+    factory: async (activationSignal) =>
+      await createControlEndpoint({
+        onOpen: async (root, requestSignal) =>
+          await openCanonicalCalculation(root, activationSignal, requestSignal),
+      }),
+    install: (endpoint, activationSignal) => {
+      requireActive(activationSignal);
+      let command: vscode.Disposable | undefined;
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        command?.dispose();
+        context.environmentVariableCollection.delete("VASP_ANALYZER_ENDPOINT");
+        context.environmentVariableCollection.delete("VASP_ANALYZER_TOKEN");
+        for (const panel of [...panels.values()]) panel.dispose();
+        for (const analyzer of processes.values()) analyzer.dispose();
+        panels.clear();
+        processes.clear();
+      };
       try {
-        let selected = resource;
-        if (!selected) {
-          const choices = await vscode.window.showOpenDialog({
-            canSelectFiles: true,
-            canSelectFolders: false,
-            canSelectMany: false,
-            openLabel: "Open VASP Calculation",
-          });
-          selected = choices?.[0];
-        }
-        if (selected) await openCalculation(selected.fsPath);
-      } catch {
-        void vscode.window.showErrorMessage("VASP Analyzer could not open this calculation.");
+        context.environmentVariableCollection.replace("VASP_ANALYZER_ENDPOINT", endpoint.address);
+        context.environmentVariableCollection.replace("VASP_ANALYZER_TOKEN", endpoint.token);
+        requireActive(activationSignal);
+        command = vscode.commands.registerCommand(
+          "vaspAnalyzer.open",
+          async (resource?: vscode.Uri) => {
+            try {
+              let selected = resource;
+              if (!selected) {
+                const choices = await vscode.window.showOpenDialog({
+                  canSelectFiles: true,
+                  canSelectFolders: false,
+                  canSelectMany: false,
+                  openLabel: "Open VASP Calculation",
+                });
+                selected = choices?.[0];
+              }
+              if (selected) await openCalculation(selected.fsPath, activationSignal);
+            } catch {
+              void vscode.window.showErrorMessage("VASP Analyzer could not open this calculation.");
+            }
+          },
+        );
+        context.subscriptions.push(command);
+        return cleanup;
+      } catch (error) {
+        cleanup();
+        throw error;
       }
-    }),
-  );
+    },
+  };
 }
 
 export function activate(context: vscode.ExtensionContext): Promise<void> {
-  activationPromise ??= activateOnce(context);
-  return activationPromise;
+  registerContextCleanup(context);
+  const plan = activationPlan(context);
+  return activationCoordinator.activate(plan.factory, plan.install);
 }
 
-export function deactivate(): void {
-  disposeActive?.();
-  disposeActive = undefined;
-  activationPromise = undefined;
+export function deactivate(): Promise<void> {
+  return activationCoordinator.deactivate();
 }

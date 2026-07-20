@@ -19,6 +19,11 @@ describe("extension manifest", () => {
     const source = await readFile(new URL("../extension.ts", import.meta.url), "utf8");
     expect(source).not.toContain("filters:");
     expect(source).toContain("resolveCalculationRoot");
-    expect(source).toContain("activationPromise ??=");
+    expect(source).toContain("new ActivationCoordinator<ControlEndpoint>()");
+    expect(source).toContain("return activationCoordinator.deactivate()");
+    expect(source).toContain("registerContextCleanup(context);");
+    expect(source.indexOf("registerContextCleanup(context);")).toBeLessThan(
+      source.indexOf("activationCoordinator.activate(plan.factory, plan.install)"),
+    );
   });
 });
