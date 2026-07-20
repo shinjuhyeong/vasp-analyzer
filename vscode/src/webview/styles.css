@@ -368,17 +368,35 @@ select {
   overflow: visible;
 }
 .chart-axis { stroke: var(--vscode-descriptionForeground, #9ca3af); stroke-width: 1; }
-.chart-tick, .chart-x-tick, .chart-axis-label { fill: var(--vscode-descriptionForeground, #9ca3af); font-size: 10px; }
+.chart-tick, .chart-x-tick, .chart-axis-label, .chart-y-label { fill: var(--vscode-descriptionForeground, #9ca3af); font-size: 10px; }
 .chart-tick { text-anchor: end; font-variant-numeric: tabular-nums; }
 .chart-x-tick { text-anchor: middle; font-variant-numeric: tabular-nums; }
 .chart-axis-label { text-anchor: middle; }
 .chart-line { fill: none; stroke: #58a6ff; stroke-width: 2; vector-effect: non-scaling-stroke; }
 [data-series="1"] .chart-line { stroke: #f2cc60; }
-.chart-hit-target { fill: transparent; stroke: transparent; }
 .chart-point { fill: #58a6ff; stroke: var(--vscode-editor-background, #17191d); stroke-width: 1.5; transition: cx 150ms ease-out, cy 150ms ease-out; }
 [data-series="1"] .chart-point { fill: #f2cc60; }
 .chart-point[data-selected="true"] { stroke: var(--vscode-foreground, #fff); stroke-width: 2.5; }
-[role="button"]:focus-visible .chart-hit-target { stroke: var(--vscode-focusBorder, #4ca6ea); stroke-width: 2; }
+.chart-point-controls {
+  display: flex;
+  gap: 3px;
+  max-width: 100%;
+  margin-top: 5px;
+  overflow-x: auto;
+  padding: 2px;
+}
+.chart-point-controls button {
+  min-width: 24px;
+  padding: 2px 5px;
+  border: 1px solid var(--vscode-button-border, #454a53);
+  border-radius: 3px;
+  background: var(--vscode-button-secondaryBackground, #31353c);
+  font-size: 10px;
+}
+.chart-point-controls button[aria-pressed="true"] {
+  border-color: var(--vscode-focusBorder, #4ca6ea);
+  background: var(--vscode-button-background, #0e639c);
+}
 .chart-legend {
   display: flex;
   flex-wrap: wrap;

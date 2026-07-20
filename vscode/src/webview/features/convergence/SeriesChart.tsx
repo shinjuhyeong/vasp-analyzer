@@ -7,12 +7,32 @@ import {
   type ReactElement,
 } from "react";
 
-import type { PlotPoint, PlotSeries } from "./analysisSeries.js";
+export interface ChartPoint {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number | null;
+  readonly ariaLabel: string;
+  readonly displayLabel?: string;
+  readonly selectionIndex?: number;
+}
+
+export interface ChartSeries {
+  readonly id: string;
+  readonly label: string;
+  readonly points: readonly ChartPoint[];
+}
+
+export interface AxisDescriptor {
+  readonly label: string;
+  readonly unit?: string;
+}
 
 export interface ChartRendererContract {
-  readonly series: readonly PlotSeries[];
-  readonly selectedIndex: number;
-  readonly onSelect: (arrayIndex: number) => void;
+  readonly series: readonly ChartSeries[];
+  readonly xAxis: AxisDescriptor;
+  readonly yAxis: AxisDescriptor;
+  readonly selectedIndex?: number;
+  readonly onSelect?: (selectionIndex: number) => void;
 }
 
 export interface SeriesChartProps extends ChartRendererContract {
@@ -26,41 +46,41 @@ const RIGHT = 16;
 const TOP = 18;
 const BOTTOM = 34;
 
-function finiteRange(series: readonly PlotSeries[]): readonly [number, number] {
-  const values = series.flatMap(({ points }) =>
-    points.flatMap(({ value }) => (value === null ? [] : [value])),
-  );
-  if (values.length === 0) return [0, 1];
-  const minimum = Math.min(...values),
-    maximum = Math.max(...values);
+function numericDomain(values: readonly number[]): readonly [number, number] {
+  const finite = values.filter(Number.isFinite);
+  if (finite.length === 0) return [0, 1];
+  const minimum = Math.min(...finite),
+    maximum = Math.max(...finite);
   if (minimum === maximum) {
     const padding = Math.max(Math.abs(minimum) * 0.1, 1e-6);
     return [minimum - padding, maximum + padding];
   }
+  return [minimum, maximum];
+}
+
+function yDomain(series: readonly ChartSeries[]): readonly [number, number] {
+  const values = series.flatMap(({ points }) =>
+    points.flatMap(({ y }) => (y === null ? [] : [y])),
+  );
+  const [minimum, maximum] = numericDomain(values);
+  if (values.length === 0) return [minimum, maximum];
   const padding = (maximum - minimum) * 0.08;
   return [minimum - padding, maximum + padding];
 }
 
-function xFor(point: PlotPoint, count: number): number {
-  if (count <= 1) return (LEFT + WIDTH - RIGHT) / 2;
-  return LEFT + (point.arrayIndex / (count - 1)) * (WIDTH - LEFT - RIGHT);
+function xFor(x: number, domain: readonly [number, number]): number {
+  return LEFT + ((x - domain[0]) / (domain[1] - domain[0])) * (WIDTH - LEFT - RIGHT);
 }
 
-function yFor(value: number, range: readonly [number, number]): number {
-  return (
-    TOP +
-    ((range[1] - value) / (range[1] - range[0])) *
-      (HEIGHT - TOP - BOTTOM)
-  );
+function yFor(y: number, domain: readonly [number, number]): number {
+  return TOP + ((domain[1] - y) / (domain[1] - domain[0])) * (HEIGHT - TOP - BOTTOM);
 }
 
-function segments(
-  points: readonly PlotPoint[],
-): readonly (readonly PlotPoint[])[] {
-  const result: PlotPoint[][] = [];
-  let current: PlotPoint[] = [];
+function segments(points: readonly ChartPoint[]): readonly (readonly ChartPoint[])[] {
+  const result: ChartPoint[][] = [];
+  let current: ChartPoint[] = [];
   for (const point of points) {
-    if (point.value === null) {
+    if (point.y === null || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
       if (current.length) result.push(current);
       current = [];
     } else current.push(point);
@@ -69,33 +89,44 @@ function segments(
   return result;
 }
 
-function choose(
-  event: KeyboardEvent<SVGGElement>,
-  point: PlotPoint,
-  onSelect: (arrayIndex: number) => void,
+function selectByKeyboard(
+  event: KeyboardEvent<HTMLButtonElement>,
+  selectionIndex: number,
+  onSelect: (selectionIndex: number) => void,
 ): void {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
-  onSelect(point.arrayIndex);
+  onSelect(selectionIndex);
 }
 
-/** Renderer-agnostic offline SVG chart seam; a canvas backend can replace it later. */
+const axisTitle = ({ label, unit }: AxisDescriptor): string =>
+  unit ? `${label} (${unit})` : label;
+
+/** Renderer-agnostic offline SVG chart seam; analysis-specific adapters provide selection metadata. */
 export function SeriesChart({
   ariaLabel,
   series,
+  xAxis,
+  yAxis,
   selectedIndex,
   onSelect,
 }: SeriesChartProps): ReactElement {
   const container = useRef<HTMLDivElement>(null);
   const [, resized] = useReducer((value: number) => value + 1, 0);
-  const range = useMemo(() => finiteRange(series), [series]);
-  const count = Math.max(0, ...series.map(({ points }) => points.length));
-  const xPoints = series[0]?.points ?? [];
-  const ticks = xPoints.filter(
-    (point) =>
-      point.arrayIndex === 0 ||
-      point.arrayIndex === selectedIndex ||
-      point.arrayIndex === xPoints.length - 1,
+  const xRange = useMemo(
+    () =>
+      numericDomain(
+        series.flatMap(({ points }) => points.map(({ x }) => x)),
+      ),
+    [series],
+  );
+  const yRange = useMemo(() => yDomain(series), [series]);
+  const tickPoints = (series[0]?.points ?? []).filter(
+    (point, position, points) =>
+      position === 0 ||
+      position === points.length - 1 ||
+      (point.selectionIndex !== undefined &&
+        point.selectionIndex === selectedIndex),
   );
   useEffect(() => {
     if (!container.current || typeof ResizeObserver === "undefined") return;
@@ -104,52 +135,22 @@ export function SeriesChart({
     return () => observer.disconnect();
   }, []);
   return (
-    <div
-      className="convergence-chart"
-      ref={container}
-      data-chart-backend="svg"
-    >
+    <div className="convergence-chart" ref={container} data-chart-backend="svg">
       <svg
+        data-testid={`${ariaLabel}-visual`}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        role="img"
-        aria-label={ariaLabel}
+        aria-hidden="true"
         preserveAspectRatio="none"
       >
-        <line
-          className="chart-axis"
-          x1={LEFT}
-          x2={LEFT}
-          y1={TOP}
-          y2={HEIGHT - BOTTOM}
-        />
-        <line
-          className="chart-axis"
-          x1={LEFT}
-          x2={WIDTH - RIGHT}
-          y1={HEIGHT - BOTTOM}
-          y2={HEIGHT - BOTTOM}
-        />
-        <text className="chart-tick" x={LEFT - 5} y={TOP + 4}>
-          {range[1].toPrecision(4)}
-        </text>
-        <text className="chart-tick" x={LEFT - 5} y={HEIGHT - BOTTOM}>
-          {range[0].toPrecision(4)}
-        </text>
-        <text
-          className="chart-axis-label"
-          x={(LEFT + WIDTH - RIGHT) / 2}
-          y={HEIGHT - 8}
-        >
-          Ionic step
-        </text>
-        {ticks.map((point) => (
-          <text
-            key={point.arrayIndex}
-            className="chart-x-tick"
-            x={xFor(point, count)}
-            y={HEIGHT - BOTTOM + 13}
-          >
-            {point.displayedStep}
+        <line className="chart-axis" x1={LEFT} x2={LEFT} y1={TOP} y2={HEIGHT - BOTTOM} />
+        <line className="chart-axis" x1={LEFT} x2={WIDTH - RIGHT} y1={HEIGHT - BOTTOM} y2={HEIGHT - BOTTOM} />
+        <text className="chart-tick" x={LEFT - 5} y={TOP + 4}>{yRange[1].toPrecision(4)}</text>
+        <text className="chart-tick" x={LEFT - 5} y={HEIGHT - BOTTOM}>{yRange[0].toPrecision(4)}</text>
+        <text className="chart-axis-label" x={(LEFT + WIDTH - RIGHT) / 2} y={HEIGHT - 8}>{axisTitle(xAxis)}</text>
+        <text className="chart-y-label" x={LEFT + 4} y={TOP + 10}>{axisTitle(yAxis)}</text>
+        {tickPoints.map((point) => (
+          <text key={point.id} className="chart-x-tick" x={xFor(point.x, xRange)} y={HEIGHT - BOTTOM + 13}>
+            {point.displayLabel ?? point.x}
           </text>
         ))}
         {series.map((item, seriesIndex) => (
@@ -158,54 +159,50 @@ export function SeriesChart({
               <polyline
                 key={segmentIndex}
                 className="chart-line"
-                points={segment
-                  .map(
-                    (point) =>
-                      `${xFor(point, count)},${yFor(point.value!, range)}`,
-                  )
-                  .join(" ")}
+                points={segment.map((point) => `${xFor(point.x, xRange)},${yFor(point.y!, yRange)}`).join(" ")}
               />
             ))}
-            {item.points
-              .filter((point) => point.value !== null)
-              .map((point) => (
-              <g
-                key={point.arrayIndex}
-                role="button"
-                tabIndex={0}
-                aria-label={point.ariaLabel}
-                aria-pressed={point.arrayIndex === selectedIndex}
-                onClick={() => onSelect(point.arrayIndex)}
-                onKeyDown={(event) => choose(event, point, onSelect)}
-              >
-                <circle
-                  className="chart-hit-target"
-                  cx={xFor(point, count)}
-                  cy={yFor(point.value!, range)}
-                  r="9"
-                />
-                <circle
-                  className="chart-point"
-                  data-selected={point.arrayIndex === selectedIndex}
-                  cx={xFor(point, count)}
-                  cy={yFor(point.value!, range)}
-                  r={point.arrayIndex === selectedIndex ? 5 : 3}
-                />
-              </g>
-              ))}
+            {item.points.filter((point) => point.y !== null && Number.isFinite(point.x) && Number.isFinite(point.y)).map((point) => {
+              const selected = point.selectionIndex !== undefined && point.selectionIndex === selectedIndex;
+              return (
+              <circle
+                key={point.id}
+                className="chart-point"
+                data-selected={selected}
+                cx={xFor(point.x, xRange)}
+                cy={yFor(point.y!, yRange)}
+                r={selected ? 5 : 3}
+              />
+              );
+            })}
           </g>
         ))}
       </svg>
       <ul className="chart-legend" aria-label={`${ariaLabel} legend`}>
         {series.map((item, index) => (
           <li key={item.id} data-series={index}>
-            {item.label} ({item.unit})
+            {yAxis.unit ? `${item.label} (${yAxis.unit})` : item.label}
           </li>
         ))}
       </ul>
-      {series.every(({ points }) =>
-        points.every(({ value }) => value === null),
-      ) && <p className="chart-unavailable">No values available</p>}
+      {onSelect && (
+        <div className="chart-point-controls" aria-label={`${ariaLabel} data points`}>
+          {series.flatMap((item) => item.points).filter((point) => point.selectionIndex !== undefined).map((point) => (
+            <button
+              key={point.id}
+              type="button"
+              aria-label={point.ariaLabel}
+              aria-pressed={point.selectionIndex === selectedIndex}
+              aria-current={point.selectionIndex === selectedIndex ? "true" : undefined}
+              onClick={() => onSelect(point.selectionIndex!)}
+              onKeyDown={(event) => selectByKeyboard(event, point.selectionIndex!, onSelect)}
+            >
+              {point.displayLabel ?? point.x}
+            </button>
+          ))}
+        </div>
+      )}
+      {series.every(({ points }) => points.every(({ y }) => y === null)) && <p className="chart-unavailable">No values available</p>}
     </div>
   );
 }

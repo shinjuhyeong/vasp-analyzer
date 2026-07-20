@@ -52,6 +52,7 @@ export function CrystalPanel({
 }: CrystalPanelProps) {
   const container = useRef<HTMLDivElement>(null);
   const renderer = useRef<ReturnType<CrystalRendererFactory> | null>(null);
+  const resizeObserver = useRef<ResizeObserver | null>(null);
   const selectHandler = useRef(onSelectSite);
   const [repeat, setRepeat] = useState<SupercellRepeat>([1, 1, 1]);
   const [repeatInputs, setRepeatInputs] = useState<
@@ -70,6 +71,8 @@ export function CrystalPanel({
   );
   const [renderError, setRenderError] = useState<string | null>(null);
   const failRenderer = useCallback((reason: unknown) => {
+    resizeObserver.current?.disconnect();
+    resizeObserver.current = null;
     const failed = renderer.current;
     renderer.current = null;
     try {
@@ -112,6 +115,43 @@ export function CrystalPanel({
     () => buildCrystalFrame(sceneInputs, selectedStep.lattice, repeat),
     [sceneInputs, selectedStep.lattice, repeat],
   );
+  const vectors = useMemo(
+    () =>
+      Object.freeze(
+        sites.map((site, position) =>
+          Object.freeze({
+            siteIndex: site.siteIndex,
+            origin: selectedStep.cartesianPositions[position]!,
+            vector:
+              forceMode === "free"
+                ? (selectedStep.freeForces?.[position] ?? null)
+                : (selectedStep.rawForces[position] ?? null),
+            strongestAxis:
+              selectedStep.strongestFreeComponent?.siteIndex === site.siteIndex
+                ? selectedStep.strongestFreeComponent.axis
+                : null,
+          } satisfies VectorGlyph),
+        ),
+      ),
+    [forceMode, selectedStep, sites],
+  );
+  const constraints = useMemo(() => {
+    const focus = hovered ?? selectedSite?.siteIndex ?? null;
+    return Object.freeze(
+      sites.map((site, position) =>
+        Object.freeze({
+          siteIndex: site.siteIndex,
+          origin: selectedStep.cartesianPositions[position]!,
+          states: [
+            site.selectiveDynamics.x,
+            site.selectiveDynamics.y,
+            site.selectiveDynamics.z,
+          ],
+          emphasized: site.siteIndex === focus,
+        } satisfies ConstraintGlyph),
+      ),
+    );
+  }, [hovered, selectedSite, selectedStep, sites]);
 
   useEffect(() => {
     selectHandler.current = onSelectSite;
@@ -124,15 +164,22 @@ export function CrystalPanel({
       renderer.current = instance;
       instance.onSelectSite((siteIndex) => selectHandler.current(siteIndex));
       instance.onHoverSite(setHovered);
-      const resizeObserver =
+      instance.onError?.(failRenderer);
+      resizeObserver.current =
         typeof ResizeObserver === "undefined"
           ? null
           : new ResizeObserver(() => invokeRenderer((current) => current.resize()));
-      resizeObserver?.observe(container.current);
+      resizeObserver.current?.observe(container.current);
       return () => {
-        resizeObserver?.disconnect();
-        instance.dispose();
+        resizeObserver.current?.disconnect();
+        resizeObserver.current = null;
+        if (renderer.current !== instance) return;
         renderer.current = null;
+        try {
+          instance.dispose();
+        } catch {
+          // Cleanup must remain non-throwing after renderer failure.
+        }
       };
     } catch (reason) {
       failRenderer(reason);
@@ -155,50 +202,23 @@ export function CrystalPanel({
 
   useEffect(() => {
     invokeRenderer((instance) => {
-      instance.setStructure(frame);
-      instance.setSupercell(repeat);
+      if (instance.setScene)
+        instance.setScene({
+          frame,
+          forces: vectors,
+          forceScale,
+          constraints,
+          supercell: repeat,
+        });
+      else {
+        instance.setStructure(frame);
+        instance.setForces(vectors);
+        instance.setForceScale(forceScale);
+        instance.setConstraints(constraints);
+        instance.setSupercell(repeat);
+      }
     });
-  }, [frame, invokeRenderer, repeat]);
-  useEffect(() => {
-    const vectors: VectorGlyph[] = sites.map((site, position) => ({
-      siteIndex: site.siteIndex,
-      origin: selectedStep.cartesianPositions[position]!,
-      vector:
-        forceMode === "free"
-          ? (selectedStep.freeForces?.[position] ?? null)
-          : (selectedStep.rawForces[position] ?? null),
-      strongestAxis:
-        selectedStep.strongestFreeComponent?.siteIndex === site.siteIndex
-          ? selectedStep.strongestFreeComponent.axis
-          : null,
-    }));
-    invokeRenderer((instance) =>
-      instance.setForces(
-        Object.freeze(vectors.map((vector) => Object.freeze(vector))),
-      ),
-    );
-  }, [forceMode, invokeRenderer, selectedStep, sites]);
-  useEffect(() => {
-    invokeRenderer((instance) => instance.setForceScale(forceScale));
-  }, [forceScale, invokeRenderer]);
-  useEffect(() => {
-    const focus = hovered ?? selectedSite?.siteIndex ?? null;
-    const constraints: ConstraintGlyph[] = sites.map((site, position) => ({
-      siteIndex: site.siteIndex,
-      origin: selectedStep.cartesianPositions[position]!,
-      states: [
-        site.selectiveDynamics.x,
-        site.selectiveDynamics.y,
-        site.selectiveDynamics.z,
-      ],
-      emphasized: site.siteIndex === focus,
-    }));
-    invokeRenderer((instance) =>
-      instance.setConstraints(
-        Object.freeze(constraints.map((glyph) => Object.freeze(glyph))),
-      ),
-    );
-  }, [hovered, invokeRenderer, selectedSite, selectedStep, sites]);
+  }, [constraints, forceScale, frame, invokeRenderer, repeat, vectors]);
   useEffect(() => {
     invokeRenderer((instance) =>
       instance.setSelectedSite(selectedSite?.siteIndex ?? null),

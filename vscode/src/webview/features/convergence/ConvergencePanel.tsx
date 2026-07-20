@@ -86,18 +86,22 @@ export function ConvergencePanel({
       <div className="convergence-plots">
         <SeriesChart
           ariaLabel="Energy convergence"
+          xAxis={{ label: "Ionic step" }}
+          yAxis={{ label: "Energy", unit: "eV" }}
           series={allSeries.slice(0, 2)}
           selectedIndex={selectedIndex}
           onSelect={onSelectStep}
         />
         <SeriesChart
           ariaLabel="Force convergence"
+          xAxis={{ label: "Ionic step" }}
+          yAxis={{ label: "Force", unit: "eV/angstrom" }}
           series={allSeries.slice(2)}
           selectedIndex={selectedIndex}
           onSelect={onSelectStep}
         />
       </div>
-      <ExactStep step={selected} displayedStep={selectedIndex + 1} />
+      <ExactStep step={selected} displayedStep={selected.index + 1} />
     </div>
   );
 }

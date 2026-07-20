@@ -6,6 +6,7 @@ import type { ComponentType } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { App, type AnalysisRegionProps } from "./App.js";
+import { VsCodeHost } from "./core/host.js";
 import { MemoryHost, twoStepDataset } from "./test/fixtures.js";
 
 const FakeStructure: ComponentType<AnalysisRegionProps> = ({ selectedStep, selectedSite, onSelectSite }) => (
@@ -58,10 +59,45 @@ describe("analysis workspace", () => {
     expect(screen.getByText("-11.000000 eV")).toBeVisible();
   });
 
+  it("keeps noncontiguous parser step labels distinct from selection indices", async () => {
+    const dataset = {
+      ...twoStepDataset,
+      ionicSteps: twoStepDataset.ionicSteps.map((step, position) => ({
+        ...step,
+        index: position === 0 ? 10 : 20,
+      })),
+    };
+    render(<App host={new MemoryHost(dataset)} structure={FakeStructure} />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: /Force at ionic step 21/ }));
+    expect(screen.getByLabelText("Ionic step")).toHaveValue("1");
+    expect(screen.getByRole("option", { name: "21 / 2" })).toHaveValue("1");
+    expect(screen.getByTestId("structure-step")).toHaveTextContent("20");
+    expect(screen.getByRole("heading", { name: "Step 21" })).toBeVisible();
+  });
+
   it("reports an empty ionic trajectory instead of remaining in loading state", async () => {
     render(<App host={new MemoryHost({ ...twoStepDataset, ionicSteps: [] })} />);
     expect(await screen.findByText("No ionic steps are available in this calculation.")).toBeVisible();
     expect(screen.queryByText(/Loading VASP calculation/)).not.toBeInTheDocument();
+  });
+
+  it("reaches the empty-trajectory state through the validated VS Code host", async () => {
+    const messages: Array<{ requestId: number }> = [];
+    const host = new VsCodeHost({
+      postMessage: (message) => messages.push(message as { requestId: number }),
+      getState: () => undefined,
+      setState: () => undefined,
+    }, window);
+    render(<App host={host} />);
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "response",
+        requestId: messages[0]!.requestId,
+        result: { ...twoStepDataset, ionicSteps: [] },
+      },
+    }));
+    expect(await screen.findByText("No ionic steps are available in this calculation.")).toBeVisible();
+    host.dispose();
   });
 
   it("uses one selected step across both layout regions", async () => {

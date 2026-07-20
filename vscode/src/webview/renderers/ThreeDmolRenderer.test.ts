@@ -12,7 +12,7 @@ import {
   createThreeDmolRenderer,
   ThreeDmolRenderer,
 } from "./ThreeDmolRenderer.js";
-import type { CrystalFrame } from "./CrystalRenderer.js";
+import type { CrystalFrame, CrystalScene } from "./CrystalRenderer.js";
 
 const frame: CrystalFrame = {
   lattice: [
@@ -32,7 +32,14 @@ const frame: CrystalFrame = {
   ],
   cellEdges: [{ start: [0, 0, 0], end: [2, 0, 0] }],
   axes: [{ label: "a", start: [0, 0, 0], end: [2, 0, 0] }],
-  bonds: [],
+  bonds: [{
+    start: [1.5, 1, 1.5],
+    end: [2, 1, 1.5],
+    fromSiteIndex: 1,
+    toSiteIndex: 1,
+    fromImage: [0, 0, 0],
+    toImage: [1, 0, 0],
+  }],
 };
 const frameWithGhost: CrystalFrame = {
   ...frame,
@@ -46,6 +53,50 @@ const frameWithGhost: CrystalFrame = {
     },
   ],
 };
+
+const movedFrame: CrystalFrame = {
+  ...frame,
+  lattice: [[4, 0, 0], [1, 2, 0], [0, 0, 3]],
+  sites: frame.sites.map((site) => ({
+    ...site,
+    cartesianPosition: [2.5, 1, 1.5] as const,
+  })),
+  cellEdges: [{ start: [0, 0, 0], end: [4, 0, 0] }],
+  axes: [{ label: "a", start: [0, 0, 0], end: [4, 0, 0] }],
+  bonds: [{
+    ...frame.bonds[0]!,
+    start: [2.5, 1, 1.5],
+    end: [3.5, 1, 1.5],
+  }],
+};
+
+const scene = (crystalFrame: CrystalFrame, force: number): CrystalScene => ({
+  frame: crystalFrame,
+  forces: [{ siteIndex: 1, origin: crystalFrame.sites[0]!.cartesianPosition, vector: [force, 0, 0], strongestAxis: null }],
+  forceScale: 1,
+  constraints: [],
+  supercell: [1, 1, 1],
+});
+
+function fakeAnimationFrames() {
+  let next = 0;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  const request = vi.fn((callback: FrameRequestCallback) => {
+    const id = ++next;
+    callbacks.set(id, callback);
+    return id;
+  });
+  const cancel = vi.fn((id: number) => callbacks.delete(id));
+  const run = (time: number) => {
+    const entry = callbacks.entries().next().value as [number, FrameRequestCallback] | undefined;
+    if (!entry) throw new Error("No animation frame is pending");
+    callbacks.delete(entry[0]);
+    entry[1](time);
+  };
+  vi.stubGlobal("requestAnimationFrame", request);
+  vi.stubGlobal("cancelAnimationFrame", cancel);
+  return { request, cancel, run, callbacks };
+}
 
 function fakeViewer() {
   const viewer = {
@@ -111,21 +162,110 @@ describe("ThreeDmolRenderer adapter", () => {
     );
   });
 
-  it("animates redraws for the configured duration and disables animation at zero", () => {
-    const viewer = fakeViewer(), container = document.createElement("div");
-    const animate = vi.fn();
-    Object.defineProperty(container, "animate", { value: animate });
-    const renderer = new ThreeDmolRenderer(viewer as unknown as GLViewer, container);
+  it("interpolates an atomic scene at start, midpoint, and exact final geometry", () => {
+    const raf = fakeAnimationFrames();
+    const viewer = fakeViewer();
+    const renderer = new ThreeDmolRenderer(viewer as unknown as GLViewer, document.createElement("div"));
+    const initialScene = scene(frame, 1);
+    renderer.setScene(initialScene);
     renderer.setTransitionDuration(150);
-    renderer.setStructure(frame);
-    expect(animate).toHaveBeenLastCalledWith(
-      [{ opacity: 0.72 }, { opacity: 1 }],
-      { duration: 150, easing: "ease-out" },
-    );
-    animate.mockClear();
-    renderer.setTransitionDuration(0);
+    renderer.setScene(scene(movedFrame, 3));
+
+    const geometry = (time: number) => {
+      viewer.addSphere.mockClear();
+      viewer.addArrow.mockClear();
+      viewer.addCylinder.mockClear();
+      raf.run(time);
+      const atom = viewer.addSphere.mock.calls.find(([spec]) => spec.clickable)?.[0];
+      const force = viewer.addArrow.mock.calls.find(([spec]) => spec.color === 0x00bcd4)?.[0];
+      const cell = viewer.addCylinder.mock.calls[0]?.[0];
+      const bond = viewer.addCylinder.mock.calls.find(([spec]) => spec.radius === 0.09)?.[0];
+      return { atom, force, cell, bond };
+    };
+
+    expect(geometry(0)).toMatchObject({ atom: { center: { x: 1.5 } }, force: { end: { x: 2.5 } }, cell: { end: { x: 2 } }, bond: { end: { x: 2 } } });
+    expect(geometry(75)).toMatchObject({ atom: { center: { x: 2 } }, force: { end: { x: 4 } }, cell: { end: { x: 3 } }, bond: { end: { x: 2.75 } } });
+    expect(geometry(150)).toMatchObject({ atom: { center: { x: 2.5 } }, force: { end: { x: 5.5 } }, cell: { end: { x: 4 } }, bond: { end: { x: 3.5 } } });
+    expect(raf.callbacks.size).toBe(0);
+    vi.unstubAllGlobals();
+  });
+
+  it("does not animate selection or layer redraws and applies reduced-motion scenes immediately", () => {
+    const raf = fakeAnimationFrames();
+    const viewer = fakeViewer();
+    const renderer = new ThreeDmolRenderer(viewer as unknown as GLViewer, document.createElement("div"));
+    const initialScene = scene(frame, 1);
+    renderer.setScene(initialScene);
+    renderer.setTransitionDuration(150);
     renderer.setSelectedSite(1);
-    expect(animate).not.toHaveBeenCalled();
+    renderer.setLayerVisible("bonds", false);
+    renderer.setScene({
+      ...initialScene,
+      constraints: [{
+        siteIndex: 1,
+        origin: [1.5, 1, 1.5],
+        states: [true, true, true],
+        emphasized: true,
+      }],
+    });
+    expect(raf.request).not.toHaveBeenCalled();
+    renderer.setTransitionDuration(0);
+    renderer.setScene(scene(movedFrame, 3));
+    expect(raf.request).not.toHaveBeenCalled();
+    expect([...viewer.addSphere.mock.calls].reverse().find(([spec]) => spec.clickable)?.[0]).toMatchObject({ center: { x: 2.5 } });
+    vi.unstubAllGlobals();
+  });
+
+  it("uses safe target geometry when atom or force topology cannot be matched", () => {
+    const raf = fakeAnimationFrames();
+    const viewer = fakeViewer();
+    const renderer = new ThreeDmolRenderer(viewer as unknown as GLViewer, document.createElement("div"));
+    renderer.setScene(scene(frame, 1));
+    renderer.setTransitionDuration(150);
+    renderer.setScene({
+      ...scene(frameWithGhost, 1),
+      forces: [{ siteIndex: 1, origin: [1.5, 1, 1.5], vector: null, strongestAxis: null }],
+    });
+    viewer.addSphere.mockClear();
+    viewer.addArrow.mockClear();
+    raf.run(0);
+    const ghost = viewer.addSphere.mock.calls.find(([spec]) => spec.clickable && spec.opacity < 1)?.[0];
+    expect(ghost).toMatchObject({ center: { x: -0.5, y: 1, z: 1.5 } });
+    expect(viewer.addArrow.mock.calls.some(([spec]) => Object.values(spec.end ?? {}).some(Number.isNaN))).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it("cancels a pending scene transition on replacement and disposal", () => {
+    const raf = fakeAnimationFrames();
+    const renderer = new ThreeDmolRenderer(fakeViewer() as unknown as GLViewer, document.createElement("div"));
+    renderer.setScene(scene(frame, 1));
+    renderer.setTransitionDuration(150);
+    renderer.setScene(scene(movedFrame, 3));
+    raf.run(0);
+    const firstPending = [...raf.callbacks.keys()][0]!;
+    renderer.setScene(scene(frameWithGhost, 2));
+    expect(raf.cancel).toHaveBeenCalledWith(firstPending);
+    const replacement = [...raf.callbacks.keys()][0]!;
+    renderer.dispose();
+    expect(raf.cancel).toHaveBeenCalledWith(replacement);
+    expect(raf.callbacks.size).toBe(0);
+    vi.unstubAllGlobals();
+  });
+
+  it("reports asynchronous transition draw failures through the renderer seam", () => {
+    const raf = fakeAnimationFrames();
+    const viewer = fakeViewer();
+    const renderer = new ThreeDmolRenderer(viewer as unknown as GLViewer, document.createElement("div"));
+    const onError = vi.fn();
+    renderer.onError(onError);
+    renderer.setScene(scene(frame, 1));
+    renderer.setTransitionDuration(150);
+    renderer.setScene(scene(movedFrame, 3));
+    viewer.render.mockImplementation(() => { throw new Error("context lost"); });
+    expect(() => raf.run(0)).not.toThrow();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "context lost" }));
+    expect(raf.callbacks.size).toBe(0);
+    vi.unstubAllGlobals();
   });
 
   it("renders boundary ghosts as subdued clickable atoms with original identity", () => {

@@ -101,6 +101,35 @@ describe("analysis hosts", () => {
     await expect(new HttpHost("http://local", wrongMethod).request("getStep", { stepIndex: 0 })).rejects.toMatchObject({ code: "invalid_response" });
   });
 
+  it("accepts an empty ionic trajectory through both host transports", async () => {
+    const empty = { ...twoStepDataset, ionicSteps: [] };
+    const { host, messages } = vscodeHarness();
+    const vscodeResult = host.request("getDataset", {});
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { type: "response", requestId: messages[0]!.requestId, result: empty },
+    }));
+    await expect(vscodeResult).resolves.toEqual(empty);
+    host.dispose();
+
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 1, result: empty }),
+    });
+    await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).resolves.toEqual(empty);
+  });
+
+  it("still rejects nonempty trajectories whose site arrays disagree", async () => {
+    const inconsistent = {
+      ...twoStepDataset,
+      ionicSteps: [{ ...step, cartesianPositions: [[0, 0, 0]] }],
+    };
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 1, result: inconsistent }),
+    });
+    await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
   it("removes its listener, rejects pending work, and disposes idempotently", async () => {
     const events = {
       addEventListener: vi.fn(),

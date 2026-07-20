@@ -5,6 +5,7 @@ import type {
   ConstraintGlyph,
   CrystalFrame,
   CrystalRenderer,
+  CrystalScene,
   DirectionSemantics,
   LayerName,
   SupercellRepeat,
@@ -25,6 +26,98 @@ const axisVector = (axis: number, length: number): Vec3 =>
   ]);
 const add = (left: Vec3, right: Vec3): Vec3 =>
   Object.freeze([left[0] + right[0], left[1] + right[1], left[2] + right[2]]);
+const mix = (from: number, to: number, progress: number): number =>
+  from + (to - from) * progress;
+const mixVec = (from: Vec3, to: Vec3, progress: number): Vec3 =>
+  Object.freeze([
+    mix(from[0], to[0], progress),
+    mix(from[1], to[1], progress),
+    mix(from[2], to[2], progress),
+  ]);
+
+const siteKey = (site: CrystalFrame["sites"][number]): string =>
+  `${site.siteIndex}:${site.image.join(",")}`;
+const bondKey = (bond: CrystalFrame["bonds"][number]): string =>
+  `${bond.fromSiteIndex}:${bond.fromImage.join(",")}>${bond.toSiteIndex}:${bond.toImage.join(",")}`;
+
+function interpolateFrame(
+  from: CrystalFrame,
+  to: CrystalFrame,
+  progress: number,
+): CrystalFrame {
+  const sourceSites = new Map(from.sites.map((site) => [siteKey(site), site]));
+  const sourceAxes = new Map(from.axes.map((axis) => [axis.label, axis]));
+  const sourceBonds = new Map(from.bonds.map((bond) => [bondKey(bond), bond]));
+  return {
+    lattice: to.lattice.map((vector, axis) =>
+      mixVec(from.lattice[axis] ?? vector, vector, progress),
+    ) as unknown as CrystalFrame["lattice"],
+    sites: to.sites.map((site) => {
+      const source = sourceSites.get(siteKey(site));
+      return source
+        ? {
+            ...site,
+            fractionalPosition: mixVec(
+              source.fractionalPosition,
+              site.fractionalPosition,
+              progress,
+            ),
+            cartesianPosition: mixVec(
+              source.cartesianPosition,
+              site.cartesianPosition,
+              progress,
+            ),
+          }
+        : site;
+    }),
+    cellEdges: to.cellEdges.map((edge, index) => {
+      const source = from.cellEdges[index];
+      return source
+        ? {
+            start: mixVec(source.start, edge.start, progress),
+            end: mixVec(source.end, edge.end, progress),
+          }
+        : edge;
+    }),
+    axes: to.axes.map((axis) => {
+      const source = sourceAxes.get(axis.label);
+      return source
+        ? {
+            ...axis,
+            start: mixVec(source.start, axis.start, progress),
+            end: mixVec(source.end, axis.end, progress),
+          }
+        : axis;
+    }),
+    bonds: to.bonds.map((bond) => {
+      const source = sourceBonds.get(bondKey(bond));
+      return source
+        ? {
+            ...bond,
+            start: mixVec(source.start, bond.start, progress),
+            end: mixVec(source.end, bond.end, progress),
+          }
+        : bond;
+    }),
+  };
+}
+
+function interpolateForces(
+  from: readonly VectorGlyph[],
+  to: readonly VectorGlyph[],
+  progress: number,
+): readonly VectorGlyph[] {
+  const sources = new Map(from.map((glyph) => [glyph.siteIndex, glyph]));
+  return to.map((glyph) => {
+    const source = sources.get(glyph.siteIndex);
+    if (!source || !source.vector || !glyph.vector) return glyph;
+    return {
+      ...glyph,
+      origin: mixVec(source.origin, glyph.origin, progress),
+      vector: mixVec(source.vector, glyph.vector, progress),
+    };
+  });
+}
 
 function elementColor(element: string): number | string {
   const jmol = (
@@ -225,6 +318,9 @@ function captureConstructionResources<T>(
 export class ThreeDmolRenderer implements CrystalRenderer {
   private frame: CrystalFrame | null = null;
   private forces: readonly VectorGlyph[] = [];
+  private targetFrame: CrystalFrame | null = null;
+  private targetForces: readonly VectorGlyph[] = [];
+  private targetForceScale = 1;
   private constraints: readonly ConstraintGlyph[] = [];
   private forceScale = 1;
   private selectedSite: number | null = null;
@@ -239,9 +335,12 @@ export class ThreeDmolRenderer implements CrystalRenderer {
   };
   private selectCallback: (siteIndex: number) => void = () => undefined;
   private hoverCallback: (siteIndex: number | null) => void = () => undefined;
+  private errorCallback: (reason: unknown) => void = () => undefined;
   private homeView: readonly number[] | null = null;
   private disposed = false;
   private transitionDurationMs = 0;
+  private transitionFrame: number | null = null;
+  private transitionGeneration = 0;
 
   constructor(
     private viewer: GLViewer | null,
@@ -249,21 +348,82 @@ export class ThreeDmolRenderer implements CrystalRenderer {
     private readonly disposeConstructionResources: () => void = () => undefined,
   ) {}
 
+  setScene(scene: CrystalScene): void {
+    if (this.disposed) return;
+    const geometryChanged =
+      this.targetFrame !== scene.frame ||
+      this.targetForces !== scene.forces ||
+      this.targetForceScale !== scene.forceScale;
+    this.constraints = scene.constraints;
+    this.targetFrame = scene.frame;
+    this.targetForces = scene.forces;
+    this.targetForceScale = scene.forceScale;
+    if (!geometryChanged) {
+      this.draw();
+      return;
+    }
+    const sourceFrame = this.frame;
+    const sourceForces = this.forces;
+    const sourceScale = this.forceScale;
+    this.cancelTransition();
+    if (
+      !sourceFrame ||
+      this.transitionDurationMs <= 0 ||
+      typeof requestAnimationFrame !== "function"
+    ) {
+      const firstFrame = !this.frame;
+      this.applySceneTarget();
+      if (firstFrame) this.fitInitialView();
+      return;
+    }
+    const generation = this.transitionGeneration;
+    let startTime: number | null = null;
+    const tick = (time: number): void => {
+      if (this.disposed || generation !== this.transitionGeneration) return;
+      this.transitionFrame = null;
+      try {
+        startTime ??= time;
+        const progress = Math.min(
+          1,
+          Math.max(0, (time - startTime) / this.transitionDurationMs),
+        );
+        this.frame = interpolateFrame(sourceFrame, scene.frame, progress);
+        this.forces = interpolateForces(sourceForces, scene.forces, progress);
+        this.forceScale = mix(sourceScale, scene.forceScale, progress);
+        this.draw();
+        if (progress >= 1) {
+          this.frame = scene.frame;
+          this.forces = scene.forces;
+          this.forceScale = scene.forceScale;
+          this.draw();
+          return;
+        }
+        this.transitionFrame = requestAnimationFrame(tick);
+      } catch (reason) {
+        this.cancelTransition();
+        this.errorCallback(reason);
+      }
+    };
+    this.transitionFrame = requestAnimationFrame(tick);
+  }
+
   setStructure(frame: CrystalFrame): void {
+    this.cancelTransition();
     this.frame = frame;
+    this.targetFrame = frame;
     this.draw();
-    this.viewer?.zoomTo();
-    this.viewer?.render();
-    this.homeView = this.viewer
-      ? Object.freeze([...this.viewer.getView()])
-      : null;
+    this.fitInitialView();
   }
   setForces(vectors: readonly VectorGlyph[]): void {
+    this.cancelTransition();
     this.forces = vectors;
+    this.targetForces = vectors;
     this.draw();
   }
   setForceScale(scale: number): void {
+    this.cancelTransition();
     this.forceScale = Number.isFinite(scale) ? Math.max(0, scale) : 1;
+    this.targetForceScale = this.forceScale;
     this.draw();
   }
   setConstraints(glyphs: readonly ConstraintGlyph[]): void {
@@ -312,12 +472,19 @@ export class ThreeDmolRenderer implements CrystalRenderer {
   }
   setTransitionDuration(durationMs: number): void {
     this.transitionDurationMs = Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0;
+    if (this.transitionDurationMs === 0 && this.transitionFrame !== null) {
+      this.cancelTransition();
+      this.applySceneTarget();
+    }
   }
   onSelectSite(callback: (siteIndex: number) => void): void {
     this.selectCallback = callback;
   }
   onHoverSite(callback: (siteIndex: number | null) => void): void {
     this.hoverCallback = callback;
+  }
+  onError(callback: (reason: unknown) => void): void {
+    this.errorCallback = callback;
   }
   resetView(): void {
     if (this.homeView) this.viewer?.setView([...this.homeView]);
@@ -330,8 +497,10 @@ export class ThreeDmolRenderer implements CrystalRenderer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.cancelTransition();
     this.selectCallback = () => undefined;
     this.hoverCallback = () => undefined;
+    this.errorCallback = () => undefined;
     try {
       this.viewer?.clear();
     } catch {
@@ -344,6 +513,31 @@ export class ThreeDmolRenderer implements CrystalRenderer {
         this.container.replaceChildren();
       }
     }
+  }
+
+  private applySceneTarget(): void {
+    this.frame = this.targetFrame;
+    this.forces = this.targetForces;
+    this.forceScale = this.targetForceScale;
+    this.draw();
+  }
+
+  private fitInitialView(): void {
+    this.viewer?.zoomTo();
+    this.viewer?.render();
+    this.homeView = this.viewer
+      ? Object.freeze([...this.viewer.getView()])
+      : null;
+  }
+
+  private cancelTransition(): void {
+    this.transitionGeneration += 1;
+    if (
+      this.transitionFrame !== null &&
+      typeof cancelAnimationFrame === "function"
+    )
+      cancelAnimationFrame(this.transitionFrame);
+    this.transitionFrame = null;
   }
 
   private draw(): void {
@@ -495,11 +689,6 @@ export class ThreeDmolRenderer implements CrystalRenderer {
     // Volumetric payload interpretation is deliberately deferred; the typed layer remains isolated here.
     void this.volumetric;
     viewer.render();
-    if (this.transitionDurationMs > 0 && typeof this.container.animate === "function")
-      this.container.animate(
-        [{ opacity: 0.72 }, { opacity: 1 }],
-        { duration: this.transitionDurationMs, easing: "ease-out" },
-      );
   }
 }
 

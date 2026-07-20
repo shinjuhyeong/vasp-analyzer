@@ -274,6 +274,32 @@ describe("CrystalPanel", () => {
     expect(renderer.setStructure).toHaveBeenCalledOnce();
   });
 
+  it("disconnects observation immediately and swallows disposal errors after an update failure", async () => {
+    const disconnect = vi.fn();
+    vi.stubGlobal("ResizeObserver", class { observe = vi.fn(); disconnect = disconnect; });
+    const renderer = new FakeRenderer();
+    renderer.setStructure.mockImplementation(() => { throw new Error("update failed"); });
+    renderer.dispose.mockImplementation(() => { throw new Error("dispose failed"); });
+    const view = render(
+      <CrystalPanel
+        sites={twoStepDataset.sites}
+        selectedStep={twoStepDataset.ionicSteps[0]!}
+        selectedSite={null}
+        forceMode="free"
+        forceScale={1}
+        onSelectSite={() => undefined}
+        rendererFactory={() => renderer}
+      />,
+    );
+    expect(await screen.findByRole("table", { name: "Atomic positions and forces" })).toBeVisible();
+    expect(disconnect).toHaveBeenCalledOnce();
+    expect(renderer.dispose).toHaveBeenCalledOnce();
+    expect(() => view.unmount()).not.toThrow();
+    expect(disconnect).toHaveBeenCalledOnce();
+    expect(renderer.dispose).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
+
   it("uses 150ms transitions unless reduced motion is requested and removes the listener", () => {
     const add = vi.fn(), remove = vi.fn();
     let reduced = false;
@@ -289,5 +315,30 @@ describe("CrystalPanel", () => {
     view.unmount();
     expect(remove).toHaveBeenCalledWith("change", listener);
     vi.unstubAllGlobals();
+  });
+
+  it("batches frame and force targets through one atomic scene update", () => {
+    const renderer = Object.assign(new FakeRenderer(), { setScene: vi.fn() });
+    render(
+      <CrystalPanel
+        sites={twoStepDataset.sites}
+        selectedStep={twoStepDataset.ionicSteps[0]!}
+        selectedSite={null}
+        forceMode="free"
+        forceScale={2}
+        onSelectSite={() => undefined}
+        rendererFactory={() => renderer}
+      />,
+    );
+    expect(renderer.setScene).toHaveBeenCalledOnce();
+    expect(renderer.setScene).toHaveBeenCalledWith(expect.objectContaining({
+      frame: expect.objectContaining({ sites: expect.any(Array) }),
+      forces: expect.arrayContaining([expect.objectContaining({ siteIndex: 0 })]),
+      forceScale: 2,
+      constraints: expect.any(Array),
+      supercell: [1, 1, 1],
+    }));
+    expect(renderer.setStructure).not.toHaveBeenCalled();
+    expect(renderer.setForces).not.toHaveBeenCalled();
   });
 });

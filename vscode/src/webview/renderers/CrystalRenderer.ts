@@ -66,7 +66,17 @@ export interface VolumetricLayer {
   readonly opacity: number;
 }
 
+/** Atomic geometry update used to keep structure and force targets synchronized. */
+export interface CrystalScene {
+  readonly frame: CrystalFrame;
+  readonly forces: readonly VectorGlyph[];
+  readonly forceScale: number;
+  readonly constraints: readonly ConstraintGlyph[];
+  readonly supercell: SupercellRepeat;
+}
+
 export interface CrystalRenderer {
+  setScene?(scene: CrystalScene): void;
   setStructure(frame: CrystalFrame): void;
   setForces(vectors: readonly VectorGlyph[]): void;
   setForceScale(scale: number): void;
@@ -84,6 +94,7 @@ export interface CrystalRenderer {
   setTransitionDuration?(durationMs: number): void;
   onSelectSite(callback: (siteIndex: number) => void): void;
   onHoverSite(callback: (siteIndex: number | null) => void): void;
+  onError?(callback: (reason: unknown) => void): void;
   resetView(): void;
   resize(): void;
   dispose(): void;

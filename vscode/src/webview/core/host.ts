@@ -162,7 +162,7 @@ function isCalculationDataset(value: unknown): value is CalculationDataset {
     || typeof value.root !== "string"
     || !Array.isArray(value.sourceFiles) || !value.sourceFiles.every(isSourceFile)
     || !Array.isArray(value.sites) || !value.sites.every(isSite)
-    || !Array.isArray(value.ionicSteps) || value.ionicSteps.length === 0 || !value.ionicSteps.every(isIonicStep)
+    || !Array.isArray(value.ionicSteps) || !value.ionicSteps.every(isIonicStep)
     || !Array.isArray(value.capabilities) || !value.capabilities.every(isCapability)
     || !Array.isArray(value.warnings) || !value.warnings.every(isWarning)
     || !(value.provenance === null || isProvenance(value.provenance))) return false;

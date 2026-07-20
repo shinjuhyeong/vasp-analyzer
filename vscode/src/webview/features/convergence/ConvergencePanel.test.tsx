@@ -31,3 +31,18 @@ it("labels unavailable values without inventing zeroes", () => {
   expect(screen.getAllByText("Unavailable").length).toBeGreaterThanOrEqual(4);
   expect(screen.getByText("Electronic: unavailable")).toBeVisible();
 });
+
+it("shows exact parser step numbering but selects by array position", async () => {
+  const select = vi.fn();
+  const dataset = {
+    ...twoStepDataset,
+    ionicSteps: twoStepDataset.ionicSteps.map((step, position) => ({
+      ...step,
+      index: position === 0 ? 10 : 20,
+    })),
+  };
+  render(<ConvergencePanel dataset={dataset} selectedIndex={1} onSelectStep={select} />);
+  expect(screen.getByRole("heading", { name: "Step 21" })).toBeVisible();
+  await userEvent.setup().click(screen.getByRole("button", { name: /Force at ionic step 11/ }));
+  expect(select).toHaveBeenCalledWith(0);
+});

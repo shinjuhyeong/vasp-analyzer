@@ -15,9 +15,9 @@ export function IonicStepControl({ steps, selectedIndex, onSelect }: IonicStepCo
         disabled={steps.length === 0}
         onChange={(event) => onSelect(Number(event.target.value))}
       >
-        {steps.map((_step, arrayIndex) => (
+        {steps.map((step, arrayIndex) => (
           <option key={arrayIndex} value={arrayIndex}>
-            {arrayIndex + 1} / {steps.length}
+            {step.index + 1} / {steps.length}
           </option>
         ))}
       </select>

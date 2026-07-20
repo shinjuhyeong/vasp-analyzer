@@ -4,7 +4,7 @@ import { twoStepDataset } from "../../test/fixtures.js";
 import { convergenceSeries, forceSeries } from "./analysisSeries.js";
 
 describe("convergence series", () => {
-  it("uses displayed positions while preserving array indices for selection", () => {
+  it("uses parser step IDs for labels while preserving array indices for selection", () => {
     const dataset = {
       ...twoStepDataset,
       ionicSteps: twoStepDataset.ionicSteps.map((step, position) => ({
@@ -13,9 +13,11 @@ describe("convergence series", () => {
       })),
     };
     expect(forceSeries(dataset)[1]).toMatchObject({
-      arrayIndex: 1,
-      displayedStep: 2,
-      ariaLabel: expect.stringContaining("ionic step 2"),
+      stepId: 20,
+      selectionIndex: 1,
+      displayLabel: "21",
+      x: 20,
+      ariaLabel: expect.stringContaining("ionic step 21"),
     });
   });
 
@@ -30,7 +32,7 @@ describe("convergence series", () => {
         },
       ],
     };
-    expect(forceSeries(dataset)[0]!.value).toBeNull();
-    expect(convergenceSeries(dataset).find((series) => series.id === "rms-force")!.points[0]!.value).toBeNull();
+    expect(forceSeries(dataset)[0]!.y).toBeNull();
+    expect(convergenceSeries(dataset).find((series) => series.id === "rms-force")!.points[0]!.y).toBeNull();
   });
 });
