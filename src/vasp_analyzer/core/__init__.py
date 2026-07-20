@@ -28,6 +28,8 @@ from .models import (
     Site,
     SourceFile,
     Vec3,
+    VolumetricDescriptor,
+    VolumetricRequest,
 )
 
 __all__ = [
@@ -56,4 +58,6 @@ __all__ = [
     "UnsupportedDialect",
     "Vec3",
     "VolumetricAlignmentError",
+    "VolumetricDescriptor",
+    "VolumetricRequest",
 ]

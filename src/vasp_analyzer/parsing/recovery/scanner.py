@@ -19,6 +19,8 @@ from vasp_analyzer.parsing.dialects import Dialect
 from .checkpoint import ParserCheckpoint, _hash_prefix, checkpoint_is_append_only
 
 _NIONS = re.compile(rb"\bNIONS\s*=\s*(\d+)\b", re.IGNORECASE)
+_VRHFIN = re.compile(rb"\bVRHFIN\s*=\s*([A-Z][a-z]?)\s*:")
+_IONS_PER_TYPE = re.compile(rb"\bions\s+per\s+type\s*=\s*(.+)$", re.IGNORECASE)
 _ENERGY = re.compile(rb"=\s*([^\s]+)")
 _LATTICE_MARKER = b"direct lattice vectors"
 _NORMAL_FINISH_MARKER = b"general timing and accounting"
@@ -52,6 +54,7 @@ class ScanResult(FrozenModel):
     checkpoint: ParserCheckpoint
     resumed_from: int
     normally_finished: bool
+    species: tuple[str, ...] = ()
 
 
 def _contains_all(line: bytes, markers: tuple[str, ...]) -> bool:
@@ -147,6 +150,8 @@ def scan_outcar(
     expected_atom_count = checkpoint.expected_atom_count if restore_parser_state else 0
     lattice = checkpoint.last_lattice if restore_parser_state else None
     next_step_id = checkpoint.next_step_id if restore_parser_state else 0
+    species = checkpoint.species if restore_parser_state and checkpoint is not None else ()
+    element_types: list[str] = []
 
     steps: list[StepRecord] = []
     warnings: list[ParserWarning] = []
@@ -202,6 +207,33 @@ def scan_outcar(
             line_start, raw = item
             lowered = raw.lower()
 
+            vrhfin = _VRHFIN.search(raw)
+            if vrhfin and not restore_parser_state:
+                element_types.append(vrhfin.group(1).decode("ascii"))
+
+            ions_per_type = _IONS_PER_TYPE.search(raw)
+            if ions_per_type and not restore_parser_state:
+                try:
+                    parsed_counts = tuple(int(token) for token in ions_per_type.group(1).split())
+                except ValueError as error:
+                    raise OutcarFormatError(
+                        f"ions per type at byte {line_start} contains a non-integer count"
+                    ) from error
+                if not parsed_counts or any(count <= 0 for count in parsed_counts):
+                    raise OutcarFormatError(
+                        f"ions per type at byte {line_start} must contain positive counts"
+                    )
+                if len(element_types) != len(parsed_counts):
+                    raise OutcarFormatError(
+                        f"ions per type at byte {line_start} names {len(parsed_counts)} types "
+                        f"but VRHFIN names {len(element_types)} elements"
+                    )
+                species = tuple(
+                    element
+                    for element, count in zip(element_types, parsed_counts, strict=True)
+                    for _ in range(count)
+                )
+
             nions = _NIONS.search(raw)
             if nions:
                 parsed_count = int(nions.group(1))
@@ -212,6 +244,10 @@ def scan_outcar(
                         f"NIONS changed from {expected_atom_count} to {parsed_count} at byte {line_start}"
                     )
                 expected_atom_count = parsed_count
+                if species and len(species) != parsed_count:
+                    raise OutcarFormatError(
+                        f"ions per type totals {len(species)} atoms but NIONS is {parsed_count}"
+                    )
 
             if _NORMAL_FINISH_MARKER in lowered:
                 normally_finished = True
@@ -385,6 +421,7 @@ def scan_outcar(
         last_lattice=lattice,
         replay_provisional=replay_provisional,
         normally_finished=normally_finished,
+        species=species,
     )
     return ScanResult(
         steps=tuple(steps),
@@ -392,6 +429,7 @@ def scan_outcar(
         checkpoint=new_checkpoint,
         resumed_from=resumed_from,
         normally_finished=normally_finished,
+        species=species,
     )
 
 

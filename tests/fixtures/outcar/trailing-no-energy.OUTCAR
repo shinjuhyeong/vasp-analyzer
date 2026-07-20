@@ -1,4 +1,6 @@
  vasp.5.4.1-barrier synthetic fixture
+ VRHFIN =H: s1
+ ions per type = 2
  NIONS =      2 ions
  direct lattice vectors                 reciprocal lattice vectors
    3.000000 0.000000 0.000000  0.333333 0.000000 0.000000

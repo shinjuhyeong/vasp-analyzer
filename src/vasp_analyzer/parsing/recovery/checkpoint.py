@@ -25,6 +25,7 @@ class ParserCheckpoint(FrozenModel):
     last_lattice: Mat3 | None
     replay_provisional: bool = False
     normally_finished: bool = False
+    species: tuple[str, ...] = ()
 
 
 def _hash_prefix(stream: BinaryIO, size: int):  # type: ignore[no-untyped-def]
@@ -79,6 +80,7 @@ def checkpoint_is_append_only(path: Path, checkpoint: ParserCheckpoint) -> bool:
         and 0 <= checkpoint.last_verified_offset <= checkpoint.size <= stat.st_size
         and checkpoint.next_step_id >= 0
         and checkpoint.expected_atom_count > 0
+        and (not checkpoint.species or len(checkpoint.species) == checkpoint.expected_atom_count)
         and (
             checkpoint.last_verified_offset == 0
             or _valid_lattice(checkpoint.last_lattice)

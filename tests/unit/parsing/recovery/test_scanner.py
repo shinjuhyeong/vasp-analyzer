@@ -46,6 +46,43 @@ def test_complete_records_capture_offsets_lattice_forces_and_energy() -> None:
     assert result.normally_finished is True
 
 
+def test_standard_vrhfin_species_expand_by_ions_per_type(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    fixture = (FIXTURES / "complete-two-step.OUTCAR").read_bytes()
+    body = b" NIONS" + fixture.split(b" NIONS", maxsplit=1)[1]
+    path.write_bytes(
+        b" VRHFIN =H: s1\n VRHFIN =O: s2p4\n ions per type = 1 1\n" + body
+    )
+
+    result = scan_outcar(path, HOME_BARRIER)
+
+    assert result.species == ("H", "O")
+    assert result.checkpoint.species == ("H", "O")
+
+
+def test_species_survive_positive_offset_resume(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    initial = PREFIX + b" General timing and accounting informations for this job:\n"
+    path.write_bytes(initial)
+    first = scan_outcar(path, HOME_BARRIER)
+    path.write_bytes(initial + SUFFIX)
+
+    resumed = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+
+    assert resumed.resumed_from > 0
+    assert resumed.species == resumed.checkpoint.species == ("H", "H")
+
+
+def test_ions_per_type_must_match_nions(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    fixture = (FIXTURES / "complete-two-step.OUTCAR").read_bytes()
+    body = b" NIONS" + fixture.split(b" NIONS", maxsplit=1)[1]
+    path.write_bytes(b" VRHFIN =H: s1\n ions per type = 1\n" + body)
+
+    with pytest.raises(OutcarFormatError, match="ions per type.*NIONS"):
+        scan_outcar(path, HOME_BARRIER)
+
+
 def test_partial_force_block_is_discarded_without_losing_earlier_steps() -> None:
     result = scan_outcar(FIXTURES / "truncated-force.OUTCAR", HOME_BARRIER)
 

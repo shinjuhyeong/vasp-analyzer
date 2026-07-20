@@ -45,6 +45,7 @@ class FakeAtoms:
         forces: list[list[float]],
         energy: float,
         extrapolated_energy: float | None = None,
+        species: tuple[str, ...] = ("H", "H"),
     ) -> None:
         self.cell = FakeCell(cell)
         self.positions = np.asarray(positions, dtype=float)
@@ -54,6 +55,10 @@ class FakeAtoms:
         self._extrapolated_energy = (
             energy if extrapolated_energy is None else extrapolated_energy
         )
+        self._species = species
+
+    def get_chemical_symbols(self) -> list[str]:
+        return list(self._species)
 
     def get_scaled_positions(self, *, wrap: bool) -> np.ndarray:
         assert wrap is False
@@ -135,6 +140,31 @@ def test_ase_steps_use_scanner_ids_but_ase_numerical_data_and_release_atoms(
     assert steps[1].raw_forces[0] == (0.3, 0.0, 0.0)
     assert steps[1].total_energy == scan.steps[1].energy == -10.1
     assert all(reference() is None for reference in references)
+
+
+def test_ase_species_are_copied_to_immutable_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scan = scan_outcar(FIXTURES / "complete-two-step.OUTCAR", HOME_BARRIER)
+    monkeypatch.setattr(outcar_ase, "iread", lambda *args, **kwargs: iter(make_two_ase_atoms()))
+
+    steps = tuple(iter_outcar_steps(FIXTURES / "complete-two-step.OUTCAR", scan))
+
+    assert steps[0].species == ("H", "H")
+
+
+def test_ase_species_must_match_scanner_species_when_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scan = scan_outcar(FIXTURES / "complete-two-step.OUTCAR", HOME_BARRIER).model_copy(
+        update={"species": ("H", "O")}
+    )
+    frames = make_two_ase_atoms()
+    frames[0]._species = ("O", "H")
+    monkeypatch.setattr(outcar_ase, "iread", lambda *args, **kwargs: iter(frames))
+
+    with pytest.raises(DatasetConsistencyError, match="scanner.*ASE.*species"):
+        tuple(iter_outcar_steps(FIXTURES / "complete-two-step.OUTCAR", scan))
 
 
 def test_iread_is_called_with_streaming_outcar_arguments(
@@ -387,6 +417,35 @@ def test_only_final_energyless_replay_provisional_record_may_fall_back(
     assert step.raw_forces == scan.steps[0].raw_forces
     assert step.fractional_positions == ((0.0, 0.0, 0.0), (0.5, 0.5, 0.5))
     assert step.total_energy is None
+
+
+def test_final_recovered_step_uses_scanner_species(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = FIXTURES / "trailing-no-energy.OUTCAR"
+    scan = scan_outcar(path, HOME_BARRIER).model_copy(update={"species": ("H", "H")})
+    monkeypatch.setattr(outcar_ase, "iread", lambda *args, **kwargs: iter(()))
+
+    (step,) = tuple(iter_outcar_steps(path, scan))
+
+    assert step.species == ("H", "H")
+
+
+def test_final_replayed_energy_record_can_fallback_and_keeps_energy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "OUTCAR"
+    initial = (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+    path.write_bytes(initial)
+    first = scan_outcar(path, HOME_BARRIER)
+    path.write_bytes(initial + b" free energy    TOTEN  =       -10.250000 eV\n")
+    replayed = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+    monkeypatch.setattr(outcar_ase, "iread", lambda *args, **kwargs: iter(()))
+
+    (step,) = tuple(iter_outcar_steps(path, replayed))
+
+    assert step.step_id == 0
+    assert step.total_energy == -10.25
 
 
 def test_incomplete_ase_parse_error_uses_the_same_final_provisional_fallback(

@@ -1,4 +1,6 @@
  vasp.6.5.0 synthetic ASE fixture
+ VRHFIN =H: s1
+ ions per type = 2
  POTCAR:    PAW_PBE H 01Jan2000
  POTCAR:    PAW_PBE H 01Jan2000
  ions per type = 2

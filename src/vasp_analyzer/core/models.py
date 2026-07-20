@@ -1,6 +1,9 @@
 """Immutable public domain models for analyzed VASP calculations."""
 
+from hashlib import sha256
 from typing import Literal
+
+import numpy as np
 
 from pydantic import computed_field
 
@@ -100,3 +103,36 @@ class CalculationDataset(FrozenModel):
     capabilities: tuple[Capability, ...]
     warnings: tuple[ParserWarning, ...] = ()
     provenance: ParserProvenance | None = None
+
+
+class VolumetricDescriptor(FrozenModel):
+    source: str
+    lattice: Mat3
+    dimensions: tuple[int, int, int]
+    kind: str
+    units: str
+    value_range: tuple[float, float]
+
+    def require_compatible_structure(self, lattice: Mat3) -> None:
+        from .errors import VolumetricAlignmentError
+
+        if not np.allclose(self.lattice, lattice, atol=1e-6, rtol=0.0):
+            raise VolumetricAlignmentError(
+                f"{self.source} lattice is incompatible with the selected structure"
+            )
+
+
+class VolumetricRequest(FrozenModel):
+    fingerprint: str
+    isovalue: float
+    downsample: int
+    repeat: tuple[int, int, int]
+
+    @computed_field
+    @property
+    def identity(self) -> str:
+        payload = (
+            f"{self.fingerprint}\0{self.isovalue!r}\0{self.downsample}\0"
+            f"{self.repeat[0]},{self.repeat[1]},{self.repeat[2]}"
+        )
+        return sha256(payload.encode()).hexdigest()

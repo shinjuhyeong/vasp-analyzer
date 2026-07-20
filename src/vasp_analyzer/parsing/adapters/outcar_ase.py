@@ -22,6 +22,7 @@ class ParsedTrajectoryStep(FrozenModel):
     cartesian_positions: tuple[Vec3, ...]
     raw_forces: tuple[Vec3, ...]
     total_energy: float | None
+    species: tuple[str, ...]
 
 
 def _vec3(values: Iterable[float]) -> Vec3:
@@ -43,12 +44,14 @@ def _validate_step(
     cartesian_positions: tuple[Vec3, ...],
     raw_forces: tuple[Vec3, ...],
     total_energy: float | None,
+    species: tuple[str, ...],
 ) -> ParsedTrajectoryStep:
     _validate_cell(step_id, lattice)
     fractional_count = len(fractional_positions)
     cartesian_count = len(cartesian_positions)
     force_count = len(raw_forces)
-    actual_counts = {fractional_count, cartesian_count, force_count}
+    species_count = len(species)
+    actual_counts = {fractional_count, cartesian_count, force_count, species_count}
     if actual_counts != {atom_count}:
         raise DatasetConsistencyError(
             f"step {step_id}: expected {atom_count} atoms; got "
@@ -73,6 +76,7 @@ def _validate_step(
         cartesian_positions=cartesian_positions,
         raw_forces=raw_forces,
         total_energy=total_energy,
+        species=species,
     )
 
 
@@ -89,7 +93,7 @@ def _validate_cell(step_id: int, lattice: Mat3) -> None:
         raise DatasetConsistencyError(f"step {step_id}: trajectory contains a singular lattice")
 
 
-def _recovered_step(record: StepRecord) -> ParsedTrajectoryStep:
+def _recovered_step(record: StepRecord, species: tuple[str, ...]) -> ParsedTrajectoryStep:
     cell = np.asarray(record.lattice, dtype=float)
     positions = np.asarray(record.cartesian_positions, dtype=float)
     try:
@@ -106,7 +110,8 @@ def _recovered_step(record: StepRecord) -> ParsedTrajectoryStep:
         fractional_positions=tuple(_vec3(row) for row in scaled),
         cartesian_positions=record.cartesian_positions,
         raw_forces=record.raw_forces,
-        total_energy=None,
+        total_energy=record.energy,
+        species=species,
     )
 
 
@@ -130,8 +135,8 @@ def _validate_step_ids(records: tuple[StepRecord, ...]) -> None:
 def _is_recoverable_tail(*, index: int, expected: int, record: StepRecord, scan: ScanResult) -> bool:
     return (
         index == expected - 1
-        and record.energy is None
         and scan.checkpoint.replay_provisional
+        and (record.energy is None or scan.resumed_from == record.block_start)
     )
 
 
@@ -169,14 +174,14 @@ def iter_outcar_steps(path: Path, scan: ScanResult) -> Iterator[ParsedTrajectory
             if _is_recoverable_tail(
                 index=index, expected=expected, record=record, scan=scan
             ):
-                yield _recovered_step(record)
+                yield _recovered_step(record, scan.species)
                 return
             raise _count_error(physical_frames, expected_physical_frames) from None
         except ParseError as error:
             if str(error) == "Incomplete OUTCAR" and _is_recoverable_tail(
                 index=index, expected=expected, record=record, scan=scan
             ):
-                yield _recovered_step(record)
+                yield _recovered_step(record, scan.species)
                 return
             raise DatasetConsistencyError(
                 f"ASE failed while reading indexed step {record.step_id}: {error}"
@@ -185,6 +190,12 @@ def iter_outcar_steps(path: Path, scan: ScanResult) -> Iterator[ParsedTrajectory
         try:
             lattice = _mat3(atoms.cell.array)
             _validate_cell(record.step_id, lattice)
+            ase_species = tuple(str(symbol) for symbol in atoms.get_chemical_symbols())
+            if scan.species and ase_species != scan.species:
+                raise DatasetConsistencyError(
+                    f"step {record.step_id}: scanner species {scan.species} do not match "
+                    f"ASE species {ase_species}"
+                )
             step = _validate_step(
                 step_id=record.step_id,
                 atom_count=record.atom_count,
@@ -201,6 +212,7 @@ def iter_outcar_steps(path: Path, scan: ScanResult) -> Iterator[ParsedTrajectory
                         force_consistent=True, apply_constraint=False
                     )
                 ),
+                species=ase_species or scan.species,
             )
         except (TypeError, ValueError) as error:
             raise DatasetConsistencyError(
