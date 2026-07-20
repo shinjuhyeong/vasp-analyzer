@@ -341,6 +341,85 @@ select {
   overflow: auto;
   padding: 14px;
 }
+.convergence-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 14px;
+  min-height: 100%;
+}
+.convergence-plots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+.convergence-chart {
+  position: relative;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--vscode-panel-border, #343840);
+  border-radius: 5px;
+  background: var(--vscode-editor-background, #17191d);
+}
+.convergence-chart svg {
+  display: block;
+  width: 100%;
+  min-height: 150px;
+  overflow: visible;
+}
+.chart-axis { stroke: var(--vscode-descriptionForeground, #9ca3af); stroke-width: 1; }
+.chart-tick, .chart-x-tick, .chart-axis-label { fill: var(--vscode-descriptionForeground, #9ca3af); font-size: 10px; }
+.chart-tick { text-anchor: end; font-variant-numeric: tabular-nums; }
+.chart-x-tick { text-anchor: middle; font-variant-numeric: tabular-nums; }
+.chart-axis-label { text-anchor: middle; }
+.chart-line { fill: none; stroke: #58a6ff; stroke-width: 2; vector-effect: non-scaling-stroke; }
+[data-series="1"] .chart-line { stroke: #f2cc60; }
+.chart-hit-target { fill: transparent; stroke: transparent; }
+.chart-point { fill: #58a6ff; stroke: var(--vscode-editor-background, #17191d); stroke-width: 1.5; transition: cx 150ms ease-out, cy 150ms ease-out; }
+[data-series="1"] .chart-point { fill: #f2cc60; }
+.chart-point[data-selected="true"] { stroke: var(--vscode-foreground, #fff); stroke-width: 2.5; }
+[role="button"]:focus-visible .chart-hit-target { stroke: var(--vscode-focusBorder, #4ca6ea); stroke-width: 2; }
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 14px;
+  margin: 4px 0 0;
+  padding: 0;
+  color: var(--vscode-descriptionForeground, #a9afb8);
+  font-size: 11px;
+  list-style: none;
+}
+.chart-legend li::before { content: ""; display: inline-block; width: 9px; height: 2px; margin: 0 5px 3px 0; background: #58a6ff; }
+.chart-legend li[data-series="1"]::before { background: #f2cc60; }
+.chart-unavailable { color: var(--vscode-descriptionForeground, #9ca3af); text-align: center; }
+.step-details {
+  padding: 12px;
+  border: 1px solid var(--vscode-panel-border, #343840);
+  border-radius: 5px;
+  background: var(--vscode-sideBar-background, #202328);
+}
+.step-details h3 { margin: 0 0 8px; }
+.step-details dl { display: grid; gap: 7px; margin: 0; }
+.step-details dl div { display: grid; grid-template-columns: minmax(110px, 1fr) 1.2fr; gap: 8px; }
+.step-details dt { color: var(--vscode-descriptionForeground, #a9afb8); }
+.step-details dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.convergence-flags { display: grid; gap: 5px; margin-top: 12px; }
+.convergence-flags span { padding: 4px 7px; border-left: 3px solid var(--vscode-descriptionForeground, #8b929c); background: #8b929c18; }
+.convergence-flags span[data-state="true"] { border-left-color: #3fb950; background: #3fb95018; }
+.convergence-flags span[data-state="false"] { border-left-color: #f85149; background: #f8514918; }
+.data-fallback {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding: 12px;
+}
+.crystal-panel:has(.data-fallback) .crystal-controls { display: none; }
+.data-fallback > p { margin: 0 0 8px; color: var(--vscode-errorForeground, #f48771); }
+.data-table-scroll { max-height: 100%; overflow: auto; }
+.data-fallback table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+.data-fallback th, .data-fallback td { padding: 5px 7px; border: 1px solid var(--vscode-panel-border, #343840); white-space: nowrap; text-align: left; }
+.data-fallback thead { position: sticky; top: 0; background: var(--vscode-sideBar-background, #202328); }
 .status-panel {
   display: grid;
   height: 100%;
@@ -379,4 +458,10 @@ select {
     max-width: none;
     overflow-x: auto;
   }
+  .convergence-panel { grid-template-columns: 1fr; }
+  .convergence-plots { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-point { transition: none; }
 }

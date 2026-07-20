@@ -80,6 +80,8 @@ export interface CrystalRenderer {
   setLayerVisible(layer: LayerName, visible: boolean): void;
   setVolumetricLayer(layer: VolumetricLayer | null): void;
   setSelectedSite(siteIndex: number | null): void;
+  /** Coordinate/arrow update duration; zero disables motion. */
+  setTransitionDuration?(durationMs: number): void;
   onSelectSite(callback: (siteIndex: number) => void): void;
   onHoverSite(callback: (siteIndex: number | null) => void): void;
   resetView(): void;

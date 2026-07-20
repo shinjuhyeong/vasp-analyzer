@@ -9,18 +9,28 @@ import {
   type ReactElement,
 } from "react";
 
-import type { AnalysisHost, IonicStep, Site } from "./core/contracts.js";
+import type {
+  AnalysisHost,
+  CalculationDataset,
+  IonicStep,
+  Site,
+} from "./core/contracts.js";
 import { analysisReducer, initialAnalysisState } from "./core/store.js";
+import { ConvergencePanel } from "./features/convergence/ConvergencePanel.js";
+import { IonicStepControl } from "./features/convergence/IonicStepControl.js";
 import { CrystalPanel } from "./features/structure/CrystalPanel.js";
 import type { CrystalRendererFactory } from "./renderers/CrystalRenderer.js";
 
 export interface AnalysisRegionProps {
+  readonly dataset: CalculationDataset;
   readonly sites: readonly Site[];
   readonly selectedStep: IonicStep;
+  readonly selectedStepIndex: number;
   readonly selectedSite: Site | null;
   readonly forceMode: "free" | "raw";
   readonly forceScale: number;
   readonly onSelectSite: (siteIndex: number | null) => void;
+  readonly onSelectStep: (arrayIndex: number) => void;
 }
 
 export interface AppProps {
@@ -41,11 +51,17 @@ function EmptyStructure({ selectedStep }: AnalysisRegionProps): ReactElement {
   );
 }
 
-function EmptyConvergence({ selectedStep }: AnalysisRegionProps): ReactElement {
+function DefaultConvergence({
+  dataset,
+  selectedStepIndex,
+  onSelectStep,
+}: AnalysisRegionProps): ReactElement {
   return (
-    <div className="empty-slot">
-      Convergence details for ionic step {selectedStep.index + 1}
-    </div>
+    <ConvergencePanel
+      dataset={dataset}
+      selectedIndex={selectedStepIndex}
+      onSelectStep={onSelectStep}
+    />
   );
 }
 
@@ -60,7 +76,7 @@ function clampSplit(value: number): number {
 export function App({
   host,
   structure,
-  convergence: Convergence = EmptyConvergence,
+  convergence: Convergence = DefaultConvergence,
   rendererFactory,
 }: AppProps): ReactElement {
   const [state, dispatch] = useReducer(analysisReducer, initialAnalysisState);
@@ -124,20 +140,29 @@ export function App({
         {load.error}
       </main>
     );
-  if (load.host !== host || !state.dataset || !selectedStep)
+  if (load.host !== host || !state.dataset)
     return (
       <main className="status-panel" aria-live="polite">
         Loading VASP calculation…
       </main>
     );
+  if (!selectedStep)
+    return (
+      <main className="status-panel" aria-live="polite">
+        No ionic steps are available in this calculation.
+      </main>
+    );
 
   const regionProps: AnalysisRegionProps = {
+    dataset: state.dataset,
     sites: state.dataset.sites,
     selectedStep,
+    selectedStepIndex: state.selectedStep,
     selectedSite,
     forceMode: state.forceMode,
     forceScale: state.forceScale,
     onSelectSite: (site) => dispatch({ type: "selectSite", site }),
+    onSelectStep: (step) => dispatch({ type: "selectStep", step }),
   };
   const Structure = structure;
   const capabilityReason = (name: "dos" | "band" | "charge"): string =>
@@ -173,24 +198,11 @@ export function App({
                 "Calculation"}
             </strong>
           </div>
-          <label>
-            Ionic step
-            <select
-              value={state.selectedStep}
-              onChange={(event) =>
-                dispatch({
-                  type: "selectStep",
-                  step: Number(event.target.value),
-                })
-              }
-            >
-              {state.dataset.ionicSteps.map((step, position) => (
-                <option key={step.index} value={position}>
-                  {step.index + 1} / {state.dataset?.ionicSteps.length}
-                </option>
-              ))}
-            </select>
-          </label>
+          <IonicStepControl
+            steps={state.dataset.ionicSteps}
+            selectedIndex={state.selectedStep}
+            onSelect={(step) => dispatch({ type: "selectStep", step })}
+          />
           <label>
             Force components
             <select

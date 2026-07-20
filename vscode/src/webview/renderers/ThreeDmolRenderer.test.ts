@@ -111,6 +111,23 @@ describe("ThreeDmolRenderer adapter", () => {
     );
   });
 
+  it("animates redraws for the configured duration and disables animation at zero", () => {
+    const viewer = fakeViewer(), container = document.createElement("div");
+    const animate = vi.fn();
+    Object.defineProperty(container, "animate", { value: animate });
+    const renderer = new ThreeDmolRenderer(viewer as unknown as GLViewer, container);
+    renderer.setTransitionDuration(150);
+    renderer.setStructure(frame);
+    expect(animate).toHaveBeenLastCalledWith(
+      [{ opacity: 0.72 }, { opacity: 1 }],
+      { duration: 150, easing: "ease-out" },
+    );
+    animate.mockClear();
+    renderer.setTransitionDuration(0);
+    renderer.setSelectedSite(1);
+    expect(animate).not.toHaveBeenCalled();
+  });
+
   it("renders boundary ghosts as subdued clickable atoms with original identity", () => {
     const viewer = fakeViewer();
     const renderer = new ThreeDmolRenderer(

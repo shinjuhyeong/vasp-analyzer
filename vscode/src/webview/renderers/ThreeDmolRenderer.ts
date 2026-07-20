@@ -241,6 +241,7 @@ export class ThreeDmolRenderer implements CrystalRenderer {
   private hoverCallback: (siteIndex: number | null) => void = () => undefined;
   private homeView: readonly number[] | null = null;
   private disposed = false;
+  private transitionDurationMs = 0;
 
   constructor(
     private viewer: GLViewer | null,
@@ -308,6 +309,9 @@ export class ThreeDmolRenderer implements CrystalRenderer {
   setSelectedSite(siteIndex: number | null): void {
     this.selectedSite = siteIndex;
     this.draw();
+  }
+  setTransitionDuration(durationMs: number): void {
+    this.transitionDurationMs = Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0;
   }
   onSelectSite(callback: (siteIndex: number) => void): void {
     this.selectCallback = callback;
@@ -491,6 +495,11 @@ export class ThreeDmolRenderer implements CrystalRenderer {
     // Volumetric payload interpretation is deliberately deferred; the typed layer remains isolated here.
     void this.volumetric;
     viewer.render();
+    if (this.transitionDurationMs > 0 && typeof this.container.animate === "function")
+      this.container.animate(
+        [{ opacity: 0.72 }, { opacity: 1 }],
+        { duration: this.transitionDurationMs, easing: "ease-out" },
+      );
   }
 }
 

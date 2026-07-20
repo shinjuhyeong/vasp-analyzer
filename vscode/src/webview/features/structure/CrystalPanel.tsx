@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { IonicStep, Site } from "../../core/contracts.js";
 import type {
@@ -12,6 +12,7 @@ import type {
 } from "../../renderers/CrystalRenderer.js";
 import { AtomDetail } from "./AtomDetail.js";
 import { buildCrystalFrame, parseIntegerDirection } from "./scene.js";
+import { DataTableFallback } from "../fallback/DataTableFallback.js";
 
 export interface CrystalPanelProps {
   readonly sites: readonly Site[];
@@ -68,6 +69,34 @@ export function CrystalPanel({
       ) as Record<LayerName, boolean>,
   );
   const [renderError, setRenderError] = useState<string | null>(null);
+  const failRenderer = useCallback((reason: unknown) => {
+    const failed = renderer.current;
+    renderer.current = null;
+    try {
+      failed?.dispose();
+    } catch {
+      // The fallback must survive teardown failures.
+    }
+    setRenderError(
+      (current) =>
+        current ??
+        (reason instanceof Error
+          ? reason.message
+          : "WebGL renderer unavailable"),
+    );
+  }, []);
+  const invokeRenderer = useCallback(
+    (operation: (instance: NonNullable<typeof renderer.current>) => void) => {
+      const instance = renderer.current;
+      if (!instance) return;
+      try {
+        operation(instance);
+      } catch (reason) {
+        failRenderer(reason);
+      }
+    },
+    [failRenderer],
+  );
 
   const sceneInputs = useMemo(
     () =>
@@ -98,7 +127,7 @@ export function CrystalPanel({
       const resizeObserver =
         typeof ResizeObserver === "undefined"
           ? null
-          : new ResizeObserver(() => instance.resize());
+          : new ResizeObserver(() => invokeRenderer((current) => current.resize()));
       resizeObserver?.observe(container.current);
       return () => {
         resizeObserver?.disconnect();
@@ -106,16 +135,30 @@ export function CrystalPanel({
         renderer.current = null;
       };
     } catch (reason) {
-      setRenderError(
-        reason instanceof Error ? reason.message : "WebGL renderer unavailable",
-      );
+      failRenderer(reason);
     }
-  }, [rendererFactory]);
+  }, [failRenderer, invokeRenderer, rendererFactory]);
 
   useEffect(() => {
-    renderer.current?.setStructure(frame);
-    renderer.current?.setSupercell(repeat);
-  }, [frame, repeat]);
+    const query =
+      typeof matchMedia === "function"
+        ? matchMedia("(prefers-reduced-motion: reduce)")
+        : null;
+    const update = () =>
+      invokeRenderer((instance) =>
+        instance.setTransitionDuration?.(query?.matches ? 0 : 150),
+      );
+    update();
+    query?.addEventListener?.("change", update);
+    return () => query?.removeEventListener?.("change", update);
+  }, [invokeRenderer]);
+
+  useEffect(() => {
+    invokeRenderer((instance) => {
+      instance.setStructure(frame);
+      instance.setSupercell(repeat);
+    });
+  }, [frame, invokeRenderer, repeat]);
   useEffect(() => {
     const vectors: VectorGlyph[] = sites.map((site, position) => ({
       siteIndex: site.siteIndex,
@@ -129,13 +172,15 @@ export function CrystalPanel({
           ? selectedStep.strongestFreeComponent.axis
           : null,
     }));
-    renderer.current?.setForces(
-      Object.freeze(vectors.map((vector) => Object.freeze(vector))),
+    invokeRenderer((instance) =>
+      instance.setForces(
+        Object.freeze(vectors.map((vector) => Object.freeze(vector))),
+      ),
     );
-  }, [forceMode, selectedStep, sites]);
+  }, [forceMode, invokeRenderer, selectedStep, sites]);
   useEffect(() => {
-    renderer.current?.setForceScale(forceScale);
-  }, [forceScale]);
+    invokeRenderer((instance) => instance.setForceScale(forceScale));
+  }, [forceScale, invokeRenderer]);
   useEffect(() => {
     const focus = hovered ?? selectedSite?.siteIndex ?? null;
     const constraints: ConstraintGlyph[] = sites.map((site, position) => ({
@@ -148,28 +193,34 @@ export function CrystalPanel({
       ],
       emphasized: site.siteIndex === focus,
     }));
-    renderer.current?.setConstraints(
-      Object.freeze(constraints.map((glyph) => Object.freeze(glyph))),
+    invokeRenderer((instance) =>
+      instance.setConstraints(
+        Object.freeze(constraints.map((glyph) => Object.freeze(glyph))),
+      ),
     );
-  }, [hovered, selectedSite, selectedStep, sites]);
+  }, [hovered, invokeRenderer, selectedSite, selectedStep, sites]);
   useEffect(() => {
-    renderer.current?.setSelectedSite(selectedSite?.siteIndex ?? null);
-  }, [selectedSite]);
+    invokeRenderer((instance) =>
+      instance.setSelectedSite(selectedSite?.siteIndex ?? null),
+    );
+  }, [invokeRenderer, selectedSite]);
   useEffect(() => {
-    renderer.current?.setOrthographic(orthographic);
-  }, [orthographic]);
+    invokeRenderer((instance) => instance.setOrthographic(orthographic));
+  }, [invokeRenderer, orthographic]);
   useEffect(() => {
     for (const { name } of LAYERS)
-      renderer.current?.setLayerVisible(name, layers[name]);
-  }, [layers]);
+      invokeRenderer((instance) =>
+        instance.setLayerVisible(name, layers[name]),
+      );
+  }, [invokeRenderer, layers]);
   useEffect(() => {
-    renderer.current?.setVolumetricLayer(volumetricLayer);
-  }, [volumetricLayer]);
+    invokeRenderer((instance) => instance.setVolumetricLayer(volumetricLayer));
+  }, [invokeRenderer, volumetricLayer]);
 
   const applyDirection = () => {
     try {
       const parsed = parseIntegerDirection(direction);
-      renderer.current?.setViewDirection(parsed, semantics);
+      invokeRenderer((instance) => instance.setViewDirection(parsed, semantics));
       setDirectionError(null);
     } catch (reason) {
       setDirectionError(
@@ -242,7 +293,9 @@ export function CrystalPanel({
               key={preset.join()}
               type="button"
               onClick={() =>
-                renderer.current?.setViewDirection(preset, "direct")
+                invokeRenderer((instance) =>
+                  instance.setViewDirection(preset, "direct"),
+                )
               }
             >
               View [{preset.join("")}]
@@ -283,7 +336,10 @@ export function CrystalPanel({
             />
             Orthographic
           </label>
-          <button type="button" onClick={() => renderer.current?.resetView()}>
+          <button
+            type="button"
+            onClick={() => invokeRenderer((instance) => instance.resetView())}
+          >
             Reset view
           </button>
         </div>
@@ -306,30 +362,33 @@ export function CrystalPanel({
           </button>
         )}
       </div>
-      <div
-        className="crystal-stage"
-        ref={container}
-        aria-label="Interactive crystal viewer"
-      >
-        {renderError && (
-          <div className="renderer-fallback" role="alert">
-            3D view unavailable: {renderError}. Structure data remains available
-            below.
-          </div>
-        )}
-      </div>
-      {selectedSite ? (
-        <AtomDetail
-          site={selectedSite}
-          sitePosition={sites.findIndex(
-            (site) => site.siteIndex === selectedSite.siteIndex,
-          )}
+      {renderError ? (
+        <DataTableFallback
+          sites={sites}
           step={selectedStep}
+          reason={renderError}
         />
       ) : (
-        <aside className="atom-detail atom-detail-empty">
-          Select an atom to inspect positions, forces, and constraints.
-        </aside>
+        <>
+          <div
+            className="crystal-stage"
+            ref={container}
+            aria-label="Interactive crystal viewer"
+          />
+          {selectedSite ? (
+            <AtomDetail
+              site={selectedSite}
+              sitePosition={sites.findIndex(
+                (site) => site.siteIndex === selectedSite.siteIndex,
+              )}
+              step={selectedStep}
+            />
+          ) : (
+            <aside className="atom-detail atom-detail-empty">
+              Select an atom to inspect positions, forces, and constraints.
+            </aside>
+          )}
+        </>
       )}
     </div>
   );

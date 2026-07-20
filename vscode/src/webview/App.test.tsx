@@ -43,6 +43,27 @@ class DeferredHost extends MemoryHost {
 }
 
 describe("analysis workspace", () => {
+  it("keeps parsed data and the ionic-step control usable after WebGL construction fails", async () => {
+    render(<App host={new MemoryHost()} rendererFactory={() => { throw new Error("WebGL unavailable"); }} />);
+    expect(await screen.findByRole("table", { name: "Atomic positions and forces" })).toBeVisible();
+    expect(screen.getByLabelText("Ionic step")).toBeEnabled();
+    expect(screen.getByText(/WebGL unavailable/)).toBeVisible();
+  });
+
+  it("synchronizes a convergence point with the single control and structure region", async () => {
+    render(<App host={new MemoryHost()} structure={FakeStructure} />);
+    await userEvent.setup().click(await screen.findByLabelText("Force at ionic step 2: 0.1 eV per angstrom"));
+    expect(screen.getByLabelText("Ionic step")).toHaveValue("1");
+    expect(screen.getByTestId("structure-step")).toHaveTextContent("1");
+    expect(screen.getByText("-11.000000 eV")).toBeVisible();
+  });
+
+  it("reports an empty ionic trajectory instead of remaining in loading state", async () => {
+    render(<App host={new MemoryHost({ ...twoStepDataset, ionicSteps: [] })} />);
+    expect(await screen.findByText("No ionic steps are available in this calculation.")).toBeVisible();
+    expect(screen.queryByText(/Loading VASP calculation/)).not.toBeInTheDocument();
+  });
+
   it("uses one selected step across both layout regions", async () => {
     const user = userEvent.setup();
     render(<App host={new MemoryHost()} structure={FakeStructure} convergence={FakeConvergence} />);

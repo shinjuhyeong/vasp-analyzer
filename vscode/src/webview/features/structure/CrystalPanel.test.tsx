@@ -26,6 +26,7 @@ class FakeRenderer implements CrystalRenderer {
   resetView = vi.fn();
   resize = vi.fn();
   dispose = vi.fn();
+  setTransitionDuration = vi.fn();
   private select: (site: number) => void = () => undefined;
   private hover: (site: number | null) => void = () => undefined;
   onSelectSite(callback: (site: number) => void): void {
@@ -251,5 +252,42 @@ describe("CrystalPanel", () => {
     );
     expect(factory).toHaveBeenCalledOnce();
     expect(renderer.dispose).not.toHaveBeenCalled();
+  });
+
+  it("falls back once when a renderer update fails without retrying the failed instance", async () => {
+    const renderer = new FakeRenderer();
+    renderer.setStructure.mockImplementation(() => { throw new Error("GPU context lost"); });
+    render(
+      <CrystalPanel
+        sites={twoStepDataset.sites}
+        selectedStep={twoStepDataset.ionicSteps[0]!}
+        selectedSite={null}
+        forceMode="free"
+        forceScale={1}
+        onSelectSite={() => undefined}
+        rendererFactory={() => renderer}
+      />,
+    );
+    expect(await screen.findByRole("table", { name: "Atomic positions and forces" })).toBeVisible();
+    expect(screen.getByText(/GPU context lost/)).toBeVisible();
+    expect(renderer.dispose).toHaveBeenCalledOnce();
+    expect(renderer.setStructure).toHaveBeenCalledOnce();
+  });
+
+  it("uses 150ms transitions unless reduced motion is requested and removes the listener", () => {
+    const add = vi.fn(), remove = vi.fn();
+    let reduced = false;
+    vi.stubGlobal("matchMedia", vi.fn(() => ({
+      get matches() { return reduced; }, addEventListener: add, removeEventListener: remove,
+    })));
+    const { renderer, view } = setup();
+    expect(renderer.setTransitionDuration).toHaveBeenCalledWith(150);
+    const listener = add.mock.calls[0]![1] as () => void;
+    reduced = true;
+    act(listener);
+    expect(renderer.setTransitionDuration).toHaveBeenLastCalledWith(0);
+    view.unmount();
+    expect(remove).toHaveBeenCalledWith("change", listener);
+    vi.unstubAllGlobals();
   });
 });
