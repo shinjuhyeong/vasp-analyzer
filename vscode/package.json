@@ -1,0 +1,69 @@
+{
+  "name": "vasp-analyzer",
+  "displayName": "VASP Analyzer",
+  "description": "Standalone VASP analysis for local and Remote SSH workspaces",
+  "version": "0.1.0",
+  "publisher": "shinjuhyeong",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shinjuhyeong/vasp-analyzer.git"
+  },
+  "type": "module",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": ["Visualization", "Other"],
+  "extensionKind": ["workspace"],
+  "main": "./dist/extension.js",
+  "activationEvents": ["onCommand:vaspAnalyzer.open"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "vaspAnalyzer.open",
+        "title": "VASP Analyzer: Open Calculation"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "vaspAnalyzer.open",
+          "when": "resourceFilename == OUTCAR",
+          "group": "navigation@50"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "VASP Analyzer",
+      "properties": {
+        "vaspAnalyzer.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Python interpreter on the workspace/Remote SSH extension host. Empty uses the Python extension setting or the platform default."
+        },
+        "vaspAnalyzer.requestTimeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 1000,
+          "maximum": 120000,
+          "description": "Maximum analyzer stdio request duration in milliseconds."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "node esbuild.mjs",
+    "package": "pnpm run build && vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/vscode": "^1.100.0",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "packageManager": "pnpm@11.9.0"
+}

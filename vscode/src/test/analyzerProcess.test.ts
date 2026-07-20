@@ -1,0 +1,102 @@
+import { EventEmitter } from "node:events";
+import { PassThrough, Writable } from "node:stream";
+import { describe, expect, it, vi } from "vitest";
+
+import { AnalyzerProcess, analyzerInvocation, type AnalyzerChild } from "../analyzerProcess.js";
+
+function fakeChild(): AnalyzerChild & { stdout: PassThrough; stderr: PassThrough; exit: (code?: number) => void } {
+  const emitter = new EventEmitter() as AnalyzerChild & {
+    stdout: PassThrough;
+    stderr: PassThrough;
+    exit: (code?: number) => void;
+  };
+  emitter.stdout = new PassThrough();
+  emitter.stderr = new PassThrough();
+  emitter.stdin = new PassThrough();
+  emitter.kill = vi.fn(() => true);
+  emitter.exit = (code = 0) => emitter.emit("exit", code, null);
+  return emitter;
+}
+
+describe("AnalyzerProcess", () => {
+  it("passes the calculation path as a non-shell Python argument", () => {
+    const invocation = analyzerInvocation("/work/a path/$(unsafe)", "python-custom");
+    expect(invocation.command).toBe("python-custom");
+    expect(invocation.shell).toBe(false);
+    expect(invocation.args.at(-1)).toBe("/work/a path/$(unsafe)");
+  });
+
+  it("correlates newline-delimited responses by JSON id", async () => {
+    const child = fakeChild();
+    const analyzer = new AnalyzerProcess(child);
+    const first = analyzer.request("getDataset", {});
+    const second = analyzer.request("getStep", { stepIndex: 0 });
+
+    child.stdout.write('{"id":2,"result":{"stepIndex":0}}\n{"id":1,"result":{"schemaVersion":1}}\n');
+
+    await expect(first).resolves.toMatchObject({ schemaVersion: 1 });
+    await expect(second).resolves.toMatchObject({ stepIndex: 0 });
+    analyzer.dispose();
+  });
+
+  it("rejects protocol errors and all pending requests when the child exits", async () => {
+    const child = fakeChild();
+    const analyzer = new AnalyzerProcess(child);
+    const failed = analyzer.request("getDataset", {});
+    child.stdout.write('{"id":1,"error":{"code":"invalid_request","message":"bad"}}\n');
+    await expect(failed).rejects.toThrow("bad");
+
+    const pending = analyzer.request("getDataset", {});
+    child.exit(7);
+    await expect(pending).rejects.toThrow(/exited/);
+  });
+
+  it("bounds unterminated stdout, stderr, and request duration", async () => {
+    const child = fakeChild();
+    const analyzer = new AnalyzerProcess(child, { maxLineBytes: 32, maxStderrBytes: 16, requestTimeoutMs: 10 });
+    const oversized = analyzer.request("getDataset", {});
+    child.stderr.write("private path that must stay bounded");
+    child.stdout.write("x".repeat(33));
+    await expect(oversized).rejects.toThrow(/size limit/);
+    expect(analyzer.stderrTail.length).toBeLessThanOrEqual(16);
+
+    const other = fakeChild();
+    const timed = new AnalyzerProcess(other, { requestTimeoutMs: 5 }).request("getDataset", {});
+    await expect(timed).rejects.toThrow(/timed out/);
+  });
+
+  it("bounds outbound requests independently from large dataset responses", async () => {
+    const child = fakeChild();
+    const analyzer = new AnalyzerProcess(child, { maxRequestBytes: 64, maxLineBytes: 1024 });
+    await expect(analyzer.request("getStep", { extra: "x".repeat(80) })).rejects.toThrow(/request exceeds/);
+  });
+
+  it("rejects a request when stdin cannot accept it", async () => {
+    const child = fakeChild();
+    child.stdin = new Writable({
+      write(_chunk, _encoding, callback) {
+        callback(new Error("closed"));
+      },
+    });
+    const analyzer = new AnalyzerProcess(child);
+    await expect(analyzer.request("getDataset", {})).rejects.toThrow("closed");
+    expect(child.kill).toHaveBeenCalledOnce();
+  });
+
+  it("terminates and rejects pending requests on output stream errors", async () => {
+    const child = fakeChild();
+    const analyzer = new AnalyzerProcess(child);
+    const pending = analyzer.request("getDataset", {});
+    child.stdout.emit("error", new Error("broken output"));
+    await expect(pending).rejects.toThrow("broken output");
+    expect(child.kill).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a correlated response without a result or error", async () => {
+    const child = fakeChild();
+    const analyzer = new AnalyzerProcess(child);
+    const pending = analyzer.request("getDataset", {});
+    child.stdout.write('{"id":1}\n');
+    await expect(pending).rejects.toThrow(/invalid response/);
+  });
+});
