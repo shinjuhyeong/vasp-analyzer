@@ -44,6 +44,7 @@ def _validate_step(
     raw_forces: tuple[Vec3, ...],
     total_energy: float | None,
 ) -> ParsedTrajectoryStep:
+    _validate_cell(step_id, lattice)
     fractional_count = len(fractional_positions)
     cartesian_count = len(cartesian_positions)
     force_count = len(raw_forces)
@@ -75,6 +76,19 @@ def _validate_step(
     )
 
 
+def _validate_cell(step_id: int, lattice: Mat3) -> None:
+    if not all(math.isfinite(value) for row in lattice for value in row):
+        raise DatasetConsistencyError(f"step {step_id}: trajectory contains non-finite values")
+    try:
+        rank = np.linalg.matrix_rank(np.asarray(lattice, dtype=float))
+    except np.linalg.LinAlgError as error:
+        raise DatasetConsistencyError(
+            f"step {step_id}: lattice rank could not be determined"
+        ) from error
+    if rank < 3:
+        raise DatasetConsistencyError(f"step {step_id}: trajectory contains a singular lattice")
+
+
 def _recovered_step(record: StepRecord) -> ParsedTrajectoryStep:
     cell = np.asarray(record.lattice, dtype=float)
     positions = np.asarray(record.cartesian_positions, dtype=float)
@@ -102,6 +116,17 @@ def _count_error(converted: int, expected: int) -> DatasetConsistencyError:
     )
 
 
+def _validate_step_ids(records: tuple[StepRecord, ...]) -> None:
+    step_ids = tuple(record.step_id for record in records)
+    if step_ids[0] < 0 or any(
+        current != previous + 1
+        for previous, current in zip(step_ids, step_ids[1:], strict=False)
+    ):
+        raise DatasetConsistencyError(
+            f"scanner step IDs must be non-negative, ordered and contiguous; got {step_ids}"
+        )
+
+
 def _is_recoverable_tail(*, index: int, expected: int, record: StepRecord, scan: ScanResult) -> bool:
     return (
         index == expected - 1
@@ -113,11 +138,31 @@ def _is_recoverable_tail(*, index: int, expected: int, record: StepRecord, scan:
 def iter_outcar_steps(path: Path, scan: ScanResult) -> Iterator[ParsedTrajectoryStep]:
     """Yield ASE-authoritative frames reconciled to scanner records by ``step_id``."""
 
+    records = scan.steps
+    if not records:
+        return
+    _validate_step_ids(records)
+
     frames = iter(iread(path, format="vasp-out", index=":"))
-    expected = len(scan.steps)
+    expected = len(records)
+    expected_physical_frames = records[-1].step_id + 1
+    physical_frames = 0
     converted = 0
 
-    for index, record in enumerate(scan.steps):
+    for skipped_step_id in range(records[0].step_id):
+        try:
+            skipped = next(frames)
+        except StopIteration:
+            raise _count_error(physical_frames, expected_physical_frames) from None
+        except ParseError as error:
+            raise DatasetConsistencyError(
+                f"ASE failed while seeking indexed step {records[0].step_id} "
+                f"after frame {skipped_step_id}: {error}"
+            ) from error
+        del skipped
+        physical_frames += 1
+
+    for index, record in enumerate(records):
         try:
             atoms = next(frames)
         except StopIteration:
@@ -125,25 +170,25 @@ def iter_outcar_steps(path: Path, scan: ScanResult) -> Iterator[ParsedTrajectory
                 index=index, expected=expected, record=record, scan=scan
             ):
                 yield _recovered_step(record)
-                converted += 1
-                break
-            raise _count_error(converted, expected) from None
+                return
+            raise _count_error(physical_frames, expected_physical_frames) from None
         except ParseError as error:
             if str(error) == "Incomplete OUTCAR" and _is_recoverable_tail(
                 index=index, expected=expected, record=record, scan=scan
             ):
                 yield _recovered_step(record)
-                converted += 1
-                break
+                return
             raise DatasetConsistencyError(
                 f"ASE failed while reading indexed step {record.step_id}: {error}"
             ) from error
 
         try:
+            lattice = _mat3(atoms.cell.array)
+            _validate_cell(record.step_id, lattice)
             step = _validate_step(
                 step_id=record.step_id,
                 atom_count=record.atom_count,
-                lattice=_mat3(atoms.cell.array),
+                lattice=lattice,
                 fractional_positions=tuple(
                     _vec3(row) for row in atoms.get_scaled_positions(wrap=False)
                 ),
@@ -151,7 +196,11 @@ def iter_outcar_steps(path: Path, scan: ScanResult) -> Iterator[ParsedTrajectory
                 raw_forces=tuple(
                     _vec3(row) for row in atoms.get_forces(apply_constraint=False)
                 ),
-                total_energy=float(atoms.get_potential_energy(apply_constraint=False)),
+                total_energy=float(
+                    atoms.get_potential_energy(
+                        force_consistent=True, apply_constraint=False
+                    )
+                ),
             )
         except (TypeError, ValueError) as error:
             raise DatasetConsistencyError(
@@ -161,6 +210,7 @@ def iter_outcar_steps(path: Path, scan: ScanResult) -> Iterator[ParsedTrajectory
             del atoms
 
         yield step
+        physical_frames += 1
         converted += 1
 
     try:
@@ -172,7 +222,7 @@ def iter_outcar_steps(path: Path, scan: ScanResult) -> Iterator[ParsedTrajectory
             f"ASE failed after {converted} indexed steps: {error}"
         ) from error
     del extra
-    raise _count_error(converted + 1, expected)
+    raise _count_error(physical_frames + 1, expected_physical_frames)
 
 
 __all__ = ["ParsedTrajectoryStep", "iter_outcar_steps"]

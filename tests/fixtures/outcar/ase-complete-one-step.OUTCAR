@@ -1,0 +1,20 @@
+ vasp.6.5.0 synthetic ASE fixture
+ POTCAR:    PAW_PBE H 01Jan2000
+ POTCAR:    PAW_PBE H 01Jan2000
+ ions per type = 2
+ NIONS = 2 ions
+ Iteration    1(   1)
+ direct lattice vectors                 reciprocal lattice vectors
+   3.000000 0.000000 0.000000  0.333333 0.000000 0.000000
+   0.000000 3.000000 0.000000  0.000000 0.333333 0.000000
+   0.000000 0.000000 3.000000  0.000000 0.000000 0.333333
+ POSITION                                       TOTAL-FORCE (eV/Angst)
+ -----------------------------------------------------------------------------------
+   0.000000 0.000000 0.000000  0.100000 0.000000 0.000000
+   1.500000 1.500000 1.500000 -0.100000 0.000000 0.000000
+ FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)
+ ---------------------------------------------------
+ free energy TOTEN =       -10.000000 eV
+
+ energy without entropy= -9.800000  energy(sigma->0) = -9.900000
+ General timing and accounting informations for this job:
