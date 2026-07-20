@@ -37,10 +37,7 @@ const LAYERS: readonly {
   { name: "volumetric", label: "volumetric", initial: false },
 ];
 
-function safeRepeat(value: string): number {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) ? Math.min(8, Math.max(1, parsed)) : 1;
-}
+const validRepeat = (value: string): boolean => /^[1-8]$/.test(value);
 
 export function CrystalPanel({
   sites,
@@ -56,6 +53,9 @@ export function CrystalPanel({
   const renderer = useRef<ReturnType<CrystalRendererFactory> | null>(null);
   const selectHandler = useRef(onSelectSite);
   const [repeat, setRepeat] = useState<SupercellRepeat>([1, 1, 1]);
+  const [repeatInputs, setRepeatInputs] = useState<
+    readonly [string, string, string]
+  >(["1", "1", "1"]);
   const [hovered, setHovered] = useState<number | null>(null);
   const [orthographic, setOrthographic] = useState(false);
   const [direction, setDirection] = useState("1 0 0");
@@ -177,15 +177,15 @@ export function CrystalPanel({
       );
     }
   };
-  const updateRepeat = (axis: number, value: string) =>
-    setRepeat(
-      (current) =>
-        Object.freeze(
-          current.map((item, index) =>
-            index === axis ? safeRepeat(value) : item,
-          ),
-        ) as SupercellRepeat,
-    );
+  const repeatInvalid = repeatInputs.some((value) => !validRepeat(value));
+  const updateRepeat = (axis: number, value: string) => {
+    const next = repeatInputs.map((item, index) =>
+      index === axis ? value : item,
+    ) as [string, string, string];
+    setRepeatInputs(Object.freeze(next));
+    if (next.every(validRepeat))
+      setRepeat(Object.freeze(next.map(Number)) as SupercellRepeat);
+  };
   return (
     <div className="crystal-panel">
       <div className="crystal-controls" aria-label="Crystal controls">
@@ -196,15 +196,21 @@ export function CrystalPanel({
               {label}
               <input
                 aria-label={`Supercell ${label}`}
-                type="number"
-                min="1"
-                max="8"
-                value={repeat[axis]}
+                className="supercell-input"
+                type="text"
+                inputMode="numeric"
+                aria-invalid={!validRepeat(repeatInputs[axis]!)}
+                value={repeatInputs[axis]}
                 onChange={(event) => updateRepeat(axis, event.target.value)}
               />
             </label>
           ))}
         </fieldset>
+        {repeatInvalid && (
+          <p className="control-error" role="alert">
+            Supercell repeats must be explicit integers from 1 to 8.
+          </p>
+        )}
         <fieldset>
           <legend>Layers</legend>
           {LAYERS.map(({ name, label }) => (

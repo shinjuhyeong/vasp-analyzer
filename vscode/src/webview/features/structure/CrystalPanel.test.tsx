@@ -37,6 +37,9 @@ class FakeRenderer implements CrystalRenderer {
   selectSite(site: number): void {
     this.select(site);
   }
+  hoverSite(site: number | null): void {
+    this.hover(site);
+  }
 }
 
 const setup = () => {
@@ -165,6 +168,47 @@ describe("CrystalPanel", () => {
       screen.getByRole("button", { name: /Focus strongest: site 1 X/ }),
     );
     expect(onSelectSite).toHaveBeenCalledWith(0);
+  });
+
+  it("shows detailed directional constraints only for selected or hovered sites", () => {
+    const { renderer, props, view } = setup();
+    expect(renderer.setConstraints).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ siteIndex: 0, emphasized: false }),
+        expect.objectContaining({ siteIndex: 1, emphasized: false }),
+      ]),
+    );
+    act(() => renderer.hoverSite(1));
+    expect(renderer.setConstraints).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ siteIndex: 1, emphasized: true }),
+      ]),
+    );
+    act(() => renderer.hoverSite(null));
+    view.rerender(
+      <CrystalPanel {...props} selectedSite={twoStepDataset.sites[0]!} />,
+    );
+    expect(renderer.setConstraints).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ siteIndex: 0, emphasized: true }),
+      ]),
+    );
+  });
+
+  it("does not coerce invalid supercell input and recovers when all axes are valid", () => {
+    const { renderer } = setup();
+    const input = screen.getByLabelText("Supercell a");
+    for (const invalid of ["", "1.5", "0", "9"]) {
+      fireEvent.change(input, { target: { value: invalid } });
+      expect(input).toHaveAttribute("aria-invalid", "true");
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /integers from 1 to 8/i,
+      );
+    }
+    expect(renderer.setSupercell).toHaveBeenLastCalledWith([1, 1, 1]);
+    fireEvent.change(input, { target: { value: "2" } });
+    expect(input).toHaveAttribute("aria-invalid", "false");
+    expect(renderer.setSupercell).toHaveBeenLastCalledWith([2, 1, 1]);
   });
 
   it("disposes renderers and resize observers without leaking callbacks", () => {

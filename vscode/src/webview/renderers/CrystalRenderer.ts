@@ -17,6 +17,7 @@ export interface RenderSite {
   readonly fractionalPosition: Vec3;
   readonly cartesianPosition: Vec3;
   readonly image: LatticeImage;
+  readonly role: "primary" | "boundary";
 }
 
 export interface LineSegment {

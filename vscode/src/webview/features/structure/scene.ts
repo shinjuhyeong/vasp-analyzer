@@ -266,6 +266,7 @@ export function replicateSites(
             Object.freeze({
               ...site,
               image,
+              role: "primary" as const,
               fractionalPosition: freezeVec([
                 site.fractionalPosition[0] + a,
                 site.fractionalPosition[1] + b,
@@ -382,12 +383,56 @@ export function buildCrystalFrame(
   repeat: SupercellRepeat,
 ): CrystalFrame {
   const { edges, axes } = cellGeometry(lattice, repeat);
+  const primarySites = replicateSites(inputs, lattice, repeat);
+  const bonds = periodicBonds(inputs, lattice, repeat);
+  const bySiteIndex = new Map(inputs.map((site) => [site.siteIndex, site]));
+  const sites: RenderSite[] = [...primarySites];
+  const siteKeys = new Set(
+    sites.map((site) => `${site.siteIndex}:${site.image.join(",")}`),
+  );
+  for (const bond of bonds) {
+    for (const endpoint of [
+      {
+        siteIndex: bond.fromSiteIndex,
+        image: bond.fromImage,
+        cartesianPosition: bond.start,
+      },
+      {
+        siteIndex: bond.toSiteIndex,
+        image: bond.toImage,
+        cartesianPosition: bond.end,
+      },
+    ] as const) {
+      const key = `${endpoint.siteIndex}:${endpoint.image.join(",")}`;
+      if (siteKeys.has(key)) continue;
+      const source = bySiteIndex.get(endpoint.siteIndex);
+      if (!source)
+        throw new Error(
+          `Bond references missing siteIndex ${endpoint.siteIndex}`,
+        );
+      sites.push(
+        Object.freeze({
+          siteIndex: source.siteIndex,
+          element: source.element,
+          image: endpoint.image,
+          role: "boundary" as const,
+          fractionalPosition: freezeVec(
+            source.fractionalPosition.map(
+              (value, axis) => value + endpoint.image[axis]!,
+            ),
+          ),
+          cartesianPosition: endpoint.cartesianPosition,
+        }),
+      );
+      siteKeys.add(key);
+    }
+  }
   return Object.freeze({
     lattice,
-    sites: replicateSites(inputs, lattice, repeat),
+    sites: Object.freeze(sites),
     cellEdges: edges,
     axes,
-    bonds: periodicBonds(inputs, lattice, repeat),
+    bonds,
   });
 }
 

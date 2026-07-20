@@ -51,6 +51,165 @@ function quaternionToCamera(
   return Object.freeze([qx / qnorm, qy / qnorm, qz / qnorm, qw / qnorm]);
 }
 
+type ViewerFactory = (container: HTMLElement) => GLViewer;
+
+interface ConstructionResources<T> {
+  readonly value: T;
+  readonly dispose: () => void;
+}
+
+let constructionCaptureActive = false;
+
+function captureConstructionResources<T>(
+  container: HTMLElement,
+  factory: () => T,
+): ConstructionResources<T> {
+  if (constructionCaptureActive)
+    throw new Error("Nested 3Dmol viewer construction is not supported");
+  const listeners: Array<{
+    readonly target: EventTarget;
+    readonly type: string;
+    readonly listener: EventListenerOrEventListenerObject;
+    readonly remove: typeof EventTarget.prototype.removeEventListener;
+    readonly options?: boolean | AddEventListenerOptions;
+  }> = [];
+  const observers: Array<{ disconnect(): void }> = [];
+  const prototypes = Array.from(
+    new Set(
+      [
+        globalThis.EventTarget?.prototype,
+        container.ownerDocument.defaultView?.EventTarget.prototype,
+      ].filter((value): value is EventTarget => value !== undefined),
+    ),
+  );
+  const originalAdds = prototypes.map((prototype) => ({
+    prototype,
+    add: prototype.addEventListener,
+    remove: prototype.removeEventListener,
+  }));
+  const windowTarget = container.ownerDocument
+    .defaultView as unknown as EventTarget | null;
+  const windowAddDescriptor = windowTarget
+    ? Object.getOwnPropertyDescriptor(windowTarget, "addEventListener")
+    : undefined;
+  const originalWindowAdd = windowTarget?.addEventListener;
+  const originalWindowRemove = windowTarget?.removeEventListener;
+  const resizeDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "ResizeObserver",
+  );
+  const intersectionDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "IntersectionObserver",
+  );
+
+  const OriginalResizeObserver = globalThis.ResizeObserver;
+  const OriginalIntersectionObserver = globalThis.IntersectionObserver;
+
+  let cleaned = false;
+  const dispose = (): void => {
+    if (cleaned) return;
+    cleaned = true;
+    for (const { target, type, listener, remove, options } of [
+      ...listeners,
+    ].reverse())
+      remove.call(target, type, listener, options);
+    for (const observer of observers) observer.disconnect();
+    listeners.length = 0;
+    observers.length = 0;
+  };
+  const restore = (): void => {
+    for (const { prototype, add } of originalAdds)
+      prototype.addEventListener = add;
+    if (windowTarget) {
+      if (windowAddDescriptor)
+        Object.defineProperty(
+          windowTarget,
+          "addEventListener",
+          windowAddDescriptor,
+        );
+      else Reflect.deleteProperty(windowTarget, "addEventListener");
+    }
+    if (resizeDescriptor)
+      Object.defineProperty(globalThis, "ResizeObserver", resizeDescriptor);
+    else
+      delete (globalThis as { ResizeObserver?: typeof ResizeObserver })
+        .ResizeObserver;
+    if (intersectionDescriptor)
+      Object.defineProperty(
+        globalThis,
+        "IntersectionObserver",
+        intersectionDescriptor,
+      );
+    else
+      delete (
+        globalThis as { IntersectionObserver?: typeof IntersectionObserver }
+      ).IntersectionObserver;
+  };
+
+  constructionCaptureActive = true;
+  try {
+    for (const { prototype, add, remove } of originalAdds)
+      prototype.addEventListener = function (
+        type: string,
+        listener: EventListenerOrEventListenerObject | null,
+        options?: boolean | AddEventListenerOptions,
+      ): void {
+        add.call(this, type, listener, options);
+        if (listener)
+          listeners.push({
+            target: this,
+            type,
+            listener,
+            remove,
+            ...(options === undefined ? {} : { options }),
+          });
+      };
+    if (windowTarget && originalWindowAdd && originalWindowRemove)
+      windowTarget.addEventListener = function (
+        type: string,
+        listener: EventListenerOrEventListenerObject | null,
+        options?: boolean | AddEventListenerOptions,
+      ): void {
+        originalWindowAdd.call(this, type, listener, options);
+        if (listener)
+          listeners.push({
+            target: this,
+            type,
+            listener,
+            remove: originalWindowRemove,
+            ...(options === undefined ? {} : { options }),
+          });
+      };
+    if (typeof OriginalResizeObserver === "function")
+      globalThis.ResizeObserver = class extends OriginalResizeObserver {
+        constructor(callback: ResizeObserverCallback) {
+          super(callback);
+          observers.push(this);
+        }
+      };
+    if (typeof OriginalIntersectionObserver === "function")
+      globalThis.IntersectionObserver = class extends (
+        OriginalIntersectionObserver
+      ) {
+        constructor(
+          callback: IntersectionObserverCallback,
+          options?: IntersectionObserverInit,
+        ) {
+          super(callback, options);
+          observers.push(this);
+        }
+      };
+    return { value: factory(), dispose };
+  } catch (error) {
+    dispose();
+    throw error;
+  } finally {
+    restore();
+    constructionCaptureActive = false;
+  }
+}
+
 export class ThreeDmolRenderer implements CrystalRenderer {
   private frame: CrystalFrame | null = null;
   private forces: readonly VectorGlyph[] = [];
@@ -68,22 +227,23 @@ export class ThreeDmolRenderer implements CrystalRenderer {
   };
   private selectCallback: (siteIndex: number) => void = () => undefined;
   private hoverCallback: (siteIndex: number | null) => void = () => undefined;
-  private fitted = false;
+  private homeView: readonly number[] | null = null;
   private disposed = false;
 
   constructor(
     private viewer: GLViewer | null,
     private readonly container: HTMLElement,
+    private readonly disposeConstructionResources: () => void = () => undefined,
   ) {}
 
   setStructure(frame: CrystalFrame): void {
     this.frame = frame;
     this.draw();
-    if (!this.fitted) {
-      this.viewer?.zoomTo();
-      this.viewer?.render();
-      this.fitted = true;
-    }
+    this.viewer?.zoomTo();
+    this.viewer?.render();
+    this.homeView = this.viewer
+      ? Object.freeze([...this.viewer.getView()])
+      : null;
   }
   setForces(vectors: readonly VectorGlyph[]): void {
     this.forces = vectors;
@@ -144,7 +304,7 @@ export class ThreeDmolRenderer implements CrystalRenderer {
     this.hoverCallback = callback;
   }
   resetView(): void {
-    this.viewer?.zoomTo();
+    if (this.homeView) this.viewer?.setView([...this.homeView]);
     this.viewer?.render();
   }
   resize(): void {
@@ -157,6 +317,7 @@ export class ThreeDmolRenderer implements CrystalRenderer {
     this.selectCallback = () => undefined;
     this.hoverCallback = () => undefined;
     this.viewer?.clear();
+    this.disposeConstructionResources();
     this.viewer = null;
     this.container.replaceChildren();
   }
@@ -204,15 +365,16 @@ export class ThreeDmolRenderer implements CrystalRenderer {
         });
     for (const site of frame.sites) {
       const selected = site.siteIndex === this.selectedSite;
+      const boundary = site.role === "boundary";
       const baseRadius = Math.min(
         0.52,
         Math.max(0.22, (covalentRadius(site.element) ?? 1.2) * 0.25),
       );
       viewer.addSphere({
         center: xyz(site.cartesianPosition),
-        radius: baseRadius,
+        radius: boundary ? baseRadius * 0.78 : baseRadius,
         color: elementColor(site.element),
-        opacity: 1,
+        opacity: boundary ? 0.42 : 1,
         clickable: true,
         callback: () => this.selectCallback(site.siteIndex),
         hoverable: true,
@@ -232,7 +394,9 @@ export class ThreeDmolRenderer implements CrystalRenderer {
       for (const glyph of this.forces) {
         if (!glyph.vector || Math.hypot(...glyph.vector) < 1e-12) continue;
         for (const site of frame.sites.filter(
-          (candidate) => candidate.siteIndex === glyph.siteIndex,
+          (candidate) =>
+            candidate.siteIndex === glyph.siteIndex &&
+            candidate.role === "primary",
         )) {
           const vector = Object.freeze(
             glyph.vector.map((value) => value * this.forceScale),
@@ -259,15 +423,25 @@ export class ThreeDmolRenderer implements CrystalRenderer {
         }
       }
     if (this.layers.constraints)
-      for (const glyph of this.constraints.filter(
-        (item) =>
-          item.emphasized || item.states.some((state) => state === false),
-      ))
+      for (const glyph of this.constraints)
         for (const site of frame.sites.filter(
-          (candidate) => candidate.siteIndex === glyph.siteIndex,
+          (candidate) =>
+            candidate.siteIndex === glyph.siteIndex &&
+            candidate.role === "primary",
         )) {
+          const hasFixed = glyph.states.some((state) => state === false);
+          const hasUnknown = glyph.states.some((state) => state === null);
+          if (hasFixed || hasUnknown)
+            viewer.addSphere({
+              center: xyz(add(site.cartesianPosition, [0, 0, 0.62])),
+              radius: 0.065,
+              color: hasFixed ? 0xf85149 : 0x8b949e,
+              wireframe: hasUnknown,
+              opacity: 0.9,
+            });
+          if (!glyph.emphasized) continue;
           glyph.states.forEach((state, axis) => {
-            const length = glyph.emphasized ? 0.52 : 0.3;
+            const length = 0.52;
             const end = add(site.cartesianPosition, axisVector(axis, length));
             if (state === true)
               viewer.addArrow({
@@ -275,7 +449,7 @@ export class ThreeDmolRenderer implements CrystalRenderer {
                 end: xyz(end),
                 radius: 0.035,
                 color: 0x2ea043,
-                opacity: glyph.emphasized ? 1 : 0.55,
+                opacity: 1,
               });
             else if (state === false)
               viewer.addCylinder({
@@ -302,11 +476,15 @@ export class ThreeDmolRenderer implements CrystalRenderer {
 
 export const createThreeDmolRenderer = (
   container: HTMLElement,
+  viewerFactory: ViewerFactory = (element) =>
+    createViewer(element, {
+      backgroundColor: "#17191d",
+      antialias: true,
+      orthographic: false,
+    }),
 ): CrystalRenderer => {
-  const viewer = createViewer(container, {
-    backgroundColor: "#17191d",
-    antialias: true,
-    orthographic: false,
-  });
-  return new ThreeDmolRenderer(viewer, container);
+  const captured = captureConstructionResources(container, () =>
+    viewerFactory(container),
+  );
+  return new ThreeDmolRenderer(captured.value, container, captured.dispose);
 };

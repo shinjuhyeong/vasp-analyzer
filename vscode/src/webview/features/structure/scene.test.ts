@@ -109,6 +109,46 @@ describe("crystallographic scene", () => {
     );
   });
 
+  it("materializes and deduplicates boundary ghost atoms for every bond endpoint", () => {
+    const frame = buildCrystalFrame(sites, skew, [1, 1, 1]);
+    const keys = frame.sites.map(
+      (site) => `${site.siteIndex}:${site.image.join(",")}`,
+    );
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const bond of frame.bonds) {
+      expect(keys).toContain(
+        `${bond.fromSiteIndex}:${bond.fromImage.join(",")}`,
+      );
+      expect(keys).toContain(`${bond.toSiteIndex}:${bond.toImage.join(",")}`);
+    }
+    expect(
+      frame.sites.filter((site) => site.role === "boundary").length,
+    ).toBeGreaterThan(0);
+    expect(frame.sites.filter((site) => site.role === "primary")).toHaveLength(
+      2,
+    );
+  });
+
+  it("canonicalizes chemically eligible same-site periodic bonds", () => {
+    const cubic = [
+      [1, 0, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+    ] as const;
+    const frame = buildCrystalFrame([sites[1]!], cubic, [1, 1, 1]);
+    expect(frame.bonds.length).toBeGreaterThan(0);
+    const imageKeys = frame.bonds.map((bond) => bond.toImage.join(","));
+    expect(new Set(imageKeys).size).toBe(imageKeys.length);
+    expect(
+      frame.bonds.every((bond) => bond.fromSiteIndex === bond.toSiteIndex),
+    ).toBe(true);
+    expect(
+      frame.bonds.every(
+        (bond) => bond.toImage.find((value) => value !== 0)! > 0,
+      ),
+    ).toBe(true);
+  });
+
   it("uses vetted pair radii for YBCO elements and skips unknown elements", () => {
     expect(["Y", "Ba", "Cu", "O"].map(covalentRadius)).toEqual([
       1.9, 2.15, 1.32, 0.66,

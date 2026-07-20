@@ -191,7 +191,7 @@ select {
   font-size: 11px;
   white-space: nowrap;
 }
-.crystal-controls input[type="number"] {
+.crystal-controls .supercell-input {
   width: 40px;
   padding: 2px 3px;
   border: 1px solid var(--vscode-input-border, #454a53);
