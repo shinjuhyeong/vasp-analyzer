@@ -55,6 +55,7 @@ class ScanResult(FrozenModel):
     resumed_from: int
     normally_finished: bool
     species: tuple[str, ...] = ()
+    force_prefix_columns: int = 0
 
 
 def _contains_all(line: bytes, markers: tuple[str, ...]) -> bool:
@@ -79,15 +80,37 @@ def _finite_numbers(line: bytes, *, context: str, offset: int) -> tuple[float, .
     return tuple(values)
 
 
-def _starts_with_number(line: bytes) -> bool:
-    tokens = line.split(maxsplit=1)
-    if not tokens:
+def _force_values(line: bytes, dialect: Dialect, *, offset: int) -> tuple[float, ...]:
+    tokens = line.split()
+    expected = dialect.profile.validation.expected_force_columns
+    prefix = dialect.profile.validation.force_prefix_columns
+    if prefix and len(tokens) == expected + prefix:
+        tokens = tokens[prefix:]
+    return _finite_numbers(b" ".join(tokens), context="position/force row", offset=offset)
+
+
+def _looks_like_force_row(line: bytes, dialect: Dialect, *, offset: int) -> bool:
+    expected = dialect.profile.validation.expected_force_columns
+    prefix = dialect.profile.validation.force_prefix_columns
+    if len(line.split()) not in ({expected, expected + prefix} if prefix else {expected}):
         return False
     try:
-        float(tokens[0].replace(b"D", b"E").replace(b"d", b"e"))
-    except ValueError:
+        values = _force_values(line, dialect, offset=offset)
+    except OutcarFormatError:
         return False
-    return True
+    return len(values) == expected
+
+
+def _collapse_repeated_elements(
+    element_types: list[str], type_count: int
+) -> tuple[str, ...] | None:
+    if type_count <= 0 or len(element_types) % type_count:
+        return None
+    groups = tuple(
+        tuple(element_types[start : start + type_count])
+        for start in range(0, len(element_types), type_count)
+    )
+    return groups[0] if groups and all(group == groups[0] for group in groups) else None
 
 
 def _mat3(rows: list[tuple[float, ...]], offset: int) -> Mat3:
@@ -208,11 +231,11 @@ def scan_outcar(
             lowered = raw.lower()
 
             vrhfin = _VRHFIN.search(raw)
-            if vrhfin and not restore_parser_state:
+            if vrhfin and not restore_parser_state and not species:
                 element_types.append(vrhfin.group(1).decode("ascii"))
 
             ions_per_type = _IONS_PER_TYPE.search(raw)
-            if ions_per_type and not restore_parser_state:
+            if ions_per_type and not restore_parser_state and not species:
                 try:
                     parsed_counts = tuple(int(token) for token in ions_per_type.group(1).split())
                 except ValueError as error:
@@ -223,14 +246,17 @@ def scan_outcar(
                     raise OutcarFormatError(
                         f"ions per type at byte {line_start} must contain positive counts"
                     )
-                if len(element_types) != len(parsed_counts):
+                collapsed_elements = _collapse_repeated_elements(
+                    element_types, len(parsed_counts)
+                )
+                if collapsed_elements is None:
                     raise OutcarFormatError(
                         f"ions per type at byte {line_start} names {len(parsed_counts)} types "
                         f"but VRHFIN names {len(element_types)} elements"
                     )
                 species = tuple(
                     element
-                    for element, count in zip(element_types, parsed_counts, strict=True)
+                    for element, count in zip(collapsed_elements, parsed_counts, strict=True)
                     for _ in range(count)
                 )
 
@@ -332,9 +358,7 @@ def scan_outcar(
                         break
                     atom_offset, atom_raw = atom_item
                     try:
-                        values = _finite_numbers(
-                            atom_raw, context="position/force row", offset=atom_offset
-                        )
+                        values = _force_values(atom_raw, dialect, offset=atom_offset)
                     except _NonNumericRow:
                         if atom_raw.endswith((b"\n", b"\r")):
                             raise
@@ -376,10 +400,8 @@ def scan_outcar(
 
             if force_rows_just_finished:
                 if (
-                    len(raw.split()) == dialect.profile.validation.expected_force_columns
-                    and _starts_with_number(raw)
+                    _looks_like_force_row(raw, dialect, offset=line_start)
                 ):
-                    _finite_numbers(raw, context="extra position/force row", offset=line_start)
                     raise OutcarFormatError(
                         f"force block at byte {line_start} contains more than "
                         f"{expected_atom_count} atom rows"
@@ -430,6 +452,7 @@ def scan_outcar(
         resumed_from=resumed_from,
         normally_finished=normally_finished,
         species=species,
+        force_prefix_columns=dialect.profile.validation.force_prefix_columns,
     )
 
 

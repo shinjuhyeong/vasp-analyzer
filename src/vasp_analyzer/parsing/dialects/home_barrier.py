@@ -13,6 +13,7 @@ _HOME_BARRIER_PROFILE = CompatibilityProfile(
         "drop_exact_line_after": "Selective dynamics",
         "drop_exact_line": "0",
     },
+    validation={"force_prefix_columns": 2},
 )
 
 HOME_BARRIER = Dialect(

@@ -46,6 +46,24 @@ def test_complete_records_capture_offsets_lattice_forces_and_energy() -> None:
     assert result.normally_finished is True
 
 
+def test_home_dialect_accepts_element_and_index_prefixed_force_rows(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_text(
+        "vasp.5.4.1-barrier\n"
+        "VRHFIN =Y: s2p6d1\nions per type = 1\nNIONS = 1 ions\n"
+        "direct lattice vectors reciprocal lattice vectors\n"
+        "1 0 0 1 0 0\n0 1 0 0 1 0\n0 0 1 0 0 1\n"
+        "POSITION TOTAL-FORCE\n--------------------\n"
+        "Y_ 1 0.25 0.50 0.75 -0.10 0.20 -0.30\n",
+        encoding="ascii",
+    )
+
+    result = scan_outcar(path, HOME_BARRIER)
+
+    assert result.steps[0].cartesian_positions == ((0.25, 0.5, 0.75),)
+    assert result.steps[0].raw_forces == ((-0.1, 0.2, -0.3),)
+
+
 def test_standard_vrhfin_species_expand_by_ions_per_type(tmp_path: Path) -> None:
     path = tmp_path / "OUTCAR"
     fixture = (FIXTURES / "complete-two-step.OUTCAR").read_bytes()
@@ -58,6 +76,30 @@ def test_standard_vrhfin_species_expand_by_ions_per_type(tmp_path: Path) -> None
 
     assert result.species == ("H", "O")
     assert result.checkpoint.species == ("H", "O")
+
+
+def test_repeated_outcar_headers_do_not_duplicate_species(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    fixture = (FIXTURES / "complete-two-step.OUTCAR").read_bytes()
+    body = b" NIONS" + fixture.split(b" NIONS", maxsplit=1)[1]
+    header = b" VRHFIN =H: s1\n VRHFIN =O: s2p4\n ions per type = 1 1\n"
+    path.write_bytes(header + body + header)
+
+    result = scan_outcar(path, HOME_BARRIER)
+
+    assert result.species == ("H", "O")
+
+
+def test_repeated_vrhfin_cycles_before_counts_are_collapsed(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    fixture = (FIXTURES / "complete-two-step.OUTCAR").read_bytes()
+    body = b" NIONS" + fixture.split(b" NIONS", maxsplit=1)[1]
+    names = b" VRHFIN =H: s1\n VRHFIN =O: s2p4\n"
+    path.write_bytes(names + names + b" ions per type = 1 1\n" + body)
+
+    result = scan_outcar(path, HOME_BARRIER)
+
+    assert result.species == ("H", "O")
 
 
 def test_species_survive_positive_offset_resume(tmp_path: Path) -> None:

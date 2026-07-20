@@ -25,6 +25,76 @@ class ParsedTrajectoryStep(FrozenModel):
     species: tuple[str, ...]
 
 
+class _NormalizedForceRows:
+    """Text stream that removes a declared prefix only inside force blocks."""
+
+    def __init__(self, path: Path, *, atom_count: int, prefix_columns: int) -> None:
+        self.name = str(path)
+        self._stream = path.open("r", encoding="utf-8", errors="replace")
+        self._atom_count = atom_count
+        self._prefix_columns = prefix_columns
+        self._rows_remaining = 0
+        self._after_marker = False
+
+    def __enter__(self) -> "_NormalizedForceRows":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self._stream.close()
+
+    def __iter__(self) -> "_NormalizedForceRows":
+        return self
+
+    def __next__(self) -> str:
+        line = self.readline()
+        if line == "":
+            raise StopIteration
+        return line
+
+    def readline(self, size: int = -1) -> str:
+        line = self._stream.readline(size)
+        if line == "":
+            return line
+        if self._rows_remaining:
+            tokens = line.split()
+            if len(tokens) == 6 + self._prefix_columns:
+                ending = "\n" if line.endswith("\n") else ""
+                line = " ".join(tokens[self._prefix_columns :]) + ending
+            self._rows_remaining -= 1
+        elif self._after_marker:
+            self._after_marker = False
+            self._rows_remaining = self._atom_count
+        elif "POSITION" in line and "TOTAL-FORCE" in line:
+            self._after_marker = True
+        return line
+
+
+def _contains_prefixed_force_rows(path: Path, scan: ScanResult) -> bool:
+    prefix = scan.force_prefix_columns
+    if not prefix or scan.checkpoint.expected_atom_count <= 0:
+        return False
+    with path.open("rb") as stream:
+        for line in stream:
+            if b"POSITION" in line and b"TOTAL-FORCE" in line:
+                next(stream, b"")
+                first_row = next(stream, b"")
+                if len(first_row.split()) == 6 + prefix:
+                    return True
+    return False
+
+
+def _ase_frames(path: Path, scan: ScanResult) -> Iterator[object]:
+    if not _contains_prefixed_force_rows(path, scan):
+        yield from iread(path, format="vasp-out", index=":")
+        return
+    with _NormalizedForceRows(
+        path,
+        atom_count=scan.checkpoint.expected_atom_count,
+        prefix_columns=scan.force_prefix_columns,
+    ) as stream:
+        yield from iread(stream, format="vasp-out", index=":")  # type: ignore[arg-type]
+
+
 def _vec3(values: Iterable[float]) -> Vec3:
     x, y, z = values
     return float(x), float(y), float(z)
@@ -148,7 +218,7 @@ def iter_outcar_steps(path: Path, scan: ScanResult) -> Iterator[ParsedTrajectory
         return
     _validate_step_ids(records)
 
-    frames = iter(iread(path, format="vasp-out", index=":"))
+    frames = iter(_ase_frames(path, scan))
     expected = len(records)
     expected_physical_frames = records[-1].step_id + 1
     physical_frames = 0

@@ -16,6 +16,7 @@ def test_profile_loads_only_supported_declarative_rules() -> None:
     profile = load_profile(FIXTURES / "profiles" / "home-example.toml")
     assert profile.schema_version == 1
     assert profile.poscar.drop_exact_line == "0"
+    assert profile.validation.force_prefix_columns == 2
 
 
 @pytest.mark.parametrize(

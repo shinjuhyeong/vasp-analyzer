@@ -25,3 +25,4 @@ __pycache__/
 htmlcov/
 .vasp-analyzer-cache/
 corpus-report*.json
+corpus-*.json

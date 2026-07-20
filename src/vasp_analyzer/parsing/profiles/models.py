@@ -41,6 +41,7 @@ class PoscarRule(FrozenModel):
 
 class ValidationRule(FrozenModel):
     expected_force_columns: Literal[6] = 6
+    force_prefix_columns: Literal[0, 2] = 0
     allow_incomplete_tail: StrictBool = True
 
 

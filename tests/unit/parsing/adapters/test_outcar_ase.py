@@ -565,6 +565,26 @@ def test_sanitized_complete_fixture_is_read_by_real_ase_329() -> None:
     assert step.total_energy == scan.steps[0].energy == -10.0
 
 
+def test_real_ase_normalizes_declared_home_force_prefixes(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    source = (FIXTURES / "ase-complete-one-step.OUTCAR").read_text(encoding="ascii")
+    source = source.replace("vasp.6.5.0 synthetic ASE fixture", "vasp.5.4.1-barrier")
+    source = source.replace(
+        "   0.000000 0.000000 0.000000  0.100000 0.000000 0.000000",
+        "H_ 1 0.000000 0.000000 0.000000  0.100000 0.000000 0.000000",
+    ).replace(
+        "   1.500000 1.500000 1.500000 -0.100000 0.000000 0.000000",
+        "H_ 2 1.500000 1.500000 1.500000 -0.100000 0.000000 0.000000",
+    )
+    path.write_text(source, encoding="ascii")
+    scan = scan_outcar(path, HOME_BARRIER)
+
+    (step,) = tuple(iter_outcar_steps(path, scan))
+
+    assert step.cartesian_positions[1] == (1.5, 1.5, 1.5)
+    assert step.raw_forces[0] == (0.1, 0.0, 0.0)
+
+
 def test_real_ase_incomplete_outcar_parse_error_uses_validated_fallback() -> None:
     path = FIXTURES / "trailing-no-energy.OUTCAR"
     scan = scan_outcar(path, HOME_BARRIER)

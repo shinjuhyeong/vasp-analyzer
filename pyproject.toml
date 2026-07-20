@@ -28,6 +28,7 @@ packages = ["src/vasp_analyzer"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+markers = ["corpus: requires VASP_ANALYZER_CORPUS_DIR and reads local OUTCAR files"]
 
 [tool.ruff]
 target-version = "py311"

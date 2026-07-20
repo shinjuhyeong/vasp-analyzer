@@ -17,4 +17,5 @@ converged = ["reached required accuracy"]
 
 [validation]
 expected_force_columns = 6
+force_prefix_columns = 2
 allow_incomplete_tail = true
