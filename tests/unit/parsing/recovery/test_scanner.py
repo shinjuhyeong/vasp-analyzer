@@ -90,6 +90,63 @@ def test_provisional_step_replays_same_id_when_energy_and_convergence_arrive(
     assert second.resumed_from == first.steps[0].block_start
 
 
+@pytest.mark.parametrize(
+    ("partial_energy", "completion", "expected_energy"),
+    [
+        (b" free energy    TOTEN  =", b"       -10.500000 eV\n", -10.5),
+        (b" free energy    TOTEN  =       -10.2E", b"+00 eV\n", -10.2),
+    ],
+)
+def test_truncated_energy_tail_replays_after_completion(
+    tmp_path: Path,
+    partial_energy: bytes,
+    completion: bytes,
+    expected_energy: float,
+) -> None:
+    path = tmp_path / "OUTCAR"
+    structure = (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+    path.write_bytes(structure + partial_energy)
+
+    first = scan_outcar(path, HOME_BARRIER)
+
+    assert first.steps[0].energy is None
+    assert first.warnings[-1].category == "IncompleteTail"
+    assert first.checkpoint.replay_provisional is True
+
+    path.write_bytes(structure + partial_energy + completion)
+    second = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+
+    assert second.steps[0].step_id == first.steps[0].step_id == 0
+    assert second.steps[0].energy == expected_energy
+
+
+@pytest.mark.parametrize(
+    "partial_energy",
+    [
+        b" free energy    TOTEN  =",
+        b" free energy    TOTEN  =       -10.2E",
+    ],
+)
+def test_strict_profile_rejects_truncated_energy_tail(
+    tmp_path: Path, partial_energy: bytes
+) -> None:
+    path = tmp_path / "OUTCAR"
+    structure = (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+    path.write_bytes(structure + partial_energy)
+
+    with pytest.raises(OutcarFormatError):
+        scan_outcar(path, strict_tail_dialect())
+
+
+def test_newline_terminated_malformed_energy_is_fatal(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    structure = (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+    path.write_bytes(structure + b" free energy    TOTEN  = nonsense\n")
+
+    with pytest.raises(OutcarFormatError):
+        scan_outcar(path, HOME_BARRIER)
+
+
 def test_appended_file_resumes_without_repeated_nions(tmp_path: Path) -> None:
     path = tmp_path / "OUTCAR"
     path.write_bytes(PREFIX)
@@ -169,6 +226,29 @@ def test_invalid_checkpoint_values_force_clean_reparse(
 
     assert result.resumed_from == 0
     assert [step.step_id for step in result.steps] == [0, 1]
+
+
+def test_zero_offset_checkpoint_never_restores_cached_parser_state(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(PREFIX)
+    corrupt = scan_outcar(path, HOME_BARRIER).checkpoint.model_copy(
+        update={
+            "last_verified_offset": 0,
+            "next_step_id": 99,
+            "expected_atom_count": 999,
+            "last_lattice": ((9.0, 0.0, 0.0), (0.0, 9.0, 0.0), (0.0, 0.0, 9.0)),
+            "replay_provisional": False,
+            "normally_finished": True,
+        }
+    )
+
+    result = scan_outcar(path, HOME_BARRIER, corrupt)
+
+    assert result.resumed_from == 0
+    assert [step.step_id for step in result.steps] == [0]
+    assert result.steps[0].atom_count == 2
+    assert result.steps[0].lattice[0] == (3.0, 0.0, 0.0)
+    assert result.normally_finished is False
 
 
 def test_replacement_restarts_from_zero(tmp_path: Path) -> None:

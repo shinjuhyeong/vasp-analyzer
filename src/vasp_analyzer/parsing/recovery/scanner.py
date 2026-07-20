@@ -143,13 +143,14 @@ def scan_outcar(
     path = Path(path)
     can_resume = checkpoint is not None and checkpoint_is_append_only(path, checkpoint)
     resumed_from = checkpoint.last_verified_offset if can_resume and checkpoint is not None else 0
-    expected_atom_count = checkpoint.expected_atom_count if can_resume and checkpoint else 0
-    lattice = checkpoint.last_lattice if can_resume and checkpoint else None
-    next_step_id = checkpoint.next_step_id if can_resume and checkpoint else 0
+    restore_parser_state = resumed_from > 0 and checkpoint is not None
+    expected_atom_count = checkpoint.expected_atom_count if restore_parser_state else 0
+    lattice = checkpoint.last_lattice if restore_parser_state else None
+    next_step_id = checkpoint.next_step_id if restore_parser_state else 0
 
     steps: list[StepRecord] = []
     warnings: list[ParserWarning] = []
-    normally_finished = checkpoint.normally_finished if can_resume and checkpoint else False
+    normally_finished = checkpoint.normally_finished if restore_parser_state else False
     last_verified_offset = resumed_from
     pending: dict[str, object] | None = None
     force_rows_just_finished = False
@@ -352,6 +353,9 @@ def scan_outcar(
             if pending is not None and _contains_all(
                 raw, dialect.profile.outcar.markers.total_energy
             ):
+                if not raw.endswith((b"\n", b"\r")):
+                    handle_incomplete_tail("incomplete energy line", line_start)
+                    break
                 match = _ENERGY.search(raw)
                 if match is None:
                     raise OutcarFormatError(f"energy line at byte {line_start} has no value")
