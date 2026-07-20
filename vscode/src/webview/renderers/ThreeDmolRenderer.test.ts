@@ -317,6 +317,48 @@ describe("ThreeDmolRenderer adapter", () => {
     vi.unstubAllGlobals();
   });
 
+  it("finishes cleanup and stays idempotent when viewer clear throws", () => {
+    const callback = vi.fn();
+    const disconnect = vi.fn();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(_callback: ResizeObserverCallback) {}
+        observe() {}
+        unobserve() {}
+        disconnect = disconnect;
+      },
+    );
+    const container = document.createElement("div");
+    const canvas = document.createElement("canvas");
+    const viewer = fakeViewer();
+    viewer.clear.mockImplementation(() => {
+      throw new Error("clear failed");
+    });
+    const renderer = createThreeDmolRenderer(container, () => {
+      window.addEventListener("vasp-clear-throw", callback);
+      new ResizeObserver(() => undefined);
+      container.append(canvas);
+      return viewer as unknown as GLViewer;
+    });
+    renderer.onSelectSite(callback);
+
+    expect(() => renderer.dispose()).not.toThrow();
+    expect(() => renderer.dispose()).not.toThrow();
+    window.dispatchEvent(new Event("vasp-clear-throw"));
+    renderer.resize();
+
+    expect(viewer.clear).toHaveBeenCalledOnce();
+    expect(viewer.resize).not.toHaveBeenCalled();
+    expect(callback).not.toHaveBeenCalled();
+    expect(disconnect).toHaveBeenCalledOnce();
+    expect(container.childNodes).toHaveLength(0);
+    expect(
+      (renderer as unknown as { viewer: GLViewer | null }).viewer,
+    ).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   it("restores patches and cleans resources when viewer construction throws", () => {
     const callback = vi.fn();
     const disconnect = vi.fn();
@@ -331,10 +373,14 @@ describe("ThreeDmolRenderer adapter", () => {
     );
     const originalAdd = EventTarget.prototype.addEventListener;
     const container = document.createElement("div");
+    const hostChild = document.createElement("p");
+    const orphanCanvas = document.createElement("canvas");
+    container.append(hostChild);
     expect(() =>
       createThreeDmolRenderer(container, () => {
         window.addEventListener("vasp-throw", callback);
         new ResizeObserver(() => undefined);
+        container.append(orphanCanvas);
         throw new Error("webgl failed");
       }),
     ).toThrow("webgl failed");
@@ -342,6 +388,8 @@ describe("ThreeDmolRenderer adapter", () => {
     window.dispatchEvent(new Event("vasp-throw"));
     expect(callback).not.toHaveBeenCalled();
     expect(disconnect).toHaveBeenCalledOnce();
+    expect([...container.childNodes]).toEqual([hostChild]);
+    expect(orphanCanvas.isConnected).toBe(false);
     vi.unstubAllGlobals();
   });
 

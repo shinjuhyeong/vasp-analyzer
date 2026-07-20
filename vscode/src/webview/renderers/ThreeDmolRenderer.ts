@@ -74,6 +74,7 @@ function captureConstructionResources<T>(
     readonly options?: boolean | AddEventListenerOptions;
   }> = [];
   const observers: Array<{ disconnect(): void }> = [];
+  const initialChildren = new Set(container.childNodes);
   const prototypes = Array.from(
     new Set(
       [
@@ -113,8 +114,17 @@ function captureConstructionResources<T>(
     for (const { target, type, listener, remove, options } of [
       ...listeners,
     ].reverse())
-      remove.call(target, type, listener, options);
-    for (const observer of observers) observer.disconnect();
+      try {
+        remove.call(target, type, listener, options);
+      } catch {
+        // Teardown is best-effort per resource so one faulty target cannot leak the rest.
+      }
+    for (const observer of observers)
+      try {
+        observer.disconnect();
+      } catch {
+        // Keep disconnecting the remaining construction-owned observers.
+      }
     listeners.length = 0;
     observers.length = 0;
   };
@@ -203,6 +213,8 @@ function captureConstructionResources<T>(
     return { value: factory(), dispose };
   } catch (error) {
     dispose();
+    for (const child of [...container.childNodes])
+      if (!initialChildren.has(child)) child.remove();
     throw error;
   } finally {
     restore();
@@ -316,10 +328,18 @@ export class ThreeDmolRenderer implements CrystalRenderer {
     this.disposed = true;
     this.selectCallback = () => undefined;
     this.hoverCallback = () => undefined;
-    this.viewer?.clear();
-    this.disposeConstructionResources();
-    this.viewer = null;
-    this.container.replaceChildren();
+    try {
+      this.viewer?.clear();
+    } catch {
+      // React cleanup must remain non-throwing even if WebGL teardown fails.
+    } finally {
+      try {
+        this.disposeConstructionResources();
+      } finally {
+        this.viewer = null;
+        this.container.replaceChildren();
+      }
+    }
   }
 
   private draw(): void {
