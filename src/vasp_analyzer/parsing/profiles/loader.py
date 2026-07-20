@@ -14,6 +14,8 @@ def load_profile(path: Path) -> CompatibilityProfile:
     """Load a supported compatibility profile or reject it as invalid."""
     try:
         source = path.read_text(encoding="utf-8")
-        return CompatibilityProfile.model_validate(tomllib.loads(source))
+        return CompatibilityProfile.model_validate(
+            tomllib.loads(source), by_alias=False, by_name=True
+        )
     except (OSError, UnicodeError, tomllib.TOMLDecodeError, ValidationError) as exc:
         raise ProfileValidationError(f"Invalid profile {path.name}: {exc}") from exc

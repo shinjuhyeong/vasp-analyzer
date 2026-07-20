@@ -21,9 +21,12 @@ def test_profile_loads_only_supported_declarative_rules() -> None:
 @pytest.mark.parametrize(
     "source",
     [
-        "schema_version = 2\nid = 'x'\n",
-        "schema_version = 1\nid = 'x'\npython = 'payload.py'\n",
-        "schema_version = 1\nid = 'x'\n[poscar]\ndrop_regex = '.*'\n",
+        "schema_version = 2\nid = 'x'\ndisplay_name = 'X'\n",
+        "schema_version = 1\nid = 'x'\ndisplay_name = 'X'\npython = 'payload.py'\n",
+        (
+            "schema_version = 1\nid = 'x'\ndisplay_name = 'X'\n"
+            "[poscar]\ndrop_regex = '.*'\n"
+        ),
     ],
 )
 def test_profile_rejects_unknown_versions_and_executable_rules(
@@ -49,6 +52,39 @@ def test_profile_rejects_incomplete_poscar_rules(tmp_path: Path, poscar_rule: st
         f"{poscar_rule}\n",
         encoding="utf-8",
     )
+
+    with pytest.raises(ProfileValidationError):
+        load_profile(path)
+
+
+def test_profile_rejects_non_integer_drop_line(tmp_path: Path) -> None:
+    path = tmp_path / "non-integer-drop.toml"
+    path.write_text(
+        "schema_version = 1\nid = 'x'\ndisplay_name = 'X'\n"
+        "[poscar]\ndrop_exact_line_after = 'Selective dynamics'\n"
+        "drop_exact_line = 'custom'\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProfileValidationError):
+        load_profile(path)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "schemaVersion = 1\nid = 'x'\ndisplay_name = 'X'\n",
+        "schema_version = 1\nid = 'x'\ndisplayName = 'X'\n",
+        (
+            "schema_version = 1\nid = 'x'\ndisplay_name = 'X'\n"
+            "[poscar]\ndrop_exact_line_after = 'Selective dynamics'\n"
+            "dropExactLine = '0'\n"
+        ),
+    ],
+)
+def test_profile_rejects_camel_case_toml_aliases(tmp_path: Path, source: str) -> None:
+    path = tmp_path / "camel-case.toml"
+    path.write_text(source, encoding="utf-8")
 
     with pytest.raises(ProfileValidationError):
         load_profile(path)

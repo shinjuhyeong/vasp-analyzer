@@ -1,10 +1,13 @@
 """Immutable schemas for declarative parser compatibility profiles."""
 
+import re
 from typing import Literal
 
-from pydantic import StrictBool, StrictInt, model_validator
+from pydantic import StrictBool, StrictInt, field_validator, model_validator
 
 from vasp_analyzer.core import FrozenModel, ParserProvenance
+
+_INTEGER_LINE = re.compile(r"[+-]?\d+")
 
 
 class DetectionRule(FrozenModel):
@@ -15,6 +18,14 @@ class DetectionRule(FrozenModel):
 class PoscarRule(FrozenModel):
     drop_exact_line_after: Literal["Selective dynamics"] | None = None
     drop_exact_line: str | None = None
+
+    @field_validator("drop_exact_line")
+    @classmethod
+    def require_integer_drop_line(cls, value: str | None) -> str | None:
+        """Allow only a standalone signed or unsigned integer metadata line."""
+        if value is not None and _INTEGER_LINE.fullmatch(value) is None:
+            raise ValueError("drop_exact_line must be a standalone integer")
+        return value
 
     @model_validator(mode="after")
     def require_complete_drop_rule(self) -> "PoscarRule":
