@@ -1,0 +1,1 @@
+"""Offline VASP analyzer."""
