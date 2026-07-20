@@ -16,7 +16,7 @@
   "categories": ["Visualization", "Other"],
   "extensionKind": ["workspace"],
   "main": "./dist/extension.js",
-  "activationEvents": ["onCommand:vaspAnalyzer.open"],
+  "activationEvents": ["onStartupFinished", "onCommand:vaspAnalyzer.open"],
   "contributes": {
     "commands": [
       {

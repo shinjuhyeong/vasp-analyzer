@@ -2,7 +2,12 @@ import { basename } from "node:path";
 
 import * as vscode from "vscode";
 
-import { spawnAnalyzer, type AnalyzerProcess, type Method } from "./analyzerProcess.js";
+import {
+  AnalyzerProtocolError,
+  spawnAnalyzer,
+  type AnalyzerProcess,
+  type Method,
+} from "./analyzerProcess.js";
 import { createControlEndpoint, resolveCalculationRoot } from "./controlEndpoint.js";
 import { webviewHtml } from "./webviewHtml.js";
 
@@ -11,6 +16,13 @@ interface WebviewRequest {
   readonly requestId: number;
   readonly method: Method;
   readonly params: Record<string, unknown>;
+}
+
+let activationPromise: Promise<void> | undefined;
+let disposeActive: (() => void) | undefined;
+
+function requireActive(...signals: readonly AbortSignal[]): void {
+  if (signals.some((signal) => signal.aborted)) throw new Error("VASP Analyzer is closing");
 }
 
 function configuredPythonPath(): string | undefined {
@@ -43,18 +55,24 @@ function isWebviewRequest(value: unknown): value is WebviewRequest {
   );
 }
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+async function activateOnce(context: vscode.ExtensionContext): Promise<void> {
   const panels = new Map<string, vscode.WebviewPanel>();
   const processes = new Map<vscode.WebviewPanel, AnalyzerProcess>();
+  const lifecycle = new AbortController();
 
-  const openCalculation = async (candidate: string): Promise<void> => {
-    const root = await resolveCalculationRoot(candidate);
+  const openCanonicalCalculation = async (
+    root: string,
+    requestSignal: AbortSignal = lifecycle.signal,
+  ): Promise<void> => {
+    requireActive(lifecycle.signal, requestSignal);
     const existing = panels.get(root);
     if (existing) {
+      requireActive(lifecycle.signal, requestSignal);
       existing.reveal();
       return;
     }
 
+    requireActive(lifecycle.signal, requestSignal);
     const webviewRoot = vscode.Uri.joinPath(context.extensionUri, "dist", "webview");
     const panel = vscode.window.createWebviewPanel(
       "vaspAnalyzer.calculation",
@@ -62,10 +80,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [webviewRoot] },
     );
+    let analyzer: AnalyzerProcess;
+    try {
+      requireActive(lifecycle.signal, requestSignal);
+      analyzer = spawnAnalyzer(root, configuredPythonPath(), {
+        requestTimeoutMs: configuredTimeout(),
+      });
+    } catch (error) {
+      panel.dispose();
+      throw error;
+    }
     panels.set(root, panel);
-    const analyzer = spawnAnalyzer(root, configuredPythonPath(), {
-      requestTimeoutMs: configuredTimeout(),
-    });
     processes.set(panel, analyzer);
     const bundle = vscode.Uri.joinPath(webviewRoot, "index.js");
     panel.webview.html = webviewHtml(panel.webview, bundle);
@@ -86,8 +111,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const result = await analyzer.request(message.method, message.params);
           await panel.webview.postMessage({ type: "response", requestId: message.requestId, result });
         } catch (error) {
-          const text = error instanceof Error ? error.message : "Analyzer request failed";
-          await panel.webview.postMessage({ type: "response", requestId: message.requestId, error: text });
+          const protocolError =
+            error instanceof AnalyzerProtocolError
+              ? { code: error.code, message: error.message }
+              : {
+                  code: "extension_error",
+                  message: error instanceof Error ? error.message : "Analyzer request failed",
+                };
+          await panel.webview.postMessage({
+            type: "response",
+            requestId: message.requestId,
+            error: protocolError,
+          });
         }
       },
       undefined,
@@ -104,17 +139,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   };
 
-  const endpoint = await createControlEndpoint({ onOpen: openCalculation });
+  const openCalculation = async (candidate: string): Promise<void> => {
+    requireActive(lifecycle.signal);
+    const root = await resolveCalculationRoot(candidate);
+    requireActive(lifecycle.signal);
+    await openCanonicalCalculation(root);
+  };
+
+  const endpoint = await createControlEndpoint({ onOpen: openCanonicalCalculation });
   context.environmentVariableCollection.replace("VASP_ANALYZER_ENDPOINT", endpoint.address);
   context.environmentVariableCollection.replace("VASP_ANALYZER_TOKEN", endpoint.token);
-  context.subscriptions.push({
-    dispose: () => {
-      context.environmentVariableCollection.delete("VASP_ANALYZER_ENDPOINT");
-      context.environmentVariableCollection.delete("VASP_ANALYZER_TOKEN");
-      void endpoint.close().catch(() => undefined);
-      for (const analyzer of processes.values()) analyzer.dispose();
-    },
-  });
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    lifecycle.abort();
+    context.environmentVariableCollection.delete("VASP_ANALYZER_ENDPOINT");
+    context.environmentVariableCollection.delete("VASP_ANALYZER_TOKEN");
+    void endpoint.close().catch(() => undefined);
+    for (const analyzer of processes.values()) analyzer.dispose();
+    if (disposeActive === dispose) disposeActive = undefined;
+  };
+  disposeActive = dispose;
+  context.subscriptions.push({ dispose });
 
   context.subscriptions.push(
     vscode.commands.registerCommand("vaspAnalyzer.open", async (resource?: vscode.Uri) => {
@@ -125,7 +172,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             canSelectFiles: true,
             canSelectFolders: false,
             canSelectMany: false,
-            filters: { "VASP OUTCAR": ["OUTCAR"] },
             openLabel: "Open VASP Calculation",
           });
           selected = choices?.[0];
@@ -138,6 +184,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 }
 
+export function activate(context: vscode.ExtensionContext): Promise<void> {
+  activationPromise ??= activateOnce(context);
+  return activationPromise;
+}
+
 export function deactivate(): void {
-  // ExtensionContext subscriptions own endpoint, panel, and process cleanup.
+  disposeActive?.();
+  disposeActive = undefined;
+  activationPromise = undefined;
 }

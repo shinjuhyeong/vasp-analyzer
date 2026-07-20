@@ -6,9 +6,19 @@ describe("extension manifest", () => {
     const manifest = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
     expect(manifest.extensionKind).toEqual(["workspace"]);
     expect(manifest.main).toBe("./dist/extension.js");
+    expect(manifest.activationEvents).toEqual(
+      expect.arrayContaining(["onStartupFinished", "onCommand:vaspAnalyzer.open"]),
+    );
     expect(manifest.contributes.commands).toContainEqual(expect.objectContaining({ command: "vaspAnalyzer.open" }));
     expect(manifest.contributes.menus["explorer/context"]).toContainEqual(
       expect.objectContaining({ command: "vaspAnalyzer.open", when: "resourceFilename == OUTCAR" }),
     );
+  });
+
+  it("does not apply an extension filter to extensionless OUTCAR selections", async () => {
+    const source = await readFile(new URL("../extension.ts", import.meta.url), "utf8");
+    expect(source).not.toContain("filters:");
+    expect(source).toContain("resolveCalculationRoot");
+    expect(source).toContain("activationPromise ??=");
   });
 });

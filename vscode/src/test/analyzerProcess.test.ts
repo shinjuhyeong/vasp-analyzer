@@ -2,7 +2,12 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 
-import { AnalyzerProcess, analyzerInvocation, type AnalyzerChild } from "../analyzerProcess.js";
+import {
+  AnalyzerProcess,
+  AnalyzerProtocolError,
+  analyzerInvocation,
+  type AnalyzerChild,
+} from "../analyzerProcess.js";
 
 function fakeChild(): AnalyzerChild & { stdout: PassThrough; stderr: PassThrough; exit: (code?: number) => void } {
   const emitter = new EventEmitter() as AnalyzerChild & {
@@ -51,6 +56,19 @@ describe("AnalyzerProcess", () => {
     await expect(pending).rejects.toThrow(/exited/);
   });
 
+  it.each(["capability_unavailable", "step_not_found", "invalid_request"])(
+    "preserves the typed protocol error %s",
+    async (code) => {
+      const child = fakeChild();
+      const analyzer = new AnalyzerProcess(child);
+      const pending = analyzer.request("getDataset", {});
+      child.stdout.write(`${JSON.stringify({ id: 1, error: { code, message: "typed failure" } })}\n`);
+      const error = await pending.catch((reason: unknown) => reason);
+      expect(error).toBeInstanceOf(AnalyzerProtocolError);
+      expect(error).toMatchObject({ code, message: "typed failure" });
+    },
+  );
+
   it("bounds unterminated stdout, stderr, and request duration", async () => {
     const child = fakeChild();
     const analyzer = new AnalyzerProcess(child, { maxLineBytes: 32, maxStderrBytes: 16, requestTimeoutMs: 10 });
@@ -89,6 +107,22 @@ describe("AnalyzerProcess", () => {
     const pending = analyzer.request("getDataset", {});
     child.stdout.emit("error", new Error("broken output"));
     await expect(pending).rejects.toThrow("broken output");
+    expect(child.kill).toHaveBeenCalledOnce();
+  });
+
+  it("kills a live child once and rejects pending once when the child emits errors", async () => {
+    const child = fakeChild();
+    const analyzer = new AnalyzerProcess(child);
+    let rejected = 0;
+    const pending = analyzer.request("getDataset", {}).catch((error: unknown) => {
+      rejected += 1;
+      throw error;
+    });
+    child.emit("error", new Error("spawn channel failed"));
+    child.emit("error", new Error("duplicate error"));
+    analyzer.dispose();
+    await expect(pending).rejects.toThrow("spawn channel failed");
+    expect(rejected).toBe(1);
     expect(child.kill).toHaveBeenCalledOnce();
   });
 

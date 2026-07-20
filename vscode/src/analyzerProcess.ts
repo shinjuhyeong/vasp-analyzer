@@ -4,6 +4,17 @@ import type { Readable, Writable } from "node:stream";
 
 export type Method = "getDataset" | "getStep" | "getVolumetric";
 
+export class AnalyzerProtocolError extends Error {
+  override readonly name = "AnalyzerProtocolError";
+
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export interface AnalyzerChild extends EventEmitter {
   stdin: Writable;
   stdout: Readable;
@@ -64,6 +75,7 @@ export class AnalyzerProcess {
   private stdoutBuffer = Buffer.alloc(0);
   private stderrBuffer = Buffer.alloc(0);
   private closed = false;
+  private killIssued = false;
 
   constructor(
     private readonly child: AnalyzerChild,
@@ -78,7 +90,9 @@ export class AnalyzerProcess {
     child.stdin.on("error", (error: Error) => this.terminate(new Error(`Analyzer stdin failed: ${error.message}`)));
     child.stdout.on("error", (error: Error) => this.terminate(new Error(`Analyzer stdout failed: ${error.message}`)));
     child.stderr.on("error", (error: Error) => this.terminate(new Error(`Analyzer stderr failed: ${error.message}`)));
-    child.once("error", (error: Error) => this.failAll(new Error(`Analyzer process failed: ${error.message}`)));
+    child.on("error", (error: Error) =>
+      this.terminate(new Error(`Analyzer process failed: ${error.message}`)),
+    );
     child.once("exit", (code: number | null, signal: NodeJS.Signals | null) =>
       this.failAll(new Error(`Analyzer process exited (${code ?? signal ?? "unknown"})`)),
     );
@@ -108,9 +122,8 @@ export class AnalyzerProcess {
   }
 
   dispose(): void {
-    if (this.closed) return;
     this.failAll(new Error("Analyzer process was disposed"));
-    this.child.kill();
+    this.killChild();
   }
 
   private onStderr(chunk: Buffer): void {
@@ -151,15 +164,25 @@ export class AnalyzerProcess {
       return;
     }
     if (!response || typeof response !== "object") return;
-    const record = response as { id?: unknown; result?: unknown; error?: { message?: unknown } };
+    const record = response as { id?: unknown; result?: unknown; error?: unknown };
     if (!Number.isSafeInteger(record.id)) return;
     const id = record.id as number;
     const pending = this.pending.get(id);
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pending.delete(id);
-    if (record.error) {
-      pending.reject(new Error(typeof record.error.message === "string" ? record.error.message : "Analyzer request failed"));
+    if (record.error !== undefined) {
+      if (
+        record.error &&
+        typeof record.error === "object" &&
+        typeof (record.error as { code?: unknown }).code === "string" &&
+        typeof (record.error as { message?: unknown }).message === "string"
+      ) {
+        const protocolError = record.error as { code: string; message: string };
+        pending.reject(new AnalyzerProtocolError(protocolError.code, protocolError.message));
+      } else {
+        pending.reject(new Error("Analyzer returned an invalid response"));
+      }
     } else if (Object.prototype.hasOwnProperty.call(record, "result")) {
       pending.resolve(record.result);
     } else {
@@ -168,8 +191,13 @@ export class AnalyzerProcess {
   }
 
   private terminate(error: Error): void {
-    if (this.closed) return;
     this.failAll(error);
+    this.killChild();
+  }
+
+  private killChild(): void {
+    if (this.killIssued) return;
+    this.killIssued = true;
     this.child.kill();
   }
 

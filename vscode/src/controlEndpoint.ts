@@ -21,7 +21,8 @@ export type ControlResponse =
 export interface ControlEndpointOptions {
   readonly token?: string;
   readonly address?: string;
-  readonly onOpen: (canonicalRoot: string) => void | Promise<void>;
+  readonly onOpen: (canonicalRoot: string, signal: AbortSignal) => void | Promise<void>;
+  readonly resolvePath?: (candidate: string) => Promise<string>;
   readonly maxRequestBytes?: number;
   readonly maxResponseBytes?: number;
   readonly requestTimeoutMs?: number;
@@ -51,6 +52,8 @@ export async function resolveCalculationRoot(candidate: string): Promise<string>
   const canonicalRoot = await realpath(root);
   const outcar = join(canonicalRoot, "OUTCAR");
   await access(outcar, fsConstants.R_OK);
+  const outcarMetadata = await stat(outcar);
+  if (!outcarMetadata.isFile()) throw new Error("OUTCAR is not a regular file");
   const handle = await open(outcar, "r");
   await handle.close();
   return canonicalRoot;
@@ -103,6 +106,8 @@ export async function createControlEndpoint(options: ControlEndpointOptions): Pr
   const maxRequestBytes = options.maxRequestBytes ?? DEFAULT_MAX_REQUEST_BYTES;
   const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_RESPONSE_BYTES;
   const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const resolvePath = options.resolvePath ?? resolveCalculationRoot;
+  const lifecycle = new AbortController();
   await prepareUnixAddress(address);
 
   const sockets = new Set<Socket>();
@@ -127,6 +132,7 @@ export async function createControlEndpoint(options: ControlEndpointOptions): Pr
       if (newline < 0) return;
       const line = buffer.subarray(0, newline);
       void (async () => {
+        if (lifecycle.signal.aborted) return;
         let request: Partial<ControlRequest>;
         try {
           request = JSON.parse(line.toString("utf8")) as Partial<ControlRequest>;
@@ -143,9 +149,10 @@ export async function createControlEndpoint(options: ControlEndpointOptions): Pr
           return;
         }
         try {
-          const canonicalRoot = await resolveCalculationRoot(request.path);
-          if (responded) return;
-          await options.onOpen(canonicalRoot);
+          const canonicalRoot = await resolvePath(request.path);
+          if (responded || lifecycle.signal.aborted) return;
+          await options.onOpen(canonicalRoot, lifecycle.signal);
+          if (responded || lifecycle.signal.aborted) return;
           respond({ ok: true });
         } catch {
           respond({ ok: false, error: "invalid_path" });
@@ -204,6 +211,7 @@ export async function createControlEndpoint(options: ControlEndpointOptions): Pr
     close: async () => {
       if (closed) return;
       closed = true;
+      lifecycle.abort();
       for (const socket of sockets) socket.destroy();
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       if (process.platform !== "win32") {
