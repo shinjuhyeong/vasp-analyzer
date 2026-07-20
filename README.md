@@ -31,6 +31,8 @@ analyzer corpus validate /path/to/corpus
 
 Browser mode prints a URL, binds only `127.0.0.1`, rejects foreign Host headers, serves bundled assets with no CDN dependency, and exposes no CORS permission. It never binds `0.0.0.0` or `::`. Anyone with local access to the loopback URL can view the currently selected calculation, so close the process when finished and do not forward the port from a shared host.
 
+`--port` and `--no-open` imply browser mode. The HTTP protocol accepts only `application/json` and rejects a supplied Origin unless it exactly matches the active loopback URL. A failed automatic browser launch leaves the ready server running and prints the URL; stop it with Ctrl+C.
+
 ## Declarative compatibility profiles
 
 Profiles are data-only TOML, schema-versioned, snake_case, strict, and fail closed. Unknown keys, aliases, types, versions, executable hooks, regex deletion, or partial normalization rules are rejected. Supported 0.1.0 fields are shown completely here:

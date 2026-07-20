@@ -874,9 +874,9 @@ def test_actual_home_barrier_corpus() -> None:
     assert report.bytes_total == 2_288_020_784
     assert report.bytes_total / (1024 ** 3) == pytest.approx(2.131, rel=0.01)
     assert report.home_barrier == 52
-    assert report.with_force_blocks == 49
-    assert report.force_blocks == 12_853
-    assert report.complete == 37
+    assert report.with_force_blocks == 50
+    assert report.force_blocks == 12_909
+    assert report.complete == 38
     assert report.incomplete == 14
     assert report.max_steps == 3_000
 ```
@@ -913,7 +913,7 @@ class CorpusReport(FrozenModel):
 
 def validate_corpus(root: Path) -> CorpusReport:
     outcars = tuple(sorted(root.rglob("OUTCAR")))
-    if len(outcars) != 51:
+    if len(outcars) != 52:
         raise AnalyzerError(f"expected 52 OUTCAR files under corpus root, found {len(outcars)}")
     accumulator = CorpusAccumulator()
     for path in outcars:

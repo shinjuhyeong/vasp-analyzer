@@ -232,6 +232,40 @@ def test_explicit_web_flags_skip_handoff_and_route_port_and_open_state(tmp_path:
     ]
 
 
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [
+        (["--port", "8765"], WebLaunchRequest(path=Path("."), port=8765)),
+        (["--port", "0"], WebLaunchRequest(path=Path("."), port=0)),
+        (["--no-open"], WebLaunchRequest(path=Path("."), open_browser=False)),
+    ],
+)
+def test_each_browser_only_option_skips_extension_handoff(
+    flags: list[str],
+    expected: WebLaunchRequest,
+    tmp_path: Path,
+) -> None:
+    root = _calculation(tmp_path)
+    launches: list[WebLaunchRequest] = []
+
+    def unexpected_send(_address: str, _payload: bytes) -> bytes:
+        raise AssertionError("browser-only options must not contact the extension endpoint")
+
+    app = create_app(
+        web_launcher=launches.append,
+        endpoint_sender=unexpected_send,
+        environ={
+            "VASP_ANALYZER_ENDPOINT": r"\\.\pipe\vasp-analyzer-test",
+            "VASP_ANALYZER_TOKEN": "f" * 32,
+        },
+    )
+
+    result = runner.invoke(app, [str(root), *flags])
+
+    assert result.exit_code == 0, result.output
+    assert launches == [expected.model_copy(update={"path": root.resolve()})]
+
+
 def test_serve_stdio_and_dialect_validate_commands(tmp_path: Path) -> None:
     root = _calculation(tmp_path)
     app = create_app(web_launcher=lambda _request: None, environ={})

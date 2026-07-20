@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from vasp_analyzer.transport.web import create_web_app
@@ -111,3 +112,56 @@ def test_web_rejects_dns_rebinding_host_headers(tmp_path: Path) -> None:
 
     assert client.get("/", headers={"host": "attacker.example"}).status_code == 400
     assert client.get("/", headers={"host": "127.0.0.1:7123"}).status_code == 200
+
+
+def test_web_protocol_requires_json_before_reading_or_parsing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def unexpected_body_read(_request: object) -> bytes:
+        raise AssertionError("a rejected media type must not consume the body")
+
+    monkeypatch.setattr("vasp_analyzer.transport.web._bounded_body", unexpected_body_read)
+    client = TestClient(_app(_calculation(tmp_path), _assets(tmp_path)))
+    valid = json.dumps({"id": 1, "method": "getDataset", "params": {}})
+
+    assert client.post("/api/request", content=valid).status_code == 415
+    assert client.post(
+        "/api/request", content=valid, headers={"content-type": "text/plain"}
+    ).status_code == 415
+
+    monkeypatch.undo()
+    assert client.post(
+        "/api/request",
+        content=valid,
+        headers={"content-type": "application/json; charset=utf-8"},
+    ).status_code == 200
+
+
+def test_web_protocol_rejects_cross_origin_and_null_requests(tmp_path: Path) -> None:
+    client = TestClient(_app(_calculation(tmp_path), _assets(tmp_path)))
+    payload = {"id": 1, "method": "getDataset", "params": {}}
+
+    for origin in (
+        "null",
+        "https://testserver",
+        "http://attacker.example",
+        "http://testserver:8000",
+        "not an origin",
+    ):
+        assert client.post(
+            "/api/request", json=payload, headers={"origin": origin}
+        ).status_code == 403
+
+    assert client.post(
+        "/api/request", json=payload, headers={"origin": "http://testserver"}
+    ).status_code == 200
+    assert client.post(
+        "/api/request",
+        json=payload,
+        headers={"host": "127.0.0.1:7123", "origin": "http://127.0.0.1:7123"},
+    ).status_code == 200
+    assert client.post(
+        "/api/request",
+        json=payload,
+        headers={"host": "127.0.0.1:7123", "origin": "http://localhost:7123"},
+    ).status_code == 403

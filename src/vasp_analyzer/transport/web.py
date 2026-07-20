@@ -8,7 +8,8 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
+from urllib.parse import urlsplit
 
 import typer
 import uvicorn
@@ -82,6 +83,38 @@ def _recover_id(raw: bytes) -> int | None:
     return recover_request_id(value.get("id")) if isinstance(value, dict) else None
 
 
+def _is_json_media_type(request: HttpRequest) -> bool:
+    content_type = request.headers.get("content-type")
+    if content_type is None:
+        return False
+    return content_type.split(";", 1)[0].strip().lower() == "application/json"
+
+
+def _has_valid_origin(request: HttpRequest) -> bool:
+    origin = request.headers.get("origin")
+    if origin is None:
+        return True
+    host = request.headers.get("host")
+    if host is None or origin == "null":
+        return False
+    try:
+        parsed = urlsplit(origin)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "http"
+        and parsed.netloc.lower() == host.lower()
+        and parsed.hostname is not None
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.path == ""
+        and parsed.query == ""
+        and parsed.fragment == ""
+        and (port is None or 0 < port <= 65535)
+    )
+
+
 def create_web_app(
     path: Path,
     *,
@@ -110,6 +143,26 @@ def create_web_app(
 
     @app.post("/api/request")
     async def protocol(request: HttpRequest) -> JSONResponse:
+        if not _is_json_media_type(request):
+            return JSONResponse(
+                status_code=415,
+                content={
+                    "error": {
+                        "code": "unsupported_media_type",
+                        "message": "Content-Type must be application/json",
+                    }
+                },
+            )
+        if not _has_valid_origin(request):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "error": {
+                        "code": "forbidden_origin",
+                        "message": "Origin must match the loopback analyzer URL",
+                    }
+                },
+            )
         raw = await _bounded_body(request)
         if raw is None:
             response = error_response(None, "invalid_request", "Request exceeds the size limit")
@@ -152,53 +205,94 @@ def _loopback_socket(port: int | None) -> socket.socket:
     return listener
 
 
-def launch_web(request: WebLaunchRequest) -> None:
+def _create_web_app(path: Path, profile: CompatibilityProfile | None) -> FastAPI:
+    return create_web_app(path, profile=profile)
+
+
+def _create_server(app: object, port: int) -> uvicorn.Server:
+    return uvicorn.Server(
+        uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    )
+
+
+def launch_web(
+    request: WebLaunchRequest,
+    *,
+    listener_factory: Callable[[int | None], Any] = _loopback_socket,
+    app_factory: Callable[[Path, CompatibilityProfile | None], object] = _create_web_app,
+    server_factory: Callable[[object, int], Any] = _create_server,
+    thread_factory: Callable[..., Any] = threading.Thread,
+    browser_open: Callable[[str], bool] = webbrowser.open,
+    emit: Callable[..., None] = typer.echo,
+    monotonic: Callable[[], float] = time.monotonic,
+    pause: Callable[[float], None] = time.sleep,
+) -> None:
     """Run a race-resistant loopback server and optionally open its browser URL."""
 
     try:
-        listener = _loopback_socket(request.port)
-        app = create_web_app(request.path, profile=request.profile)
+        listener = listener_factory(request.port)
+        app = app_factory(request.path, request.profile)
     except (OSError, AnalyzerError) as exc:
         raise AnalyzerError(f"could not start browser fallback: {exc}") from exc
     port = int(listener.getsockname()[1])
     url = f"http://127.0.0.1:{port}"
-    server = uvicorn.Server(
-        uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    )
-    thread = threading.Thread(
-        target=server.run,
-        kwargs={"sockets": [listener]},
+    try:
+        server = server_factory(app, port)
+    except Exception as exc:
+        listener.close()
+        raise AnalyzerError("could not start browser fallback") from exc
+    failures: list[BaseException] = []
+
+    def run_server() -> None:
+        try:
+            server.run(sockets=[listener])
+        except BaseException as exc:
+            failures.append(exc)
+
+    thread = thread_factory(
+        target=run_server,
+        kwargs={},
         name="vasp-analyzer-web",
         daemon=True,
     )
-    thread.start()
-    deadline = time.monotonic() + 10
-    while thread.is_alive() and not server.started and time.monotonic() < deadline:
-        time.sleep(0.01)
-    if not server.started:
-        server.should_exit = True
-        thread.join(timeout=2)
-        listener.close()
-        raise AnalyzerError("browser fallback did not become ready")
-    typer.echo(url)
+    thread_started = False
     try:
+        try:
+            thread.start()
+            thread_started = True
+        except Exception as exc:
+            raise AnalyzerError("could not start browser fallback") from exc
+        deadline = monotonic() + 10
+        while thread.is_alive() and not server.started and monotonic() < deadline:
+            pause(0.01)
+        if failures:
+            raise AnalyzerError("browser fallback server failed")
+        if not server.started:
+            raise AnalyzerError("browser fallback did not become ready")
+        emit(url)
         if request.open_browser:
             try:
-                opened = webbrowser.open(url)
-            except OSError:
+                opened = browser_open(url)
+            except Exception:
                 opened = False
             if not opened:
-                typer.echo(
+                emit(
                     "Browser could not be opened automatically; use the URL above.",
                     err=True,
                 )
         while thread.is_alive():
             thread.join(timeout=0.25)
+        if failures:
+            raise AnalyzerError("browser fallback server failed")
     except KeyboardInterrupt:
         server.should_exit = True
-        thread.join(timeout=5)
     finally:
         server.should_exit = True
+        if thread_started:
+            try:
+                thread.join(timeout=5)
+            except Exception:
+                pass
         listener.close()
 
 

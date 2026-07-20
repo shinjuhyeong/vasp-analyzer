@@ -130,7 +130,7 @@ def create_app(
         path: Path | None = typer.Argument(None),
         profile: Path | None = typer.Option(None, "--profile"),
         web: bool = typer.Option(False, "--web"),
-        port: int | None = typer.Option(None, "--port", min=1, max=65535),
+        port: int | None = typer.Option(None, "--port", min=0, max=65535),
         no_open: bool = typer.Option(False, "--no-open"),
     ) -> None:
         if ctx.invoked_subcommand is not None:
@@ -138,7 +138,8 @@ def create_app(
         try:
             calculation_path = canonical_calculation_path(path or Path.cwd())
             selected_profile = load_profile(profile) if profile is not None else None
-            if selected_profile is None and not web:
+            browser_requested = web or port is not None or no_open
+            if selected_profile is None and not browser_requested:
                 environment = os.environ if environ is None else environ
                 handoff_configured = bool(
                     environment.get("VASP_ANALYZER_ENDPOINT")

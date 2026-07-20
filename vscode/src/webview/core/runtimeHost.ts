@@ -16,9 +16,15 @@ export function createRuntimeHost(runtime: RuntimeScope): AnalysisHost {
   if (typeof runtime.acquireVsCodeApi === "function") {
     return new VsCodeHost(runtime.acquireVsCodeApi(), runtime.window);
   }
+  let storage: Storage | undefined;
+  try {
+    storage = runtime.window.sessionStorage;
+  } catch {
+    storage = undefined;
+  }
   return new HttpHost(
     "/api/request",
     (input, init) => (runtime.fetch ?? fetch)(input, init),
-    runtime.window.sessionStorage,
+    storage,
   );
 }

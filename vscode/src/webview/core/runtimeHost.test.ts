@@ -40,4 +40,16 @@ describe("runtime host selection", () => {
 
     expect(reloaded.getState()).toEqual({ selectedStep: 4, selectedSite: 2 });
   });
+
+  it("falls back to memory when accessing sessionStorage itself throws", () => {
+    const throwingWindow = Object.create(window) as Window;
+    Object.defineProperty(throwingWindow, "sessionStorage", {
+      get: () => { throw new DOMException("denied", "SecurityError"); },
+    });
+
+    const host = createRuntimeHost({ fetch: vi.fn(), window: throwingWindow });
+    host.setState({ selectedStep: 2, selectedSite: null });
+
+    expect(host.getState()).toEqual({ selectedStep: 2, selectedSite: null });
+  });
 });
