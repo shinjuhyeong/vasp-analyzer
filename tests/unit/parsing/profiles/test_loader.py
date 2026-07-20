@@ -131,6 +131,16 @@ def test_normalizer_drops_only_declared_metadata_and_records_provenance() -> Non
     assert provenance.compatibility_metadata == ("0",)
 
 
+def test_normalizer_accepts_whitespace_padded_declared_integer_metadata() -> None:
+    profile = load_profile(FIXTURES / "profiles" / "home-example.toml")
+    source = "Header\nSelective dynamics\n   0   \nDirect\n0 0 0 T T T\n"
+
+    result = normalize_poscar(source, profile)
+
+    assert result.text == "Header\nSelective dynamics\nDirect\n0 0 0 T T T\n"
+    assert result.compatibility_metadata == ("0",)
+
+
 def test_normalizer_returns_standard_poscar_unchanged() -> None:
     profile = CompatibilityProfile(schema_version=1, id="standard", display_name="Standard")
     source = "Header\nDirect\n0 0 0\n"

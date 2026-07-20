@@ -56,6 +56,7 @@ class ScanResult(FrozenModel):
     normally_finished: bool
     species: tuple[str, ...] = ()
     force_prefix_columns: int = 0
+    position_force_markers: tuple[str, ...] = ("POSITION", "TOTAL-FORCE")
 
 
 def _contains_all(line: bytes, markers: tuple[str, ...]) -> bool:
@@ -453,6 +454,7 @@ def scan_outcar(
         normally_finished=normally_finished,
         species=species,
         force_prefix_columns=dialect.profile.validation.force_prefix_columns,
+        position_force_markers=dialect.profile.outcar.markers.position_force,
     )
 
 

@@ -47,7 +47,7 @@ def normalize_poscar(text: str, profile: CompatibilityProfile) -> NormalizationR
     if candidate_index >= len(lines):
         _validate_coordinate_mode(lines, candidate_index)
 
-    candidate = _line_content(lines[candidate_index])
+    candidate = _line_content(lines[candidate_index]).strip()
     if candidate != dropped_line:
         _validate_coordinate_mode(lines, candidate_index)
         return NormalizationResult(text=text)

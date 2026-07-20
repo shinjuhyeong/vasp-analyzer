@@ -27,13 +27,16 @@ from .discovery import DiscoveredCalculation, discover_calculation
 
 
 def inspect_source(path: Path) -> SourceFile:
-    data = path.read_bytes()
+    digest = sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
     stat = path.stat()
     return SourceFile(
         path=str(path.resolve()),
         size=stat.st_size,
         mtime_ns=stat.st_mtime_ns,
-        fingerprint=sha256(data).hexdigest(),
+        fingerprint=digest.hexdigest(),
     )
 
 

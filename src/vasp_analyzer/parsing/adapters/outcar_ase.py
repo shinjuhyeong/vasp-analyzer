@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import tempfile
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
@@ -28,11 +29,26 @@ class ParsedTrajectoryStep(FrozenModel):
 class _NormalizedForceRows:
     """Text stream that removes a declared prefix only inside force blocks."""
 
-    def __init__(self, path: Path, *, atom_count: int, prefix_columns: int) -> None:
-        self.name = str(path)
+    def __init__(
+        self,
+        path: Path,
+        *,
+        atom_count: int,
+        prefix_columns: int,
+        markers: tuple[str, ...],
+    ) -> None:
+        # Constraints are reconciled by our normalized POSCAR adapter. Give ASE
+        # a deliberately nonexistent workdir so it cannot re-read an incompatible
+        # home POSCAR behind that adapter's back.
+        self.name = str(
+            Path(tempfile.gettempdir())
+            / f"vasp-analyzer-normalized-{id(self)}"
+            / "OUTCAR"
+        )
         self._stream = path.open("r", encoding="utf-8", errors="replace")
         self._atom_count = atom_count
         self._prefix_columns = prefix_columns
+        self._markers = markers
         self._rows_remaining = 0
         self._after_marker = False
 
@@ -64,33 +80,45 @@ class _NormalizedForceRows:
         elif self._after_marker:
             self._after_marker = False
             self._rows_remaining = self._atom_count
-        elif "POSITION" in line and "TOTAL-FORCE" in line:
+        elif _matches_markers(line, self._markers):
             self._after_marker = True
+            line = " POSITION                                       TOTAL-FORCE (eV/Angst)\n"
         return line
 
 
-def _contains_prefixed_force_rows(path: Path, scan: ScanResult) -> bool:
+def _matches_markers(line: str | bytes, markers: tuple[str, ...]) -> bool:
+    lowered = line.lower()
+    return bool(markers) and all(
+        (marker.encode("utf-8").lower() if isinstance(line, bytes) else marker.lower())
+        in lowered
+        for marker in markers
+    )
+
+
+def _requires_ase_normalization(path: Path, scan: ScanResult) -> bool:
     prefix = scan.force_prefix_columns
-    if not prefix or scan.checkpoint.expected_atom_count <= 0:
+    if scan.checkpoint.expected_atom_count <= 0:
         return False
     with path.open("rb") as stream:
         for line in stream:
-            if b"POSITION" in line and b"TOTAL-FORCE" in line:
+            if _matches_markers(line, scan.position_force_markers):
                 next(stream, b"")
                 first_row = next(stream, b"")
-                if len(first_row.split()) == 6 + prefix:
+                canonical = b"POSITION" in line and b"TOTAL-FORCE" in line
+                if not canonical or (prefix and len(first_row.split()) == 6 + prefix):
                     return True
     return False
 
 
 def _ase_frames(path: Path, scan: ScanResult) -> Iterator[object]:
-    if not _contains_prefixed_force_rows(path, scan):
+    if not _requires_ase_normalization(path, scan):
         yield from iread(path, format="vasp-out", index=":")
         return
     with _NormalizedForceRows(
         path,
         atom_count=scan.checkpoint.expected_atom_count,
         prefix_columns=scan.force_prefix_columns,
+        markers=scan.position_force_markers,
     ) as stream:
         yield from iread(stream, format="vasp-out", index=":")  # type: ignore[arg-type]
 

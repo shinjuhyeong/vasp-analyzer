@@ -13,6 +13,8 @@ from vasp_analyzer.core import DatasetConsistencyError
 from vasp_analyzer.parsing.adapters import outcar_ase
 from vasp_analyzer.parsing.adapters.outcar_ase import iter_outcar_steps
 from vasp_analyzer.parsing.dialects import HOME_BARRIER
+from vasp_analyzer.parsing.dialects.registry import profile_dialect
+from vasp_analyzer.parsing.profiles import load_profile
 from vasp_analyzer.parsing.recovery import ScanResult, scan_outcar
 
 
@@ -577,12 +579,50 @@ def test_real_ase_normalizes_declared_home_force_prefixes(tmp_path: Path) -> Non
         "H_ 2 1.500000 1.500000 1.500000 -0.100000 0.000000 0.000000",
     )
     path.write_text(source, encoding="ascii")
+    (tmp_path / "POSCAR").write_text(
+        "fixture\n1\n3 0 0\n0 3 0\n0 0 3\nH\n2\n"
+        "Selective dynamics\n   0\nDirect\n"
+        "0 0 0 T T T\n0.5 0.5 0.5 T T T\n",
+        encoding="ascii",
+    )
     scan = scan_outcar(path, HOME_BARRIER)
 
     (step,) = tuple(iter_outcar_steps(path, scan))
 
     assert step.cartesian_positions[1] == (1.5, 1.5, 1.5)
     assert step.raw_forces[0] == (0.1, 0.0, 0.0)
+
+
+def test_custom_profile_force_markers_drive_scanner_and_ase_normalization(
+    tmp_path: Path,
+) -> None:
+    profile_path = tmp_path / "custom.toml"
+    profile_path.write_text(
+        "schema_version = 1\nid = 'custom'\ndisplay_name = 'Custom'\n"
+        "[outcar.markers]\nposition_force = ['atomic coordinates', 'push vectors']\n"
+        "[validation]\nforce_prefix_columns = 2\n",
+        encoding="utf-8",
+    )
+    dialect = profile_dialect(load_profile(profile_path))
+    path = tmp_path / "OUTCAR"
+    source = (FIXTURES / "ase-complete-one-step.OUTCAR").read_text(encoding="ascii")
+    source = source.replace(
+        "POSITION                                       TOTAL-FORCE (eV/Angst)",
+        "AtOmIc CoOrDiNaTeS                              PuSh VeCtOrS",
+    ).replace(
+        "   0.000000 0.000000 0.000000  0.100000 0.000000 0.000000",
+        "H_ 1 0.000000 0.000000 0.000000  0.100000 0.000000 0.000000",
+    ).replace(
+        "   1.500000 1.500000 1.500000 -0.100000 0.000000 0.000000",
+        "H_ 2 1.500000 1.500000 1.500000 -0.100000 0.000000 0.000000",
+    )
+    path.write_text(source, encoding="ascii")
+
+    scan = scan_outcar(path, dialect)
+    (step,) = tuple(iter_outcar_steps(path, scan))
+
+    assert scan.steps[0].raw_forces == step.raw_forces
+    assert scan.steps[0].cartesian_positions == step.cartesian_positions
 
 
 def test_real_ase_incomplete_outcar_parse_error_uses_validated_fallback() -> None:

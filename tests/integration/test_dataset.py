@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from vasp_analyzer.calculation.cache import CacheStore
-from vasp_analyzer.calculation.dataset import load_dataset
+from vasp_analyzer.calculation.dataset import inspect_source, load_dataset
 from vasp_analyzer.calculation.session import CalculationSession
 from vasp_analyzer.core import DatasetConsistencyError
 
@@ -75,7 +75,9 @@ def test_session_cache_reuse_and_refresh_upserts_provisional_step(tmp_path: Path
     session = CalculationSession(root, cache=cache)
     first = session.load()
     assert first.ionic_steps[0].total_energy is None
-    assert CalculationSession(root, cache=cache).load() == first
+    cached_session = CalculationSession(root, cache=cache)
+    assert cached_session.load() == first
+    assert cached_session.last_evidence.cache_reused is True
 
     with (root / "OUTCAR").open("ab") as stream:
         stream.write(b" free energy    TOTEN  =       -10.250000 eV\n")
@@ -84,6 +86,50 @@ def test_session_cache_reuse_and_refresh_upserts_provisional_step(tmp_path: Path
     assert len(refreshed.ionic_steps) == 1
     assert refreshed.ionic_steps[0].index == 0
     assert refreshed.ionic_steps[0].total_energy == -10.25
+    assert session.last_evidence.resumed_from == session.last_evidence.previous_verified_offset
+    assert session.last_evidence.resumed_from is not None
+    assert session.last_evidence.resumed_from > 0
+
+
+def test_first_session_load_reports_cache_miss(tmp_path: Path) -> None:
+    root = make_calculation(tmp_path / "calc")
+    session = CalculationSession(root, cache=CacheStore(tmp_path / "cache"))
+
+    session.load()
+
+    assert session.last_evidence.cache_reused is False
+    assert session.last_evidence.resumed_from is None
+
+
+def test_disk_cache_round_trips_computed_force_component(tmp_path: Path) -> None:
+    root = make_calculation(tmp_path / "calc")
+    write_selective_poscar(root / "POSCAR", allowed=True)
+    cache = CacheStore(tmp_path / "cache")
+    first = CalculationSession(root, cache=cache).load()
+    assert first.ionic_steps[0].strongest_free_component is not None
+
+    cached_session = CalculationSession(root, cache=cache)
+    cached = cached_session.load()
+
+    assert cached_session.last_evidence.cache_reused is True
+    assert cached.ionic_steps[0].strongest_free_component is not None
+
+
+def test_source_fingerprint_streams_without_path_read_bytes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "large-source"
+    path.write_bytes(b"0123456789" * 100_000)
+
+    def reject_read_bytes(self: Path) -> bytes:
+        raise AssertionError(f"read_bytes copied source: {self.name}")
+
+    monkeypatch.setattr(Path, "read_bytes", reject_read_bytes)
+
+    source = inspect_source(path)
+
+    assert source.size == 1_000_000
+    assert len(source.fingerprint) == 64
 
 
 def test_cache_identity_includes_poscar_changes(tmp_path: Path) -> None:

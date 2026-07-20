@@ -42,7 +42,9 @@ class CacheStore:
         self.root.mkdir(parents=True, exist_ok=True)
         destination = self.root / f"{key}.json"
         temporary = destination.with_suffix(".tmp")
-        temporary.write_text(payload.model_dump_json(), encoding="utf-8")
+        temporary.write_text(
+            payload.model_dump_json(exclude_computed_fields=True), encoding="utf-8"
+        )
         temporary.replace(destination)
 
 
