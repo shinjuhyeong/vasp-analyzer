@@ -35,12 +35,13 @@ function clampSplit(value: number): number {
 
 export function App({ host, structure: Structure = EmptyStructure, convergence: Convergence = EmptyConvergence }: AppProps): ReactElement {
   const [state, dispatch] = useReducer(analysisReducer, initialAnalysisState);
-  const [error, setError] = useState<string | null>(null);
+  const [load, setLoad] = useState<Readonly<{ host: AnalysisHost | null; error: string | null }>>({ host: null, error: null });
   const [split, setSplit] = useState(60);
   const workspace = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let active = true;
+    setLoad({ host: null, error: null });
     void host.request("getDataset", {}).then(
       (result) => {
         if (active && "schemaVersion" in result) {
@@ -48,10 +49,11 @@ export function App({ host, structure: Structure = EmptyStructure, convergence: 
           dispatch(persisted
             ? { type: "datasetLoaded", dataset: result, persisted }
             : { type: "datasetLoaded", dataset: result });
+          setLoad({ host, error: null });
         }
       },
       (reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : "Unable to load the calculation");
+        if (active) setLoad({ host, error: reason instanceof Error ? reason.message : "Unable to load the calculation" });
       },
     );
     return () => {
@@ -60,9 +62,9 @@ export function App({ host, structure: Structure = EmptyStructure, convergence: 
   }, [host]);
 
   useEffect(() => {
-    if (!state.dataset) return;
+    if (!state.dataset || load.host !== host || load.error !== null) return;
     host.setState({ selectedStep: state.selectedStep, selectedSite: state.selectedSite });
-  }, [host, state.dataset, state.selectedSite, state.selectedStep]);
+  }, [host, load, state.dataset, state.selectedSite, state.selectedStep]);
 
   const selectedStep = state.dataset?.ionicSteps[state.selectedStep];
   const selectedSite = useMemo(
@@ -70,8 +72,8 @@ export function App({ host, structure: Structure = EmptyStructure, convergence: 
     [state.dataset, state.selectedSite],
   );
 
-  if (error) return <main className="status-panel" role="alert">{error}</main>;
-  if (!state.dataset || !selectedStep) return <main className="status-panel" aria-live="polite">Loading VASP calculation…</main>;
+  if (load.host === host && load.error) return <main className="status-panel" role="alert">{load.error}</main>;
+  if (load.host !== host || !state.dataset || !selectedStep) return <main className="status-panel" aria-live="polite">Loading VASP calculation…</main>;
 
   const regionProps: AnalysisRegionProps = {
     selectedStep,

@@ -3,7 +3,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import type { ComponentType } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { App, type AnalysisRegionProps } from "./App.js";
 import { MemoryHost, twoStepDataset } from "./test/fixtures.js";
@@ -19,6 +19,28 @@ const FakeStructure: ComponentType<AnalysisRegionProps> = ({ selectedStep, selec
 const FakeConvergence: ComponentType<AnalysisRegionProps> = ({ selectedStep }) => (
   <span data-testid="convergence-step">{selectedStep.index}</span>
 );
+
+class DeferredHost extends MemoryHost {
+  readonly setStateCalls: Array<unknown> = [];
+  private resolveDataset!: (dataset: typeof twoStepDataset) => void;
+  private rejectDataset!: (error: Error) => void;
+  readonly pending = new Promise<typeof twoStepDataset>((resolve, reject) => {
+    this.resolveDataset = resolve;
+    this.rejectDataset = reject;
+  });
+
+  override async request(method: "getDataset" | "getStep", params: Readonly<Record<string, unknown>>) {
+    if (method === "getDataset") return await this.pending;
+    return await super.request(method, params);
+  }
+
+  resolve(dataset = twoStepDataset): void { this.resolveDataset(dataset); }
+  reject(error = new Error("load failed")): void { this.rejectDataset(error); }
+  override setState(state: { readonly selectedStep: number; readonly selectedSite: number | null }): void {
+    this.setStateCalls.push(state);
+    super.setState(state);
+  }
+}
 
 describe("analysis workspace", () => {
   it("uses one selected step across both layout regions", async () => {
@@ -96,5 +118,81 @@ describe("analysis workspace", () => {
 
     expect(screen.getByLabelText("Force components")).toHaveValue("raw");
     expect(screen.getByLabelText("Force vector scale")).toHaveValue("2.5");
+  });
+
+  it("propagates force mode and scale to both analysis regions", async () => {
+    const Region = ({ forceMode, forceScale }: AnalysisRegionProps) => <output>{forceMode}:{forceScale}</output>;
+    render(<App host={new MemoryHost()} structure={Region} convergence={Region} />);
+    await screen.findAllByText("free:1");
+
+    fireEvent.change(screen.getByLabelText("Force components"), { target: { value: "raw" } });
+    fireEvent.change(screen.getByLabelText("Force vector scale"), { target: { value: "3" } });
+
+    expect(screen.getAllByText("raw:3")).toHaveLength(2);
+  });
+
+  it("implements pointer drag, clamp, and release with the same separator state", async () => {
+    render(<App host={new MemoryHost()} structure={FakeStructure} convergence={FakeConvergence} />);
+    const separator = await screen.findByRole("separator");
+    const workspace = separator.closest("main")!;
+    Object.defineProperty(workspace, "getBoundingClientRect", { value: () => ({ top: 0, height: 100 }) });
+    const setCapture = vi.fn();
+    const releaseCapture = vi.fn();
+    Object.defineProperties(workspace, {
+      setPointerCapture: { value: setCapture },
+      hasPointerCapture: { value: () => true },
+      releasePointerCapture: { value: releaseCapture },
+    });
+
+    fireEvent.pointerDown(separator, { pointerId: 7, clientY: 99 });
+    expect(separator).toHaveAttribute("aria-valuenow", "80");
+    fireEvent.pointerMove(workspace, { pointerId: 7, clientY: 1 });
+    expect(separator).toHaveAttribute("aria-valuenow", "30");
+    fireEvent.pointerUp(workspace, { pointerId: 7 });
+    expect(setCapture).toHaveBeenCalledWith(7);
+    expect(releaseCapture).toHaveBeenCalledWith(7);
+  });
+
+  it("does not leak old selection into a replacement host before its dataset loads", async () => {
+    const user = userEvent.setup();
+    const hostA = new MemoryHost();
+    const hostB = new DeferredHost(twoStepDataset, { selectedStep: 0, selectedSite: 1 });
+    const view = render(<App host={hostA} structure={FakeStructure} convergence={FakeConvergence} />);
+    await screen.findByTestId("structure-step");
+    await user.selectOptions(screen.getByLabelText("Ionic step"), "1");
+
+    view.rerender(<App host={hostB} structure={FakeStructure} convergence={FakeConvergence} />);
+    expect(screen.getByText("Loading VASP calculation…")).toBeVisible();
+    expect(hostB.setStateCalls).toHaveLength(0);
+    hostB.resolve();
+
+    expect(await screen.findByText("O 2")).toBeVisible();
+    expect(screen.getByLabelText("Ionic step")).toHaveValue("0");
+    await waitFor(() => expect(hostB.setStateCalls).toEqual([{ selectedStep: 0, selectedSite: 1 }]));
+  });
+
+  it("ignores a late prior-host response after replacement", async () => {
+    const hostA = new DeferredHost();
+    const hostB = new MemoryHost(twoStepDataset, { selectedStep: 1, selectedSite: null });
+    const view = render(<App host={hostA} structure={FakeStructure} convergence={FakeConvergence} />);
+    view.rerender(<App host={hostB} structure={FakeStructure} convergence={FakeConvergence} />);
+    expect(await screen.findByTestId("structure-step")).toHaveTextContent("1");
+
+    hostA.resolve({ ...twoStepDataset, root: "/stale" });
+
+    await waitFor(() => expect(screen.getByText("calculation")).toBeVisible());
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
+  });
+
+  it("clears an earlier host error when a replacement host succeeds", async () => {
+    const hostA = new DeferredHost();
+    const view = render(<App host={hostA} structure={FakeStructure} convergence={FakeConvergence} />);
+    hostA.reject(new Error("first failed"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("first failed");
+
+    view.rerender(<App host={new MemoryHost()} structure={FakeStructure} convergence={FakeConvergence} />);
+
+    expect(await screen.findByTestId("structure-step")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
