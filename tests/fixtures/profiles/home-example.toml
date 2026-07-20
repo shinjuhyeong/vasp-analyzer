@@ -1,0 +1,20 @@
+schema_version = 1
+id = "home-example"
+display_name = "Home example"
+
+[detection]
+outcar_contains = ["vasp.5.4.1-barrier"]
+priority = 100
+
+[poscar]
+drop_exact_line_after = "Selective dynamics"
+drop_exact_line = "0"
+
+[outcar.markers]
+position_force = ["POSITION", "TOTAL-FORCE"]
+total_energy = ["free energy", "TOTEN"]
+converged = ["reached required accuracy"]
+
+[validation]
+expected_force_columns = 6
+allow_incomplete_tail = true
