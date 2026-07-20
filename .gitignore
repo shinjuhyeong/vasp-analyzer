@@ -1,2 +1,17 @@
 .superpowers/
 .brainstorm-server.*
+
+# Local VASP calculation outputs. Curated test fixtures under tests/ remain trackable.
+/POSCAR
+/CONTCAR
+/OUTCAR
+/OSZICAR
+/vasprun.xml
+/DOSCAR
+/EIGENVAL
+/PROCAR
+/CHGCAR*
+/AECCAR*
+/ELFCAR
+/LOCPOT
+/WAVECAR
