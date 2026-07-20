@@ -24,6 +24,14 @@ _LATTICE_MARKER = b"direct lattice vectors"
 _NORMAL_FINISH_MARKER = b"general timing and accounting"
 
 
+class _NonNumericRow(OutcarFormatError):
+    pass
+
+
+class _NonFiniteRow(OutcarFormatError):
+    pass
+
+
 class StepRecord(FrozenModel):
     step_id: int
     block_start: int
@@ -57,9 +65,13 @@ def _finite_numbers(line: bytes, *, context: str, offset: int) -> tuple[float, .
         try:
             value = float(token.replace(b"D", b"E").replace(b"d", b"e"))
         except ValueError as error:
-            raise OutcarFormatError(f"{context} at byte {offset} contains a non-numeric value") from error
+            raise _NonNumericRow(
+                f"{context} at byte {offset} contains a non-numeric value"
+            ) from error
         if not math.isfinite(value):
-            raise OutcarFormatError(f"{context} at byte {offset} contains a non-finite value")
+            raise _NonFiniteRow(
+                f"{context} at byte {offset} contains a non-finite value"
+            )
         values.append(value)
     return tuple(values)
 
@@ -76,13 +88,24 @@ def _starts_with_number(line: bytes) -> bool:
 
 
 def _mat3(rows: list[tuple[float, ...]], offset: int) -> Mat3:
-    if len(rows) != 3 or any(len(row) < 3 for row in rows):
-        raise OutcarFormatError(f"lattice at byte {offset} must contain three numeric rows")
-    return (
+    if len(rows) != 3 or any(len(row) != 6 for row in rows):
+        raise OutcarFormatError(
+            f"lattice at byte {offset} must contain three six-column numeric rows"
+        )
+    lattice: Mat3 = (
         (rows[0][0], rows[0][1], rows[0][2]),
         (rows[1][0], rows[1][1], rows[1][2]),
         (rows[2][0], rows[2][1], rows[2][2]),
     )
+    a, b, c = lattice
+    determinant = (
+        a[0] * (b[1] * c[2] - b[2] * c[1])
+        - a[1] * (b[0] * c[2] - b[2] * c[0])
+        + a[2] * (b[0] * c[1] - b[1] * c[0])
+    )
+    if not math.isfinite(determinant) or determinant == 0.0:
+        raise OutcarFormatError(f"lattice at byte {offset} is singular")
+    return lattice
 
 
 def _step(
@@ -126,7 +149,7 @@ def scan_outcar(
 
     steps: list[StepRecord] = []
     warnings: list[ParserWarning] = []
-    normally_finished = False
+    normally_finished = checkpoint.normally_finished if can_resume and checkpoint else False
     last_verified_offset = resumed_from
     pending: dict[str, object] | None = None
     force_rows_just_finished = False
@@ -151,14 +174,15 @@ def scan_outcar(
             digest.update(raw)
             return start, raw
 
-        def finalize_pending() -> None:
+        def finalize_pending(*, stable: bool) -> None:
             nonlocal pending, next_step_id, last_verified_offset
             if pending is None:
                 return
             record = _step(step_id=next_step_id, **pending)  # type: ignore[arg-type]
             steps.append(record)
-            next_step_id += 1
-            last_verified_offset = record.block_end
+            if stable:
+                next_step_id += 1
+                last_verified_offset = record.block_end
             pending = None
 
         def handle_incomplete_tail(message: str, block_offset: int) -> None:
@@ -190,6 +214,8 @@ def scan_outcar(
 
             if _NORMAL_FINISH_MARKER in lowered:
                 normally_finished = True
+                finalize_pending(stable=True)
+                last_verified_offset = offset
 
             if pending is not None and _contains_all(
                 raw, dialect.profile.outcar.markers.converged
@@ -197,26 +223,43 @@ def scan_outcar(
                 pending["ionic_converged"] = True
 
             if _LATTICE_MARKER in lowered:
-                finalize_pending()
+                finalize_pending(stable=True)
                 lattice_rows: list[tuple[float, ...]] = []
+                incomplete_lattice = False
                 for _ in range(3):
                     lattice_item = read_line()
                     if lattice_item is None:
-                        raise OutcarFormatError(
-                            f"incomplete lattice beginning at byte {line_start}"
+                        handle_incomplete_tail(
+                            "incomplete lattice block", line_start
                         )
+                        incomplete_lattice = True
+                        break
                     lattice_offset, lattice_raw = lattice_item
-                    lattice_rows.append(
-                        _finite_numbers(
+                    try:
+                        lattice_values = _finite_numbers(
                             lattice_raw, context="lattice row", offset=lattice_offset
                         )
-                    )
+                    except _NonNumericRow:
+                        if lattice_raw.endswith((b"\n", b"\r")):
+                            raise
+                        handle_incomplete_tail("incomplete lattice row", lattice_offset)
+                        incomplete_lattice = True
+                        break
+                    if len(lattice_values) != 6 and not lattice_raw.endswith(
+                        (b"\n", b"\r")
+                    ):
+                        handle_incomplete_tail("incomplete lattice row", lattice_offset)
+                        incomplete_lattice = True
+                        break
+                    lattice_rows.append(lattice_values)
+                if incomplete_lattice:
+                    break
                 lattice = _mat3(lattice_rows, line_start)
                 force_rows_just_finished = False
                 continue
 
             if _contains_all(raw, dialect.profile.outcar.markers.position_force):
-                finalize_pending()
+                finalize_pending(stable=True)
                 if expected_atom_count <= 0:
                     raise OutcarFormatError(
                         f"force block at byte {line_start} appears before a valid NIONS value"
@@ -251,10 +294,29 @@ def scan_outcar(
                         incomplete = True
                         break
                     atom_offset, atom_raw = atom_item
-                    values = _finite_numbers(
-                        atom_raw, context="position/force row", offset=atom_offset
-                    )
+                    try:
+                        values = _finite_numbers(
+                            atom_raw, context="position/force row", offset=atom_offset
+                        )
+                    except _NonNumericRow:
+                        if atom_raw.endswith((b"\n", b"\r")):
+                            raise
+                        handle_incomplete_tail(
+                            f"incomplete atom row {atom_index + 1} of "
+                            f"{expected_atom_count}",
+                            atom_offset,
+                        )
+                        incomplete = True
+                        break
                     if len(values) != dialect.profile.validation.expected_force_columns:
+                        if not atom_raw.endswith((b"\n", b"\r")):
+                            handle_incomplete_tail(
+                                f"incomplete atom row {atom_index + 1} of "
+                                f"{expected_atom_count}",
+                                atom_offset,
+                            )
+                            incomplete = True
+                            break
                         raise OutcarFormatError(
                             f"position/force row at byte {atom_offset} has {len(values)} columns; expected 6"
                         )
@@ -301,17 +363,24 @@ def scan_outcar(
                 pending["energy"] = energy_values[0]
                 pending["block_end"] = offset
 
-        finalize_pending()
+        replay_provisional = pending is not None
+        provisional_start = int(pending["block_start"]) if pending is not None else None
+        finalize_pending(stable=False)
     current_stat = path.stat()
     new_checkpoint = ParserCheckpoint(
         path=str(path.resolve()),
         size=offset,
         mtime_ns=current_stat.st_mtime_ns,
         prefix_fingerprint=digest.hexdigest(),
-        last_verified_offset=last_verified_offset,
+        last_verified_offset=(
+            provisional_start if replay_provisional and provisional_start is not None
+            else last_verified_offset
+        ),
         next_step_id=next_step_id,
         expected_atom_count=expected_atom_count,
         last_lattice=lattice,
+        replay_provisional=replay_provisional,
+        normally_finished=normally_finished,
     )
     return ScanResult(
         steps=tuple(steps),
