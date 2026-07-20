@@ -51,14 +51,14 @@ def parse_poscar(path: Path, dialect: Dialect) -> ParsedStructure:
         raise MalformedBlock(f"{path.name}: invalid POSCAR: {exc}") from exc
 
     raw_masks = structure.site_properties.get("selective_dynamics")
-    masks = raw_masks if raw_masks is not None else [[None, None, None] for _ in structure]
+    masks = raw_masks if raw_masks is not None else [[True, True, True] for _ in structure]
     sites = tuple(
         Site(
             site_index=index,
             element=site.specie.symbol,
             initial_fractional_position=_vec3(site.frac_coords),
             initial_cartesian_position=_vec3(site.coords),
-            selective_dynamics=SelectiveMask(x=mask[0], y=mask[1], z=mask[2]),
+            selective_dynamics=SelectiveMask(a=mask[0], b=mask[1], c=mask[2]),
         )
         for index, (site, mask) in enumerate(zip(structure, masks, strict=True))
     )

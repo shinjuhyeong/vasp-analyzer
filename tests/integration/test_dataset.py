@@ -6,6 +6,7 @@ from vasp_analyzer.calculation.cache import CacheStore
 from vasp_analyzer.calculation.dataset import inspect_source, load_dataset
 from vasp_analyzer.calculation.session import CalculationSession
 from vasp_analyzer.core import DatasetConsistencyError
+from vasp_analyzer.parsing.profiles import CompatibilityProfile
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 
@@ -159,6 +160,43 @@ def test_cache_identity_includes_poscar_changes(tmp_path: Path) -> None:
 
     with pytest.raises(DatasetConsistencyError, match=r"POSCAR.*OUTCAR"):
         CalculationSession(root, cache=cache).load()
+
+
+def test_optional_file_is_never_read_or_part_of_core_cache_identity(monkeypatch, tmp_path: Path) -> None:
+    root = make_calculation(tmp_path / "calc")
+    (root / "CHGCAR").write_text("optional one", encoding="utf-8")
+    original_open = Path.open
+
+    def guarded_open(self: Path, mode="r", *args, **kwargs):
+        if self.name == "CHGCAR" and "r" in mode:
+            raise AssertionError("disabled optional capability read CHGCAR")
+        return original_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", guarded_open)
+    cache = CacheStore(tmp_path / "cache")
+    loaded = CalculationSession(root, cache=cache).load()
+    assert loaded.ionic_steps
+    assert {Path(source.path).name for source in loaded.source_files} == {"OUTCAR"}
+    (root / "CHGCAR").write_text("optional two", encoding="utf-8")
+    reused = CalculationSession(root, cache=cache)
+    reused.load()
+    assert reused.last_evidence.cache_reused is True
+
+
+def test_same_profile_id_with_changed_rules_misses_cache(tmp_path: Path) -> None:
+    root = make_calculation(tmp_path / "calc")
+    cache = CacheStore(tmp_path / "cache")
+    first = CompatibilityProfile(schema_version=1, id="custom", display_name="Custom")
+    changed = CompatibilityProfile(
+        schema_version=1,
+        id="custom",
+        display_name="Custom",
+        detection={"outcar_contains": ("vasp.6",), "priority": 1},
+    )
+    CalculationSession(root, profile=first, cache=cache).load()
+    second = CalculationSession(root, profile=changed, cache=cache)
+    second.load()
+    assert second.last_evidence.cache_reused is False
 
 
 def test_refresh_rebuilds_after_checkpoint_rejection(tmp_path: Path) -> None:

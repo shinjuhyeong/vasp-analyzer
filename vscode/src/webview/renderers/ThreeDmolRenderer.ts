@@ -1,4 +1,4 @@
-import { createViewer, elementColors, type GLViewer } from "3dmol";
+import { createViewer, type GLViewer } from "3dmol";
 
 import type { Vec3 } from "../core/contracts.js";
 import type {
@@ -14,10 +14,13 @@ import type {
 } from "./CrystalRenderer.js";
 import {
   covalentRadius,
+  elementVisual,
   crystallographicViewVector,
 } from "../features/structure/scene.js";
 
 const xyz = (value: Vec3) => ({ x: value[0], y: value[1], z: value[2] });
+const vec3 = (values: readonly number[]): Vec3 =>
+  Object.freeze([values[0]!, values[1]!, values[2]!]);
 const axisVector = (axis: number, length: number): Vec3 =>
   Object.freeze([
     axis === 0 ? length : 0,
@@ -119,11 +122,27 @@ function interpolateForces(
   });
 }
 
-function elementColor(element: string): number | string {
-  const jmol = (
-    elementColors as unknown as { Jmol?: Record<string, number | string> }
-  ).Jmol;
-  return jmol?.[element] ?? 0x9aa0a6;
+function interpolateConstraints(
+  from: readonly ConstraintGlyph[],
+  to: readonly ConstraintGlyph[],
+  progress: number,
+): readonly ConstraintGlyph[] {
+  const sources = new Map(from.map((glyph) => [glyph.siteIndex, glyph]));
+  return to.map((glyph) => {
+    const source = sources.get(glyph.siteIndex);
+    if (!source) return glyph;
+    return {
+      ...glyph,
+      origin: mixVec(source.origin, glyph.origin, progress),
+      directions: glyph.directions.map((direction, axis) => {
+        const mixed = mixVec(source.directions[axis]!, direction, progress);
+        const length = Math.hypot(...mixed);
+        return length < 1e-12
+          ? direction
+          : vec3(mixed.map((value) => value / length));
+      }) as [Vec3, Vec3, Vec3],
+    };
+  });
 }
 
 function quaternionToCamera(
@@ -354,6 +373,7 @@ export class ThreeDmolRenderer implements CrystalRenderer {
       this.targetFrame !== scene.frame ||
       this.targetForces !== scene.forces ||
       this.targetForceScale !== scene.forceScale;
+    const sourceConstraints = this.constraints;
     this.constraints = scene.constraints;
     this.targetFrame = scene.frame;
     this.targetForces = scene.forces;
@@ -389,11 +409,13 @@ export class ThreeDmolRenderer implements CrystalRenderer {
         );
         this.frame = interpolateFrame(sourceFrame, scene.frame, progress);
         this.forces = interpolateForces(sourceForces, scene.forces, progress);
+        this.constraints = interpolateConstraints(sourceConstraints, scene.constraints, progress);
         this.forceScale = mix(sourceScale, scene.forceScale, progress);
         this.draw();
         if (progress >= 1) {
           this.frame = scene.frame;
           this.forces = scene.forces;
+          this.constraints = scene.constraints;
           this.forceScale = scene.forceScale;
           this.draw();
           return;
@@ -591,7 +613,7 @@ export class ThreeDmolRenderer implements CrystalRenderer {
       viewer.addSphere({
         center: xyz(site.cartesianPosition),
         radius: boundary ? baseRadius * 0.78 : baseRadius,
-        color: elementColor(site.element),
+        color: elementVisual(site.element).color,
         opacity: boundary ? 0.42 : 1,
         clickable: true,
         callback: () => this.selectCallback(site.siteIndex),
@@ -626,11 +648,14 @@ export class ThreeDmolRenderer implements CrystalRenderer {
             color: glyph.strongestAxis ? 0xffc107 : 0x00bcd4,
           });
           if (glyph.strongestAxis) {
-            const axis = { x: 0, y: 1, z: 2 }[glyph.strongestAxis];
-            const component = axisVector(
-              axis,
-              glyph.vector[axis]! * this.forceScale,
-            );
+            const axis = { a: 0, b: 1, c: 2 }[glyph.strongestAxis];
+            const latticeVector = frame.lattice[axis]!;
+            const norm = Math.hypot(...latticeVector);
+            const direction = vec3(latticeVector.map((value) => value / norm));
+            const signedLength = glyph.strongestValue ?? 0;
+            const component = vec3(direction.map(
+              (value) => value * signedLength * this.forceScale,
+            ));
             viewer.addArrow({
               start: xyz(site.cartesianPosition),
               end: xyz(add(site.cartesianPosition, component)),
@@ -660,7 +685,9 @@ export class ThreeDmolRenderer implements CrystalRenderer {
           if (!glyph.emphasized) continue;
           glyph.states.forEach((state, axis) => {
             const length = 0.52;
-            const end = add(site.cartesianPosition, axisVector(axis, length));
+            const direction = glyph.directions[axis]!;
+            const offset = vec3(direction.map((value) => value * length));
+            const end = add(site.cartesianPosition, offset);
             if (state === true)
               viewer.addArrow({
                 start: xyz(site.cartesianPosition),

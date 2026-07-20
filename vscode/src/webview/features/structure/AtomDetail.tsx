@@ -44,18 +44,18 @@ export function AtomDetail({ site, step, sitePosition }: AtomDetailProps) {
       <p>Fz {format(raw[2])} eV/angstrom</p>
       <p>|F| {format(rawNorm)} eV/angstrom</p>
       <p>
-        Free force{" "}
+        Projected free Cartesian force{" "}
         {free
           ? `${free.map(format).join(" ")} eV/angstrom; norm ${format(freeNorm!)}`
           : "unknown"}
       </p>
       <p>
-        Selective Dynamics {maskSymbol(states.x)} {maskSymbol(states.y)}{" "}
-        {maskSymbol(states.z)}
+        Selective Dynamics a/b/c {maskSymbol(states.a)} {maskSymbol(states.b)}{" "}
+        {maskSymbol(states.c)}
       </p>
       {strongest && (
         <p className="strongest-component">
-          Strongest free component: {strongest.axis.toUpperCase()}{" "}
+          Strongest allowed-direction component: {strongest.axis}{" "}
           {format(strongest.value)} eV/angstrom
         </p>
       )}

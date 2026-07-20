@@ -43,7 +43,7 @@ function ExactStep({
           <dt>Strongest free component</dt>
           <dd>
             {strongest
-              ? `${strongest.magnitude.toFixed(6)} eV/angstrom · site ${strongest.siteIndex + 1} ${strongest.axis.toUpperCase()}`
+              ? `${strongest.magnitude.toFixed(6)} eV/angstrom · site ${strongest.siteIndex + 1} direction ${strongest.axis}`
               : "Unavailable"}
           </dd>
         </div>

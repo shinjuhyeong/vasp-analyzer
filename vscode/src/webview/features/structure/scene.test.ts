@@ -4,6 +4,7 @@ import {
   buildCrystalFrame,
   covalentRadius,
   crystallographicViewVector,
+  elementLegend,
   parseIntegerDirection,
   replicateSites,
 } from "./scene.js";
@@ -29,6 +30,14 @@ describe("crystallographic scene", () => {
       cartesianPosition: [1.8, 0, 0] as const,
     },
   ];
+
+  it("builds a deduplicated renderer-agnostic Y/Ba/Cu/O legend", () => {
+    const legend = elementLegend([
+      { element: "Y" }, { element: "Ba" }, { element: "Cu" }, { element: "O" }, { element: "O" },
+    ]);
+    expect(legend.map(({ element }) => element)).toEqual(["Y", "Ba", "Cu", "O"]);
+    expect(legend.every(({ color, radius }) => color.startsWith("#") && radius > 0)).toBe(true);
+  });
 
   it("preserves original identity and records lattice images in supercells", () => {
     expect(

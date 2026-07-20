@@ -142,13 +142,13 @@ Incomplete calculations expose every fully parsed ionic step. A trailing partial
 
 ### 4.3 Strongest-force definition
 
-For atom `i` and Cartesian axis `a`, a force component is eligible only when the corresponding Selective Dynamics value is `T`. Among all eligible components, the strongest force is:
+For atom `i` and direct-lattice direction `d` in `a`, `b`, `c`, a directional force is eligible only when the corresponding Selective Dynamics value is `T`. Selective flags always refer to direct directions, even when POSCAR coordinates are Cartesian. Among all eligible unit-vector projections, the strongest force is:
 
 ```text
-argmax_(i,a) abs(F[i,a])
+argmax_(i,d) abs(dot(F_cartesian[i], unit(d)))
 ```
 
-The result retains the site index, axis, signed force, and absolute force. Fixed (`F`) components do not affect the maximum-component or RMS-free-force convergence metrics. The UI can still show the original raw force for diagnostic comparison.
+The result retains the site index, direct direction, signed force, and absolute force; ties use site order followed by `a`, `b`, `c`. The free Cartesian force is the Euclidean orthogonal projection onto the span of allowed direct vectors. Non-orthogonal directions may produce correlated directional values. Fixed (`F`) directions do not affect the maximum or RMS directional metrics. The UI still shows raw Cartesian `Fx/Fy/Fz` for comparison.
 
 ## 5. File Discovery and Parsing
 
@@ -156,7 +156,7 @@ The result retains the site index, axis, signed force, and absolute force. Fixed
 
 The parser discovers recognized files in the selected calculation directory. The first release uses `OUTCAR`, `POSCAR`, and `CONTCAR`; later modules may use `vasprun.xml`, `DOSCAR`, `EIGENVAL`, `PROCAR`, `CHGCAR`, `AECCAR*`, `ELFCAR`, and `LOCPOT`.
 
-Optional files are parsed lazily when their analysis module is first opened. Large results are cached using source path, size, and modification time so stale results are not reused.
+Optional files are parsed lazily when their analysis module is first opened. The core structure dataset and its cache identity include only `OUTCAR`, `POSCAR`, and `CONTCAR`; discovery may inventory optional filename/stat metadata but disabled capabilities do not read or hash optional contents. Each future analysis module owns its source fingerprints and cache. Cache identities also include the selected dialect, a canonical hash of the full validated profile, analyzer version, and explicit cache/parser schema versions. The default cache is private per user rather than shared temporary storage and uses same-directory unique temporary files plus atomic replacement.
 
 ### 5.2 Parser adapters
 
@@ -248,14 +248,14 @@ Clicking an atom selects its original site, highlights every requested periodic 
 - Fractional and Cartesian coordinates.
 - Raw `Fx`, `Fy`, `Fz`, and force norm.
 - Filtered free-force components and norm.
-- `T/F` Selective Dynamics values for `x`, `y`, and `z`.
+- `T/F` Selective Dynamics values for direct directions `a`, `b`, and `c`.
 - Whether the site and axis contain the current step's strongest free component.
 
 The same selected-site state is shared with later site-PDOS, projected-band, and charge-analysis views.
 
 ### 6.3 Selective Dynamics rendering
 
-`T` means motion is allowed and `F` means it is fixed. The selected or hovered atom shows a local Cartesian triad with direction-specific state. A global mode marks atoms that have at least one fixed component, while detailed directional glyphs remain focused on selected or hovered sites to avoid clutter. The detail panel always shows all three flags.
+`T` means motion is allowed and `F` means it is fixed along the corresponding direct lattice direction, regardless of POSCAR coordinate input mode. The selected or hovered atom shows the normalized current `a`/`b`/`c` vectors with direction-specific state. A global mode marks atoms that have at least one fixed direction, while detailed glyphs remain focused on selected or hovered sites. Without a Selective Dynamics section all flags are `T`; OUTCAR-only masks remain unknown.
 
 ### 6.4 Force rendering
 

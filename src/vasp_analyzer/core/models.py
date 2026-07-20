@@ -5,7 +5,7 @@ from typing import Literal
 
 import numpy as np
 
-from pydantic import computed_field
+from pydantic import PositiveInt, computed_field, field_validator, model_validator
 
 from .config import FrozenModel
 
@@ -21,12 +21,12 @@ class SourceFile(FrozenModel):
 
 
 class SelectiveMask(FrozenModel):
-    x: bool | None
-    y: bool | None
-    z: bool | None
+    a: bool | None
+    b: bool | None
+    c: bool | None
 
     def as_tuple(self) -> tuple[bool | None, bool | None, bool | None]:
-        return self.x, self.y, self.z
+        return self.a, self.b, self.c
 
 
 class Site(FrozenModel):
@@ -39,7 +39,7 @@ class Site(FrozenModel):
 
 class ForceComponent(FrozenModel):
     site_index: int
-    axis: Literal["x", "y", "z"]
+    axis: Literal["a", "b", "c"]
     value: float
 
     @computed_field
@@ -108,10 +108,23 @@ class CalculationDataset(FrozenModel):
 class VolumetricDescriptor(FrozenModel):
     source: str
     lattice: Mat3
-    dimensions: tuple[int, int, int]
+    dimensions: tuple[PositiveInt, PositiveInt, PositiveInt]
     kind: str
     units: str
     value_range: tuple[float, float]
+
+    @field_validator("source", "kind", "units")
+    @classmethod
+    def require_nonempty_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_value_range(self) -> "VolumetricDescriptor":
+        if not all(np.isfinite(self.value_range)) or self.value_range[0] > self.value_range[1]:
+            raise ValueError("value_range must be finite and ordered")
+        return self
 
     def require_compatible_structure(self, lattice: Mat3) -> None:
         from .errors import VolumetricAlignmentError
@@ -125,8 +138,22 @@ class VolumetricDescriptor(FrozenModel):
 class VolumetricRequest(FrozenModel):
     fingerprint: str
     isovalue: float
-    downsample: int
-    repeat: tuple[int, int, int]
+    downsample: PositiveInt
+    repeat: tuple[PositiveInt, PositiveInt, PositiveInt]
+
+    @field_validator("fingerprint")
+    @classmethod
+    def require_fingerprint(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("fingerprint must not be empty")
+        return value
+
+    @field_validator("isovalue")
+    @classmethod
+    def require_finite_isovalue(cls, value: float) -> float:
+        if not np.isfinite(value):
+            raise ValueError("isovalue must be finite")
+        return value
 
     @computed_field
     @property

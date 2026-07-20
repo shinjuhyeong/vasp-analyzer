@@ -74,7 +74,7 @@ describe("CrystalPanel", () => {
     expect(await screen.findByText("O 2")).toBeVisible();
     expect(screen.getByText("Fx 0.000000 eV/angstrom")).toBeVisible();
     expect(screen.getByText("Fy -0.200000 eV/angstrom")).toBeVisible();
-    expect(screen.getByText("Selective Dynamics T F T")).toBeVisible();
+    expect(screen.getByText("Selective Dynamics a/b/c T F T")).toBeVisible();
     expect(
       screen.getByText(/Fractional 0.500000 0.500000 0.500000/),
     ).toBeVisible();
@@ -139,13 +139,13 @@ describe("CrystalPanel", () => {
   it("marks the exact strongest free component and never treats unknown constraints as free", () => {
     const unknownSites = twoStepDataset.sites.map((site, index) =>
       index === 1
-        ? { ...site, selectiveDynamics: { x: null, y: false, z: true } }
+        ? { ...site, selectiveDynamics: { a: null, b: false, c: true } }
         : site,
     );
     const { renderer } = setup();
     expect(renderer.setForces).toHaveBeenCalledWith(
       expect.arrayContaining([
-        expect.objectContaining({ siteIndex: 0, strongestAxis: "x" }),
+        expect.objectContaining({ siteIndex: 0, strongestAxis: "a" }),
       ]),
     );
     render(
@@ -159,14 +159,14 @@ describe("CrystalPanel", () => {
         rendererFactory={() => new FakeRenderer()}
       />,
     );
-    expect(screen.getByText("Selective Dynamics ? F T")).toBeVisible();
+    expect(screen.getByText("Selective Dynamics a/b/c ? F T")).toBeVisible();
   });
 
   it("focuses the backend-selected strongest free site", async () => {
     const user = userEvent.setup();
     const { onSelectSite } = setup();
     await user.click(
-      screen.getByRole("button", { name: /Focus strongest: site 1 X/ }),
+      screen.getByRole("button", { name: /Focus strongest: site 1 a/ }),
     );
     expect(onSelectSite).toHaveBeenCalledWith(0);
   });

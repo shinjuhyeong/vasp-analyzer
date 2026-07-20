@@ -9,9 +9,9 @@ export interface SourceFile {
 }
 
 export interface SelectiveMask {
-  readonly x: boolean | null;
-  readonly y: boolean | null;
-  readonly z: boolean | null;
+  readonly a: boolean | null;
+  readonly b: boolean | null;
+  readonly c: boolean | null;
 }
 
 export interface Site {
@@ -24,7 +24,7 @@ export interface Site {
 
 export interface ForceComponent {
   readonly siteIndex: number;
-  readonly axis: "x" | "y" | "z";
+  readonly axis: "a" | "b" | "c";
   readonly value: number;
   readonly magnitude: number;
 }

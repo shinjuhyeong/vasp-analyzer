@@ -117,6 +117,24 @@ def test_profile_wraps_invalid_utf8(tmp_path: Path) -> None:
         load_profile(path)
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "schema_version = 1\nid = '   '\ndisplay_name = 'X'\n",
+        "schema_version = 1\nid = 'x'\ndisplay_name = ''\n",
+        "schema_version = 1\nid = 'x'\ndisplay_name = 'X'\n[detection]\noutcar_contains = ['']\n",
+        "schema_version = 1\nid = 'x'\ndisplay_name = 'X'\n[outcar.markers]\nposition_force = []\n",
+        "schema_version = 1\nid = 'x'\ndisplay_name = 'X'\n[outcar.markers]\nposition_force = ['POSITION', 'position']\n",
+        "schema_version = 1\nid = '" + ("x" * 257) + "'\ndisplay_name = 'X'\n",
+    ],
+)
+def test_profile_rejects_empty_or_duplicate_bounded_markers(tmp_path: Path, source: str) -> None:
+    path = tmp_path / "unsafe.toml"
+    path.write_text(source, encoding="utf-8")
+    with pytest.raises(ProfileValidationError):
+        load_profile(path)
+
+
 def test_normalizer_drops_only_declared_metadata_and_records_provenance() -> None:
     profile = load_profile(FIXTURES / "profiles" / "home-example.toml")
     source = "Header\nSelective dynamics\n0\nDirect\n0 0 0 T T T\n"

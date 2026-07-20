@@ -53,7 +53,6 @@ def detect_path_dialect(
 def _source_files(discovered: DiscoveredCalculation) -> tuple[SourceFile, ...]:
     paths = [discovered.outcar]
     paths.extend(path for path in (discovered.poscar, discovered.contcar) if path is not None)
-    paths.extend(item.path for item in discovered.optional)
     return tuple(inspect_source(path) for path in paths)
 
 
@@ -98,7 +97,7 @@ def _parse_structures(
 
 
 def _derived_sites(step: ParsedTrajectoryStep) -> tuple[Site, ...]:
-    unknown = SelectiveMask(x=None, y=None, z=None)
+    unknown = SelectiveMask(a=None, b=None, c=None)
     return tuple(
         Site(
             site_index=index,
@@ -168,7 +167,7 @@ def _assemble(
     for step_id in records:
         record = records[step_id]
         frame = frames[step_id]
-        metrics = force_metrics(frame.raw_forces, masks)
+        metrics = force_metrics(frame.raw_forces, masks, frame.lattice)
         steps[step_id] = IonicStep(
             index=step_id,
             lattice=frame.lattice,
@@ -196,7 +195,7 @@ def _assemble(
             }
         )
         for step in ordered
-        for metrics in (force_metrics(step.raw_forces, masks),)
+        for metrics in (force_metrics(step.raw_forces, masks, step.lattice),)
     )
     deltas = energy_deltas(tuple(step.total_energy for step in ordered))
     ordered = tuple(

@@ -11,7 +11,7 @@ import type {
   VolumetricLayer,
 } from "../../renderers/CrystalRenderer.js";
 import { AtomDetail } from "./AtomDetail.js";
-import { buildCrystalFrame, parseIntegerDirection } from "./scene.js";
+import { buildCrystalFrame, elementLegend, parseIntegerDirection } from "./scene.js";
 import { DataTableFallback } from "../fallback/DataTableFallback.js";
 
 export interface CrystalPanelProps {
@@ -115,6 +115,7 @@ export function CrystalPanel({
     () => buildCrystalFrame(sceneInputs, selectedStep.lattice, repeat),
     [sceneInputs, selectedStep.lattice, repeat],
   );
+  const legend = useMemo(() => elementLegend(sites), [sites]);
   const vectors = useMemo(
     () =>
       Object.freeze(
@@ -130,6 +131,10 @@ export function CrystalPanel({
               selectedStep.strongestFreeComponent?.siteIndex === site.siteIndex
                 ? selectedStep.strongestFreeComponent.axis
                 : null,
+            strongestValue:
+              selectedStep.strongestFreeComponent?.siteIndex === site.siteIndex
+                ? selectedStep.strongestFreeComponent.value
+                : null,
           } satisfies VectorGlyph),
         ),
       ),
@@ -143,10 +148,14 @@ export function CrystalPanel({
           siteIndex: site.siteIndex,
           origin: selectedStep.cartesianPositions[position]!,
           states: [
-            site.selectiveDynamics.x,
-            site.selectiveDynamics.y,
-            site.selectiveDynamics.z,
+            site.selectiveDynamics.a,
+            site.selectiveDynamics.b,
+            site.selectiveDynamics.c,
           ],
+          directions: selectedStep.lattice.map((vector) => {
+            const length = Math.hypot(...vector);
+            return vector.map((value) => value / length) as [number, number, number];
+          }) as [[number, number, number], [number, number, number], [number, number, number]],
           emphasized: site.siteIndex === focus,
         } satisfies ConstraintGlyph),
       ),
@@ -378,7 +387,7 @@ export function CrystalPanel({
           >
             Focus strongest: site{" "}
             {selectedStep.strongestFreeComponent.siteIndex + 1}{" "}
-            {selectedStep.strongestFreeComponent.axis.toUpperCase()}
+            {selectedStep.strongestFreeComponent.axis}
           </button>
         )}
       </div>
@@ -390,6 +399,13 @@ export function CrystalPanel({
         />
       ) : (
         <>
+          <ul className="element-legend" aria-label="Elements in structure">
+            {legend.map((item) => (
+              <li key={item.element} aria-label={`${item.element}, atom color ${item.color}, display radius ${item.radius.toFixed(2)} angstrom`}>
+                <span aria-hidden="true" style={{ backgroundColor: item.color }} />{item.element}
+              </li>
+            ))}
+          </ul>
           <div
             className="crystal-stage"
             ref={container}

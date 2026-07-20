@@ -48,13 +48,15 @@ export interface VectorGlyph {
   readonly siteIndex: number;
   readonly origin: Vec3;
   readonly vector: Vec3 | null;
-  readonly strongestAxis: "x" | "y" | "z" | null;
+  readonly strongestAxis: "a" | "b" | "c" | null;
+  readonly strongestValue: number | null;
 }
 
 export interface ConstraintGlyph {
   readonly siteIndex: number;
   readonly origin: Vec3;
   readonly states: readonly [boolean | null, boolean | null, boolean | null];
+  readonly directions: readonly [Vec3, Vec3, Vec3];
   readonly emphasized: boolean;
 }
 

@@ -12,12 +12,13 @@ from vasp_analyzer.core.models import (
 
 
 def test_selective_mask_preserves_unknown_state() -> None:
-    mask = SelectiveMask(x=True, y=False, z=None)
+    mask = SelectiveMask(a=True, b=False, c=None)
     assert mask.as_tuple() == (True, False, None)
+    assert mask.model_dump(mode="json", by_alias=True) == {"a": True, "b": False, "c": None}
 
 
 def test_force_component_retains_signed_value() -> None:
-    component = ForceComponent(site_index=4, axis="z", value=-0.61)
+    component = ForceComponent(site_index=4, axis="c", value=-0.61)
     assert component.magnitude == 0.61
 
 

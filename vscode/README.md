@@ -7,6 +7,6 @@ This workspace extension opens VASP calculations in a port-free Webview. It is d
 3. Reload the window and open a **new integrated terminal**.
 4. Run `analyzer`, use `VASP Analyzer: Open Calculation`, or right-click an extensionless file named `OUTCAR` in Explorer.
 
-Set `vaspAnalyzer.pythonPath` when the extension host should use a non-default interpreter. The Webview bundle contains React and 3Dmol locally; strict CSP prevents network access. If WebGL initialization fails, the synchronized accessible data table remains available.
+The extension defaults to the console executable `analyzer serve --stdio <path>`, which directly supports a `pipx` install. Set `vaspAnalyzer.executablePath` for another executable location. Set `vaspAnalyzer.pythonPath` only as an explicit module-launch override; it takes precedence and runs `<python> -m vasp_analyzer.cli serve --stdio <path>`. Both forms pass paths as non-shell arguments. The Webview bundle contains React and 3Dmol locally; strict CSP prevents network access. If WebGL initialization fails, the synchronized accessible data table remains available.
 
 Browser fallback, parser profiles, recovery rules, privacy, and future DOS/band/charge/isosurface scope are documented in the repository `README.md`. This extension is UNLICENSED.

@@ -24,11 +24,38 @@ function fakeChild(): AnalyzerChild & { stdout: PassThrough; stderr: PassThrough
 }
 
 describe("AnalyzerProcess", () => {
-  it("passes the calculation path as a non-shell Python argument", () => {
-    const invocation = analyzerInvocation("/work/a path/$(unsafe)", "python-custom");
+  it("defaults to the pipx-style analyzer executable without a shell", () => {
+    const invocation = analyzerInvocation("/work/a path/$(unsafe)");
+    expect(invocation.command).toBe("analyzer");
+    expect(invocation.shell).toBe(false);
+    expect(invocation.args).toEqual(["serve", "--stdio", "/work/a path/$(unsafe)"]);
+  });
+
+  it.each(["/opt/tools/analyzer", String.raw`C:\Tools\VASP Analyzer\analyzer.exe`])(
+    "uses explicit executable path %s as one non-shell command",
+    (executablePath) => {
+      const invocation = analyzerInvocation("/work/calc", { executablePath });
+      expect(invocation).toMatchObject({ command: executablePath, shell: false });
+      expect(invocation.args).toEqual(["serve", "--stdio", "/work/calc"]);
+    },
+  );
+
+  it("gives an explicit Python module override precedence over executablePath", () => {
+    const invocation = analyzerInvocation("/work/a path/$(unsafe)", {
+      executablePath: "custom-analyzer",
+      pythonPath: "python-custom",
+    });
     expect(invocation.command).toBe("python-custom");
     expect(invocation.shell).toBe(false);
+    expect(invocation.args.slice(0, 2)).toEqual(["-m", "vasp_analyzer.cli"]);
     expect(invocation.args.at(-1)).toBe("/work/a path/$(unsafe)");
+  });
+
+  it("keeps a Windows calculation path as one literal argument", () => {
+    const calculation = String.raw`C:\Users\name\calc & echo unsafe`;
+    const invocation = analyzerInvocation(calculation);
+    expect(invocation.shell).toBe(false);
+    expect(invocation.args.at(-1)).toBe(calculation);
   });
 
   it("correlates newline-delimited responses by JSON id", async () => {

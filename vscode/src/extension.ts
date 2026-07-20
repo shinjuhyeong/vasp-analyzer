@@ -38,14 +38,11 @@ function requireActive(...signals: readonly AbortSignal[]): void {
   if (signals.some((signal) => signal.aborted)) throw new Error("VASP Analyzer is closing");
 }
 
-function configuredPythonPath(): string | undefined {
-  const explicit = vscode.workspace.getConfiguration("vaspAnalyzer").get<string>("pythonPath")?.trim();
-  if (explicit) return explicit;
-  const pythonDefault = vscode.workspace
-    .getConfiguration("python")
-    .get<string>("defaultInterpreterPath")
-    ?.trim();
-  return pythonDefault || undefined;
+function configuredLaunch(): { executablePath?: string; pythonPath?: string } {
+  const configuration = vscode.workspace.getConfiguration("vaspAnalyzer");
+  const pythonPath = configuration.get<string>("pythonPath")?.trim();
+  const executablePath = configuration.get<string>("executablePath", "analyzer")?.trim();
+  return pythonPath ? { pythonPath } : { executablePath: executablePath || "analyzer" };
 }
 
 function configuredTimeout(): number {
@@ -99,7 +96,7 @@ function activationPlan(context: vscode.ExtensionContext): {
     let analyzer: AnalyzerProcess;
     try {
       requireActive(activationSignal, requestSignal);
-      analyzer = spawnAnalyzer(root, configuredPythonPath(), {
+      analyzer = spawnAnalyzer(root, configuredLaunch(), {
         requestTimeoutMs: configuredTimeout(),
       });
     } catch (error) {

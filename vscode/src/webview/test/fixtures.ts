@@ -14,7 +14,7 @@ const step = (index: number): IonicStep => ({
   scfIterations: 8,
   electronicConverged: true,
   ionicConverged: index === 1,
-  strongestFreeComponent: { siteIndex: 0, axis: "x", value: 0.1, magnitude: 0.1 },
+  strongestFreeComponent: { siteIndex: 0, axis: "a", value: 0.1, magnitude: 0.1 },
   rmsFreeForce: 0.11,
 });
 
@@ -23,8 +23,8 @@ export const twoStepDataset: CalculationDataset = {
   root: "/calculation",
   sourceFiles: [],
   sites: [
-    { siteIndex: 0, element: "Cu", initialFractionalPosition: [0, 0, 0], initialCartesianPosition: [0, 0, 0], selectiveDynamics: { x: true, y: true, z: true } },
-    { siteIndex: 1, element: "O", initialFractionalPosition: [0.5, 0.5, 0.5], initialCartesianPosition: [1.5, 1.5, 1.5], selectiveDynamics: { x: true, y: false, z: true } },
+    { siteIndex: 0, element: "Cu", initialFractionalPosition: [0, 0, 0], initialCartesianPosition: [0, 0, 0], selectiveDynamics: { a: true, b: true, c: true } },
+    { siteIndex: 1, element: "O", initialFractionalPosition: [0.5, 0.5, 0.5], initialCartesianPosition: [1.5, 1.5, 1.5], selectiveDynamics: { a: true, b: false, c: true } },
   ],
   ionicSteps: [step(0), step(1)],
   capabilities: [

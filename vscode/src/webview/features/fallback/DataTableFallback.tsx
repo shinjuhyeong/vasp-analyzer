@@ -17,8 +17,8 @@ const vector = (value: Vec3 | undefined | null): string =>
   value
     ? value.map((component) => component.toFixed(6)).join(" ")
     : "Unavailable";
-const constraints = ({ x, y, z }: SelectiveMask): string =>
-  [x, y, z]
+const constraints = ({ a, b, c }: SelectiveMask): string =>
+  [a, b, c]
     .map((value) => (value === null ? "?" : value ? "T" : "F"))
     .join(" ");
 
@@ -39,7 +39,7 @@ export function DataTableFallback({
               <th scope="col">Fractional</th>
               <th scope="col">Cartesian (angstrom)</th>
               <th scope="col">Raw force (eV/angstrom)</th>
-              <th scope="col">Free force (eV/angstrom)</th>
+              <th scope="col">Projected free Cartesian force (eV/angstrom)</th>
               <th scope="col">Constraints</th>
             </tr>
           </thead>

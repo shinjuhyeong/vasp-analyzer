@@ -35,27 +35,33 @@ export interface AnalyzerProcessOptions {
   readonly maxStderrBytes?: number;
 }
 
-const PYTHON_ENTRY = "from vasp_analyzer.cli import app; app()";
+export interface AnalyzerLaunchConfiguration {
+  readonly executablePath?: string;
+  readonly pythonPath?: string;
+}
 
-export function analyzerInvocation(calculationPath: string, pythonPath?: string): {
+export function analyzerInvocation(calculationPath: string, configuration: AnalyzerLaunchConfiguration = {}): {
   readonly command: string;
   readonly args: readonly string[];
   readonly shell: false;
 } {
-  const command = pythonPath?.trim() || (process.platform === "win32" ? "python" : "python3");
+  const pythonPath = configuration.pythonPath?.trim();
+  const command = pythonPath || configuration.executablePath?.trim() || "analyzer";
   return {
     command,
-    args: ["-c", PYTHON_ENTRY, "serve", "--stdio", calculationPath],
+    args: pythonPath
+      ? ["-m", "vasp_analyzer.cli", "serve", "--stdio", calculationPath]
+      : ["serve", "--stdio", calculationPath],
     shell: false,
   };
 }
 
 export function spawnAnalyzer(
   calculationPath: string,
-  pythonPath?: string,
+  configuration?: AnalyzerLaunchConfiguration,
   options?: AnalyzerProcessOptions,
 ): AnalyzerProcess {
-  const invocation = analyzerInvocation(calculationPath, pythonPath);
+  const invocation = analyzerInvocation(calculationPath, configuration);
   const child: ChildProcessWithoutNullStreams = spawn(invocation.command, [...invocation.args], {
     shell: invocation.shell,
     stdio: ["pipe", "pipe", "pipe"],

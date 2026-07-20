@@ -16,7 +16,7 @@ it("shows positions, raw/free forces, and exact directional constraint states", 
 
 it("replaces rows for the selected step and preserves unknown free data", () => {
   const sites = twoStepDataset.sites.map((site, index) => index === 0
-    ? { ...site, selectiveDynamics: { x: null, y: true, z: false } }
+    ? { ...site, selectiveDynamics: { a: null, b: true, c: false } }
     : site);
   const { rerender } = render(<DataTableFallback sites={sites} step={twoStepDataset.ionicSteps[0]!} reason="failed" />);
   const changed = {

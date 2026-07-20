@@ -36,10 +36,15 @@
     "configuration": {
       "title": "VASP Analyzer",
       "properties": {
+        "vaspAnalyzer.executablePath": {
+          "type": "string",
+          "default": "analyzer",
+          "description": "Analyzer executable on the workspace/Remote SSH host. The default supports pipx installation. Ignored when pythonPath is explicitly set."
+        },
         "vaspAnalyzer.pythonPath": {
           "type": "string",
           "default": "",
-          "description": "Python interpreter on the workspace/Remote SSH extension host. Empty uses the Python extension setting or the platform default."
+          "description": "Explicit Python interpreter override. When set, launches 'python -m vasp_analyzer.cli' and takes precedence over executablePath."
         },
         "vaspAnalyzer.requestTimeoutMs": {
           "type": "number",

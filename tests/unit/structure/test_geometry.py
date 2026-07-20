@@ -3,7 +3,7 @@ from vasp_analyzer.structure.bonds import periodic_bonds
 from vasp_analyzer.structure.supercell import replicate_sites
 
 IDENTITY = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
-MASK = SelectiveMask(x=True, y=True, z=True)
+MASK = SelectiveMask(a=True, b=True, c=True)
 SITES = (
     Site(site_index=0, element="H", initial_fractional_position=(0.95, 0.0, 0.0), initial_cartesian_position=(0.95, 0.0, 0.0), selective_dynamics=MASK),
     Site(site_index=1, element="H", initial_fractional_position=(0.05, 0.0, 0.0), initial_cartesian_position=(0.05, 0.0, 0.0), selective_dynamics=MASK),

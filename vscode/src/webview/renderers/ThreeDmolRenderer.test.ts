@@ -72,7 +72,7 @@ const movedFrame: CrystalFrame = {
 
 const scene = (crystalFrame: CrystalFrame, force: number): CrystalScene => ({
   frame: crystalFrame,
-  forces: [{ siteIndex: 1, origin: crystalFrame.sites[0]!.cartesianPosition, vector: [force, 0, 0], strongestAxis: null }],
+  forces: [{ siteIndex: 1, origin: crystalFrame.sites[0]!.cartesianPosition, vector: [force, 0, 0], strongestAxis: null, strongestValue: null }],
   forceScale: 1,
   constraints: [],
   supercell: [1, 1, 1],
@@ -150,7 +150,8 @@ describe("ThreeDmolRenderer adapter", () => {
         siteIndex: 1,
         origin: [1.5, 1, 1.5],
         vector: [0, -0.2, 0],
-        strongestAxis: "y",
+        strongestAxis: "b",
+        strongestValue: -0.2,
       },
     ]);
     renderer.setForceScale(2);
@@ -160,6 +161,19 @@ describe("ThreeDmolRenderer adapter", () => {
         end: { x: 1.5, y: 0.6, z: 1.5 },
       }),
     );
+  });
+
+  it("draws strongest allowed-direction arrows along normalized skew lattice vectors", () => {
+    const viewer = fakeViewer();
+    const renderer = new ThreeDmolRenderer(viewer as unknown as GLViewer, document.createElement("div"));
+    renderer.setStructure({ ...frameWithGhost, lattice: [[1, 0, 0], [1, 1, 0], [0, 0, 1]] });
+    viewer.addArrow.mockClear();
+    renderer.setForces([{ siteIndex: 1, origin: [1.5, 1, 1.5], vector: [0.5, 0.5, 0], strongestAxis: "b", strongestValue: Math.SQRT1_2 }]);
+    const highlighted = viewer.addArrow.mock.calls.find(([spec]) => spec.radius === 0.105)?.[0];
+    expect(highlighted).toMatchObject({
+      start: { x: 1.5, y: 1, z: 1.5 },
+      end: { x: 2, y: 1.5, z: 1.5 },
+    });
   });
 
   it("interpolates an atomic scene at start, midpoint, and exact final geometry", () => {
@@ -190,6 +204,27 @@ describe("ThreeDmolRenderer adapter", () => {
     vi.unstubAllGlobals();
   });
 
+  it("interpolates and renormalizes selective lattice directions during cell rotation", () => {
+    const raf = fakeAnimationFrames();
+    const viewer = fakeViewer();
+    const renderer = new ThreeDmolRenderer(viewer as unknown as GLViewer, document.createElement("div"));
+    const constraint = (direction: readonly [number, number, number]) => [{
+      siteIndex: 1, origin: [1.5, 1, 1.5] as const, states: [true, false, false] as const,
+      directions: [direction, [0, 1, 0] as const, [0, 0, 1] as const] as const, emphasized: true,
+    }];
+    renderer.setScene({ ...scene(frame, 1), constraints: constraint([1, 0, 0]) });
+    renderer.setTransitionDuration(150);
+    renderer.setScene({ ...scene(movedFrame, 1), constraints: constraint([0, 1, 0]) });
+    raf.run(0);
+    viewer.addArrow.mockClear();
+    raf.run(75);
+    const allowed = viewer.addArrow.mock.calls.find(([spec]) => spec.color === 0x2ea043)?.[0];
+    const offset = 0.52 / Math.sqrt(2);
+    expect(allowed.end.x).toBeCloseTo(2 + offset);
+    expect(allowed.end.y).toBeCloseTo(1 + offset);
+    vi.unstubAllGlobals();
+  });
+
   it("does not animate selection or layer redraws and applies reduced-motion scenes immediately", () => {
     const raf = fakeAnimationFrames();
     const viewer = fakeViewer();
@@ -205,6 +240,7 @@ describe("ThreeDmolRenderer adapter", () => {
         siteIndex: 1,
         origin: [1.5, 1, 1.5],
         states: [true, true, true],
+        directions: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
         emphasized: true,
       }],
     });
@@ -224,7 +260,7 @@ describe("ThreeDmolRenderer adapter", () => {
     renderer.setTransitionDuration(150);
     renderer.setScene({
       ...scene(frameWithGhost, 1),
-      forces: [{ siteIndex: 1, origin: [1.5, 1, 1.5], vector: null, strongestAxis: null }],
+      forces: [{ siteIndex: 1, origin: [1.5, 1, 1.5], vector: null, strongestAxis: null, strongestValue: null }],
     });
     viewer.addSphere.mockClear();
     viewer.addArrow.mockClear();
@@ -321,6 +357,7 @@ describe("ThreeDmolRenderer adapter", () => {
         siteIndex: 1,
         origin: [1.5, 1, 1.5],
         states: [null, false, true],
+        directions: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
         emphasized: true,
       },
     ]);
@@ -371,6 +408,7 @@ describe("ThreeDmolRenderer adapter", () => {
         siteIndex: 1,
         origin: [1.5, 1, 1.5],
         states: [null, false, true],
+        directions: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
         emphasized: false,
       },
     ]);
@@ -388,6 +426,7 @@ describe("ThreeDmolRenderer adapter", () => {
         siteIndex: 1,
         origin: [1.5, 1, 1.5],
         states: [null, false, true],
+        directions: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
         emphasized: true,
       },
     ]);

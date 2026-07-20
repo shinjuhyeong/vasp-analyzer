@@ -42,7 +42,7 @@ class CalculationSession:
         discovered = discover_calculation(self.path)
         source = inspect_calculation(discovered)
         dialect = detect_path_dialect(discovered, self.profile)
-        key = cache_key(source, dialect.id, self.profile.id if self.profile else None)
+        key = cache_key(source, dialect.id, dialect.profile)
         cached = self.cache.get(key)
         cache_reused = cached is not None
         if cached is None:
@@ -75,7 +75,7 @@ class CalculationSession:
             checkpoint=self._checkpoint,
             existing=self._dataset,
         )
-        key = cache_key(source, dialect.id, self.profile.id if self.profile else None)
+        key = cache_key(source, dialect.id, dialect.profile)
         self.cache.put(key, CachedCalculation(dataset=dataset, checkpoint=checkpoint))
         self._dataset = dataset
         self._checkpoint = checkpoint

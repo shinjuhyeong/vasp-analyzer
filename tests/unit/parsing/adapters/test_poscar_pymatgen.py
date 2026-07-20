@@ -37,12 +37,12 @@ def test_cartesian_input_has_same_normalized_positions_as_direct_input() -> None
     assert cartesian.cartesian_positions == direct.cartesian_positions
 
 
-def test_absent_selective_dynamics_is_preserved_as_unknown() -> None:
+def test_absent_selective_dynamics_means_all_direct_directions_are_free() -> None:
     parsed = parse_poscar(FIXTURES / "no-selective.vasp", STANDARD)
 
     assert tuple(site.selective_dynamics for site in parsed.sites) == (
-        SelectiveMask(x=None, y=None, z=None),
-        SelectiveMask(x=None, y=None, z=None),
+        SelectiveMask(a=True, b=True, c=True),
+        SelectiveMask(a=True, b=True, c=True),
     )
 
 

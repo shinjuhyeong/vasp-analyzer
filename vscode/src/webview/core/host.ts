@@ -82,13 +82,13 @@ function isSite(value: unknown): boolean {
     && typeof value.element === "string"
     && isVec3(value.initialFractionalPosition)
     && isVec3(value.initialCartesianPosition)
-    && [mask.x, mask.y, mask.z].every((item) => item === null || typeof item === "boolean");
+    && [mask.a, mask.b, mask.c].every((item) => item === null || typeof item === "boolean");
 }
 
 function isForceComponent(value: unknown): boolean {
   return isRecord(value)
     && isNonNegativeInteger(value.siteIndex)
-    && (value.axis === "x" || value.axis === "y" || value.axis === "z")
+    && (value.axis === "a" || value.axis === "b" || value.axis === "c")
     && isFiniteNumber(value.value)
     && isFiniteNumber(value.magnitude);
 }

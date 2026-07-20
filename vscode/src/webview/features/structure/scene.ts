@@ -143,6 +143,28 @@ const COVALENT_RADII: Readonly<Record<string, number>> = Object.freeze({
   Og: 1.57,
 });
 
+const ELEMENT_COLORS: Readonly<Record<string, string>> = Object.freeze({
+  H: "#ffffff", O: "#ff0d0d", Cu: "#c88033", Y: "#94ffff", Ba: "#00c900",
+});
+
+export interface ElementVisual {
+  readonly element: string;
+  readonly color: string;
+  readonly radius: number;
+}
+
+export function elementVisual(element: string): ElementVisual {
+  return Object.freeze({
+    element,
+    color: ELEMENT_COLORS[element] ?? "#9aa0a6",
+    radius: Math.min(0.52, Math.max(0.22, (COVALENT_RADII[element] ?? 1.2) * 0.25)),
+  });
+}
+
+export function elementLegend(sites: readonly Pick<SceneSiteInput, "element">[]): readonly ElementVisual[] {
+  return Object.freeze([...new Set(sites.map((site) => site.element))].map(elementVisual));
+}
+
 const freezeVec = (value: readonly number[]): Vec3 =>
   Object.freeze([value[0]!, value[1]!, value[2]!]);
 const add = (left: Vec3, right: Vec3): Vec3 =>

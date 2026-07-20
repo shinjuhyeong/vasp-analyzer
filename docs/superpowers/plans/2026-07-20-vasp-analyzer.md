@@ -534,7 +534,7 @@ def parse_poscar(path: Path, dialect: Dialect) -> ParsedStructure:
     masks = raw_masks if raw_masks is not None else [[None, None, None] for _ in structure]
     return ParsedStructure(
         lattice=mat3(structure.lattice.matrix),
-        sites=tuple(Site(site_index=i, element=site.specie.symbol, initial_fractional_position=vec3(site.frac_coords), initial_cartesian_position=vec3(site.coords), selective_dynamics=SelectiveMask(x=mask[0], y=mask[1], z=mask[2])) for i, (site, mask) in enumerate(zip(structure, masks, strict=True))),
+        sites=tuple(Site(site_index=i, element=site.specie.symbol, initial_fractional_position=vec3(site.frac_coords), initial_cartesian_position=vec3(site.coords), selective_dynamics=SelectiveMask(a=mask[0], b=mask[1], c=mask[2])) for i, (site, mask) in enumerate(zip(structure, masks, strict=True))),
         fractional_positions=tuple(vec3(site.frac_coords) for site in structure),
         cartesian_positions=tuple(vec3(site.coords) for site in structure),
         provenance=result.provenance(adapter="pymatgen", adapter_version=version("pymatgen"), dialect=dialect.id),
@@ -744,9 +744,9 @@ git commit -m "feat: stream OUTCAR trajectories with ASE"
 
 ```python
 def test_fixed_largest_component_is_excluded() -> None:
-    masks = (SelectiveMask(x=True, y=False, z=True),)
+    masks = (SelectiveMask(a=True, b=False, c=True),)
     metrics = force_metrics(((0.4, 9.0, -0.6),), masks)
-    assert metrics.strongest == ForceComponent(site_index=0, axis="z", value=-0.6)
+    assert metrics.strongest == ForceComponent(site_index=0, axis="c", value=-0.6)
     assert metrics.free_forces == ((0.4, 0.0, -0.6),)
 
 
@@ -786,7 +786,7 @@ def force_metrics(forces: tuple[Vec3, ...], masks: tuple[SelectiveMask, ...] | N
     if masks is None or any(None in mask.as_tuple() for mask in masks):
         return ForceMetrics(free_forces=None, free_force_norms=None, strongest=None, rms=None)
     free = tuple(tuple(value if allowed else 0.0 for value, allowed in zip(force, mask.as_tuple(), strict=True)) for force, mask in zip(forces, masks, strict=True))
-    eligible = [(abs(value), ForceComponent(site_index=i, axis=axis, value=value)) for i, (force, mask) in enumerate(zip(forces, masks, strict=True)) for axis, value, allowed in zip(("x", "y", "z"), force, mask.as_tuple(), strict=True) if allowed]
+    eligible = [(abs(value), ForceComponent(site_index=i, axis=axis, value=value)) for i, (force, mask) in enumerate(zip(forces, masks, strict=True)) for axis, value, allowed in zip(("a", "b", "c"), directional_components(force, lattice), mask.as_tuple(), strict=True) if allowed]
     strongest = max(eligible, default=(0.0, None), key=lambda item: item[0])[1]
     norms = tuple(sqrt(sum(value * value for value in vector)) for vector in free)
     allowed_values = [component.value for _, component in eligible]
@@ -801,9 +801,8 @@ Define `SupercellSite(site_index, image, fractional_position)`, periodic minimum
 - [ ] **Step 4: Add cache/session behavior**
 
 ```python
-def cache_key(source: SourceFile, dialect_id: str, profile_id: str | None) -> str:
-    payload = f"{source.path}\0{source.size}\0{source.mtime_ns}\0{source.fingerprint}\0{dialect_id}\0{profile_id or ''}"
-    return sha256(payload.encode()).hexdigest()
+def cache_key(source: SourceFile, dialect_id: str, profile: CompatibilityProfile) -> str:
+    """Hash core source fingerprints, dialect, canonical full profile, analyzer and cache schemas."""
 
 
 class CalculationSession:
@@ -818,7 +817,7 @@ class CalculationSession:
         discovered = discover_calculation(self.path)
         source = inspect_source(discovered.outcar)
         dialect = detect_path_dialect(discovered, self.profile)
-        key = cache_key(source, dialect.id, self.profile.id if self.profile else None)
+        key = cache_key(source, dialect.id, dialect.profile)
         self._dataset = self.cache.get(key) or load_dataset(self.path, profile=self.profile)
         self.cache.put(key, self._dataset)
         self._source = source
@@ -1203,7 +1202,7 @@ it("clicking an atom shows positions forces and directional constraints", async 
   fakeRenderer.selectSite(1);
   expect(await screen.findByText("O 2")).toBeVisible();
   expect(screen.getByText("Fx -0.100000 eV/angstrom")).toBeVisible();
-  expect(screen.getByText("Selective Dynamics F F T")).toBeVisible();
+  expect(screen.getByText("Selective Dynamics a/b/c F F T")).toBeVisible();
 });
 
 it("scales arrow geometry without changing displayed force values", async () => {
