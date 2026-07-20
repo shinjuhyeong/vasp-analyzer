@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from vasp_analyzer.calculation.cache import CacheStore
 from vasp_analyzer.calculation.session import CalculationSession
 from vasp_analyzer.transport.stdio import serve_stdio
@@ -37,7 +39,7 @@ def test_stdio_returns_camel_case_dataset(tmp_path: Path) -> None:
     assert response["result"]["ionicSteps"][0]["cartesianPositions"]
 
 
-def test_stdio_recovers_after_invalid_json_and_invalid_params(tmp_path: Path) -> None:
+def test_stdio_recovers_after_invalid_json_and_mismatched_params(tmp_path: Path) -> None:
     responses = _transact(
         _calculation(tmp_path),
         [
@@ -49,7 +51,7 @@ def test_stdio_recovers_after_invalid_json_and_invalid_params(tmp_path: Path) ->
 
     assert responses[0]["error"]["code"] == "invalid_request"
     assert responses[1]["id"] == 2
-    assert responses[1]["error"]["code"] == "invalid_params"
+    assert responses[1]["error"]["code"] == "invalid_request"
     assert responses[2]["result"]["index"] == 0
 
 
@@ -69,3 +71,57 @@ def test_stdio_converts_unexpected_failures_to_nondisclosing_typed_errors() -> N
         "error": {"code": "internal_error", "message": "Analyzer request failed"},
     }
     assert "sensitive" not in sink.getvalue()
+
+
+@pytest.mark.parametrize("request_id", [-1, True, "1"])
+def test_invalid_request_recovery_never_echoes_an_invalid_id(request_id: object) -> None:
+    source = io.StringIO(
+        json.dumps({"id": request_id, "method": "unknown", "params": {}}) + "\n"
+    )
+    sink = io.StringIO()
+
+    serve_stdio(cast(CalculationSession, object()), source, sink)
+
+    assert json.loads(sink.getvalue())["id"] is None
+
+
+def test_invalid_request_recovery_echoes_only_a_valid_id() -> None:
+    source = io.StringIO('{"id":12,"method":"unknown","params":{}}\n')
+    sink = io.StringIO()
+
+    serve_stdio(cast(CalculationSession, object()), source, sink)
+
+    assert json.loads(sink.getvalue())["id"] == 12
+
+
+@pytest.mark.parametrize("line", ['{"method":"unknown","params":{}}\n', "not-json\n"])
+def test_missing_or_malformed_request_has_null_recovery_id(line: str) -> None:
+    sink = io.StringIO()
+
+    serve_stdio(cast(CalculationSession, object()), io.StringIO(line), sink)
+
+    assert json.loads(sink.getvalue())["id"] is None
+
+
+def test_oversized_request_has_null_recovery_id_and_next_line_is_processed() -> None:
+    oversized = json.dumps(
+        {
+            "id": 99,
+            "method": "getDataset",
+            "params": {},
+            "padding": "x" * (1024 * 1024),
+        }
+    )
+    source = io.StringIO(
+        oversized
+        + '\n{"id":13,"method":"getVolumetric",'
+        '"params":{"source":"CHGCAR","mode":"slice"}}\n'
+    )
+    sink = io.StringIO()
+
+    serve_stdio(cast(CalculationSession, object()), source, sink)
+
+    responses = [json.loads(line) for line in sink.getvalue().splitlines()]
+    assert responses[0]["id"] is None
+    assert responses[1]["id"] == 13
+    assert responses[1]["error"]["code"] == "capability_unavailable"

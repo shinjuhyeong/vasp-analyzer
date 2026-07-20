@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from vasp_analyzer.calculation.session import CalculationSession
 
-from .protocol import Request, dispatch, error_response
+from .protocol import Request, dispatch, error_response, recover_request_id
 
 _MAX_REQUEST_CHARS = 1024 * 1024
 
@@ -21,8 +21,7 @@ def _request_id(line: str) -> int | None:
         return None
     if not isinstance(value, dict):
         return None
-    request_id = value.get("id")
-    return request_id if isinstance(request_id, int) and not isinstance(request_id, bool) else None
+    return recover_request_id(value.get("id"))
 
 
 def _read_bounded_line(source: TextIO) -> tuple[str, bool] | None:

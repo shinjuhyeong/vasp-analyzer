@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,42 @@ def test_request_is_immutable_and_accepts_camel_case_step_index() -> None:
     assert request.params.step_index == 0
     with pytest.raises(ValidationError):
         request.id = 8
+
+
+@pytest.mark.parametrize(
+    ("method", "params"),
+    [
+        ("getDataset", {"stepIndex": 0}),
+        ("getDataset", {"source": "CHGCAR", "mode": "slice"}),
+        ("getStep", {}),
+        ("getStep", {"source": "CHGCAR", "mode": "isosurface"}),
+        ("getVolumetric", {}),
+        ("getVolumetric", {"stepIndex": 0}),
+    ],
+)
+def test_request_rejects_every_method_params_mismatch(
+    method: str, params: dict[str, object]
+) -> None:
+    with pytest.raises(ValidationError, match="params"):
+        Request.model_validate({"id": 1, "method": method, "params": params})
+
+
+@pytest.mark.parametrize(
+    ("method", "params"),
+    [
+        ("getDataset", {}),
+        ("getStep", {"stepIndex": 0}),
+        ("getVolumetric", {"source": "CHGCAR", "mode": "slice"}),
+    ],
+)
+def test_request_accepts_only_the_exact_params_for_each_method(
+    method: str, params: dict[str, object]
+) -> None:
+    request = Request.model_validate_json(
+        json.dumps({"id": 1, "method": method, "params": params})
+    )
+
+    assert request.method == method
 
 
 def test_dispatch_returns_dataset_and_step_with_versioned_aliases(tmp_path: Path) -> None:
