@@ -57,11 +57,21 @@
     "build": "node esbuild.mjs",
     "package": "pnpm run build && vsce package --no-dependencies"
   },
+  "dependencies": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
   "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
     "@types/node": "^24.0.0",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
     "@types/vscode": "^1.100.0",
     "@vscode/vsce": "^3.6.0",
     "esbuild": "^0.25.0",
+    "jsdom": "27.4.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
   },

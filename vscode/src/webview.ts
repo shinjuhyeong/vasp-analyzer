@@ -1,18 +1,18 @@
+import { createElement } from "react";
+import { createRoot } from "react-dom/client";
+
+import { App } from "./webview/App.js";
+import { VsCodeHost } from "./webview/core/host.js";
+import "./webview/styles.css";
+
 declare function acquireVsCodeApi(): {
   postMessage(message: unknown): void;
+  getState(): unknown;
+  setState(state: unknown): void;
 };
 
-const vscode = acquireVsCodeApi();
-const app = document.getElementById("app");
+const container = document.getElementById("app");
+if (!container) throw new Error("VASP Analyzer Webview root is missing");
 
-window.addEventListener("message", (event: MessageEvent<unknown>) => {
-  if (!app || !event.data || typeof event.data !== "object") return;
-  const message = event.data as { type?: unknown; result?: unknown; error?: unknown };
-  if (message.type === "dataset") {
-    app.textContent = "Calculation loaded. Crystal viewer assets will be provided by the next UI task.";
-  } else if (message.type === "error") {
-    app.textContent = typeof message.error === "string" ? message.error : "Analyzer request failed.";
-  }
-});
-
-vscode.postMessage({ type: "ready" });
+const host = new VsCodeHost(acquireVsCodeApi(), window);
+createRoot(container).render(createElement(App, { host }));

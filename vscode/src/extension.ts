@@ -109,7 +109,8 @@ function activationPlan(context: vscode.ExtensionContext): {
     panels.set(root, panel);
     processes.set(panel, analyzer);
     const bundle = vscode.Uri.joinPath(webviewRoot, "index.js");
-    panel.webview.html = webviewHtml(panel.webview, bundle);
+    const stylesheet = vscode.Uri.joinPath(webviewRoot, "index.css");
+    panel.webview.html = webviewHtml(panel.webview, bundle, stylesheet);
 
     panel.webview.onDidReceiveMessage(
       async (message: unknown) => {
