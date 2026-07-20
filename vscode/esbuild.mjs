@@ -1,4 +1,7 @@
 import { build } from "esbuild";
+import { rm } from "node:fs/promises";
+
+await rm("dist", { recursive: true, force: true });
 
 await Promise.all([
   build({
@@ -10,6 +13,7 @@ await Promise.all([
     target: "node20",
     external: ["vscode"],
     sourcemap: true,
+    legalComments: "none",
   }),
   build({
     entryPoints: ["src/webview.ts"],
@@ -18,6 +22,9 @@ await Promise.all([
     platform: "browser",
     format: "iife",
     target: "es2022",
-    sourcemap: true,
+    sourcemap: false,
+    legalComments: "none",
+    minify: true,
+    define: { "process.env.NODE_ENV": '"production"' },
   }),
 ]);

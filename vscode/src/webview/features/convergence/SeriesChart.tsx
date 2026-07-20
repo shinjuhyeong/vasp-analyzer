@@ -89,16 +89,6 @@ function segments(points: readonly ChartPoint[]): readonly (readonly ChartPoint[
   return result;
 }
 
-function selectByKeyboard(
-  event: KeyboardEvent<HTMLButtonElement>,
-  selectionIndex: number,
-  onSelect: (selectionIndex: number) => void,
-): void {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  event.preventDefault();
-  onSelect(selectionIndex);
-}
-
 const axisTitle = ({ label, unit }: AxisDescriptor): string =>
   unit ? `${label} (${unit})` : label;
 
@@ -195,7 +185,6 @@ export function SeriesChart({
               aria-pressed={point.selectionIndex === selectedIndex}
               aria-current={point.selectionIndex === selectedIndex ? "true" : undefined}
               onClick={() => onSelect(point.selectionIndex!)}
-              onKeyDown={(event) => selectByKeyboard(event, point.selectionIndex!, onSelect)}
             >
               {point.displayLabel ?? point.x}
             </button>

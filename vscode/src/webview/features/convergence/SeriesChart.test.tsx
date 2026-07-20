@@ -10,7 +10,7 @@ const axes = {
   yAxis: { label: "Force", unit: "eV/angstrom" },
 };
 
-it("keeps the SVG noninteractive and exposes real keyboard-operable HTML buttons", () => {
+it("uses native button activation without duplicate keyboard dispatch", () => {
   const select = vi.fn();
   const disconnect = vi.fn();
   vi.stubGlobal(
@@ -54,10 +54,9 @@ it("keeps the SVG noninteractive and exposes real keyboard-operable HTML buttons
   const missing = screen.getByRole("button", { name: "Force at ionic step 11: unavailable" });
   const point = screen.getByRole("button", { name: "Force at ionic step 21: 0.2 eV per angstrom" });
   expect(point).toHaveAttribute("aria-pressed", "true");
-  fireEvent.keyDown(missing, { key: "Enter" });
-  fireEvent.keyDown(point, { key: " " });
+  fireEvent.keyDown(point, { key: "Enter" });
   fireEvent.click(point);
-  expect(select.mock.calls).toEqual([[0], [1], [1]]);
+  expect(select.mock.calls).toEqual([[1]]);
   view.unmount();
   expect(disconnect).toHaveBeenCalledOnce();
   vi.unstubAllGlobals();

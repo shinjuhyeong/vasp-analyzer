@@ -362,22 +362,22 @@ Logs record source paths, parser stages, and concise causes. They do not dump fu
 
 ### 9.4 Local OUTCAR corpus
 
-The development corpus contains 51 exact `OUTCAR` files under the user's local `VASPAgent` results tree, totaling approximately 2.121 GB. All currently identify themselves as `vasp.5.4.1-barrier`. Forty-nine contain ionic position/force blocks, with 12,853 blocks in total and between 1 and 3,000 blocks per file. Thirty-seven include the normal VASP timing footer and fourteen are running or otherwise incomplete. The largest file is approximately 0.49 GB.
+The current development corpus contains 52 exact `OUTCAR` files under the user's local results tree, totaling 2,288,020,784 bytes. All currently identify themselves as `vasp.5.4.1-barrier`. Fifty contain ionic position/force blocks, with 12,909 blocks in total and between 1 and 3,000 blocks per file. Thirty-eight include the normal VASP timing footer and fourteen are running or otherwise incomplete. The corpus is an evolving opt-in local snapshot; these counts are the authoritative Task 14 acceptance baseline.
 
 Raw corpus files and absolute local paths are never committed. `VASP_ANALYZER_CORPUS_DIR` selects the corpus for opt-in tests:
 
 ```text
 pytest                          small, repository-safe fixtures
-pytest -m corpus               local 51-file regression corpus
+pytest -m corpus               local 52-file regression corpus
 analyzer corpus validate PATH  aggregate validation report
 ```
 
 Corpus acceptance requires:
 
-- all 51 files are identified without a crash as `home_barrier`;
-- the 37 complete and 14 incomplete calculations are distinguished;
-- the 49 structural files expose every complete position/force block;
-- parser step counts are compared with the 12,853 independently scanned block markers;
+- all 52 files are identified without a crash as `home_barrier`;
+- the 38 complete and 14 incomplete calculations are distinguished;
+- the 50 structural files expose every complete position/force block;
+- parser step counts are compared with the 12,909 independently scanned block markers;
 - atom, coordinate, force, and constraint dimensions agree at every completed step;
 - invalid lattices, NaN, and infinite numerical values are rejected explicitly;
 - selected numerical steps agree between the ASE adapter and the supplemental scanner; and
@@ -411,7 +411,7 @@ The first release is complete when:
 8. A partially written OUTCAR remains inspectable through its last complete step.
 9. The Webview works offline with bundled runtime assets.
 10. DOS, band, and volumetric extension contracts are present and tested even though their full UIs are deferred.
-11. The local 51-file corpus passes the dialect, completeness, dimensional-consistency, and interrupted-tail checks without committing calculation data.
+11. The local 52-file corpus passes the dialect, completeness, dimensional-consistency, and interrupted-tail checks without committing calculation data.
 12. User TOML profiles can validate and alias simple format changes without executing arbitrary code; unsupported complex variants fail with actionable diagnostics.
 
 ## 11. Selected Technology Direction

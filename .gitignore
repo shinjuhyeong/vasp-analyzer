@@ -26,3 +26,6 @@ htmlcov/
 .vasp-analyzer-cache/
 corpus-report*.json
 corpus-*.json
+/dist/
+/vscode/dist/
+/vscode/*.vsix

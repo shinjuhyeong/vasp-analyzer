@@ -275,6 +275,13 @@ export class VsCodeHost implements AnalysisHost {
 
 type FetchLike = (input: string, init: RequestInit) => Promise<Pick<Response, "ok" | "status" | "json">>;
 
+interface StorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+const BROWSER_STATE_KEY = "vasp-analyzer.selection.v1";
+
 export class HttpHost implements AnalysisHost {
   private nextRequestId = 0;
   private state: PersistedAnalysisState | undefined;
@@ -282,15 +289,29 @@ export class HttpHost implements AnalysisHost {
   constructor(
     private readonly endpoint: string,
     private readonly fetcher: FetchLike = fetch,
-  ) {}
+    private readonly storage?: StorageLike,
+  ) {
+    if (!storage) return;
+    try {
+      const raw = storage.getItem(BROWSER_STATE_KEY);
+      this.state = raw === null ? undefined : persistedState(JSON.parse(raw));
+    } catch {
+      this.state = undefined;
+    }
+  }
 
   async request(method: AnalysisMethod, params: Readonly<Record<string, unknown>>): Promise<AnalysisResult> {
     const id = ++this.nextRequestId;
-    const response = await this.fetcher(this.endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id, method, params }),
-    });
+    let response: Awaited<ReturnType<FetchLike>>;
+    try {
+      response = await this.fetcher(this.endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, method, params }),
+      });
+    } catch {
+      throw new HostRequestError("http_error", "Analyzer HTTP request failed");
+    }
     if (!response.ok) {
       throw new HostRequestError("http_error", `Analyzer HTTP request failed (${response.status})`);
     }
@@ -312,5 +333,10 @@ export class HttpHost implements AnalysisHost {
 
   setState(state: PersistedAnalysisState): void {
     this.state = state;
+    try {
+      this.storage?.setItem(BROWSER_STATE_KEY, JSON.stringify(state));
+    } catch {
+      // The browser may disable storage; in-memory state remains usable.
+    }
   }
 }

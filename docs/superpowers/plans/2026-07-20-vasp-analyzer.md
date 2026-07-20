@@ -27,7 +27,7 @@
 - Treat `T` as movable and `F` as fixed. If masks are unavailable, preserve `None` and do not claim constraint-aware metrics.
 - `CalculationDataset.source_files` and every public domain object are immutable.
 - Preserve stable `site_index` across steps and future DOS, band, and charge features; supercell images add an image vector without creating new sites.
-- Keep root VASP outputs, the 2.121 GB corpus, aggregate reports, cache data, absolute local paths, `__pycache__/`, and `.pytest_cache/` out of Git.
+- Keep root VASP outputs, the 2,288,020,784-byte corpus, aggregate reports, cache data, absolute local paths, `__pycache__/`, and `.pytest_cache/` out of Git.
 - Corpus tests run only with `VASP_ANALYZER_CORPUS_DIR` or `analyzer corpus validate PATH`; ordinary `pytest` uses small reviewed synthetic fixtures.
 - The first release implements structure and convergence. DOS/band/volumetric seams are contracts only and must not create empty `electronic/` or `volumetric/` packages.
 - Use TDD for every behavior change: add one focused failing test, observe the expected failure, implement minimally, rerun focused tests, then run the task suite and Ruff before committing.
@@ -845,7 +845,7 @@ git add src/vasp_analyzer/core/models.py src/vasp_analyzer/structure src/vasp_an
 git commit -m "feat: assemble immutable calculation datasets"
 ```
 
-### Task 8: Validate the Actual 51-File Corpus Without Committing It
+### Task 8: Validate the Actual 52-File Corpus Without Committing It
 
 **Files:**
 - Create: `src/vasp_analyzer/cli/corpus.py`
@@ -870,9 +870,10 @@ markers = ["corpus: requires VASP_ANALYZER_CORPUS_DIR and reads local OUTCAR fil
 def test_actual_home_barrier_corpus() -> None:
     root = corpus_root_or_skip()
     report = validate_corpus(root)
-    assert report.files == 51
-    assert report.bytes_total / (1024 ** 3) == pytest.approx(2.121, rel=0.01)
-    assert report.home_barrier == 51
+    assert report.files == 52
+    assert report.bytes_total == 2_288_020_784
+    assert report.bytes_total / (1024 ** 3) == pytest.approx(2.131, rel=0.01)
+    assert report.home_barrier == 52
     assert report.with_force_blocks == 49
     assert report.force_blocks == 12_853
     assert report.complete == 37
@@ -880,7 +881,7 @@ def test_actual_home_barrier_corpus() -> None:
     assert report.max_steps == 3_000
 ```
 
-Implement the binary-GiB assertion with a +/-1% tolerance because the approved 2.121 GB value is rounded; all other counts are exact.
+Keep the byte count exact and use a +/-1% tolerance only for the rounded 2.131 GiB display value; all aggregate counts are exact.
 
 - [ ] **Step 2: Verify safe skip and RED implementation state**
 
@@ -913,7 +914,7 @@ class CorpusReport(FrozenModel):
 def validate_corpus(root: Path) -> CorpusReport:
     outcars = tuple(sorted(root.rglob("OUTCAR")))
     if len(outcars) != 51:
-        raise AnalyzerError(f"expected 51 OUTCAR files under corpus root, found {len(outcars)}")
+        raise AnalyzerError(f"expected 52 OUTCAR files under corpus root, found {len(outcars)}")
     accumulator = CorpusAccumulator()
     for path in outcars:
         accumulator.consume(path, detect_dialect(read_head(path)), scan_outcar(path, HOME_BARRIER))
@@ -934,7 +935,7 @@ Expected: repository-safe suite PASS; Ruff clean.
 
 Run: `python -m pytest -m corpus tests/corpus -v` with `VASP_ANALYZER_CORPUS_DIR` already set in the shell and not stored in a project file.
 
-Expected: 51 `home_barrier`; 37 complete/14 incomplete; 49 structural; 12,853 force blocks; maximum 3,000 steps; no crash, NaN, invalid lattice, dimension mismatch, or false success.
+Expected: 52 `home_barrier`; 38 complete/14 incomplete; 50 structural; 12,909 force blocks; maximum 3,000 steps; no crash, NaN, invalid lattice, dimension mismatch, or false success.
 
 - [ ] **Step 6: Commit code and tests, never the report or corpus**
 
@@ -1442,7 +1443,7 @@ Expected: all repository-safe Python/TypeScript tests PASS; Ruff/typecheck/build
 
 Run: `python -m pytest -m corpus tests/corpus -v` with `VASP_ANALYZER_CORPUS_DIR` already set outside the repository.
 
-Expected: exact corpus acceptance from Task 8: 51 home-barrier files, 49 structural files, 12,853 blocks, 37 complete, 14 incomplete, maximum 3,000 steps.
+Expected: exact corpus acceptance from Task 8: 52 home-barrier files, 50 structural files, 12,909 blocks, 38 complete, 14 incomplete, maximum 3,000 steps.
 
 Then install the built wheel with `pipx`, install the VSIX, reload Remote SSH, open a new integrated terminal, and verify: `analyzer` opens a Webview without a port; Explorer and Command Palette open an OUTCAR; step/site selection synchronizes all views; periodic images retain site identity; fixed components do not win free-force metrics; an incomplete file shows its last valid step and warning; Webview reload restores state; disabled network still renders; forced WebGL failure leaves the data table usable.
 
@@ -1463,7 +1464,7 @@ git commit -m "docs: package and validate VASP analyzer"
 - [ ] pymatgen is confined to normalized POSCAR/CONTCAR adapters; ASE 3.29+ is confined to OUTCAR trajectory conversion.
 - [ ] Profiles are declarative, schema-versioned, fail-closed, and incapable of executing code.
 - [ ] Recovery emits only validated complete force blocks, retains a structure lacking energy, warns on partial tails, and resumes from verified offsets only for append-only sources.
-- [ ] Real corpus validation reports the approved 51/49/12,853/37/14/3,000 counts without committing raw files, reports, or absolute paths.
+- [ ] Real corpus validation reports the current 52/50/12,909/38/14/3,000 counts without committing raw files, reports, or absolute paths.
 - [ ] Root VASP files and all Python/test/cache artifacts remain ignored.
 - [ ] `CalculationDataset.source_files` and all domain models are immutable.
 - [ ] One selected-step/site identity drives structure, forces, plots, exact values, and future analysis seams.

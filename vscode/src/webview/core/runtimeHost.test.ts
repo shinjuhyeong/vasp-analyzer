@@ -1,0 +1,43 @@
+// @vitest-environment jsdom
+
+import { describe, expect, it, vi } from "vitest";
+
+import { HttpHost, VsCodeHost } from "./host.js";
+import { createRuntimeHost } from "./runtimeHost.js";
+
+describe("runtime host selection", () => {
+  it("uses the VS Code transport only when its API is present", () => {
+    const api = { postMessage: vi.fn(), getState: () => undefined, setState: vi.fn() };
+
+    const host = createRuntimeHost({ acquireVsCodeApi: () => api, window });
+
+    expect(host).toBeInstanceOf(VsCodeHost);
+    (host as VsCodeHost).dispose();
+  });
+
+  it("uses the same-origin HTTP protocol in a standalone browser", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: 1, error: { code: "step_not_found", message: "missing" } }),
+    });
+    const host = createRuntimeHost({ fetch: fetcher, window });
+
+    await expect(host.request("getStep", { stepIndex: 99 })).rejects.toMatchObject({
+      code: "step_not_found",
+    });
+    expect(host).toBeInstanceOf(HttpHost);
+    expect(fetcher).toHaveBeenCalledWith("/api/request", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("restores standalone selection state after a browser reload", () => {
+    sessionStorage.clear();
+    const fetcher = vi.fn();
+    const first = createRuntimeHost({ fetch: fetcher, window });
+    first.setState({ selectedStep: 4, selectedSite: 2 });
+
+    const reloaded = createRuntimeHost({ fetch: fetcher, window });
+
+    expect(reloaded.getState()).toEqual({ selectedStep: 4, selectedSite: 2 });
+  });
+});

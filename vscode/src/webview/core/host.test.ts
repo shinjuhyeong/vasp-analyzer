@@ -53,6 +53,14 @@ describe("analysis hosts", () => {
     expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8765", expect.objectContaining({ method: "POST" }));
   });
 
+  it("converts browser transport failures to a typed HTTP error", async () => {
+    const fetcher = vi.fn().mockRejectedValue(new TypeError("connection detail"));
+
+    await expect(new HttpHost("/api/request", fetcher).request("getDataset", {})).rejects.toEqual(
+      new HostRequestError("http_error", "Analyzer HTTP request failed"),
+    );
+  });
+
   it.each([
     ["incomplete dataset", { schemaVersion: 1 }],
     ["wrong method payload", step],

@@ -208,6 +208,30 @@ def test_forced_profile_skips_path_only_extension_handoff(tmp_path: Path) -> Non
     assert launches[0].profile.id == "home-example"
 
 
+def test_explicit_web_flags_skip_handoff_and_route_port_and_open_state(tmp_path: Path) -> None:
+    root = _calculation(tmp_path)
+    launches: list[WebLaunchRequest] = []
+
+    def unexpected_send(_address: str, _payload: bytes) -> bytes:
+        raise AssertionError("--web must not contact the extension endpoint")
+
+    app = create_app(
+        web_launcher=launches.append,
+        endpoint_sender=unexpected_send,
+        environ={
+            "VASP_ANALYZER_ENDPOINT": r"\\.\pipe\vasp-analyzer-test",
+            "VASP_ANALYZER_TOKEN": "e" * 32,
+        },
+    )
+
+    result = runner.invoke(app, [str(root), "--web", "--port", "8765", "--no-open"])
+
+    assert result.exit_code == 0, result.output
+    assert launches == [
+        WebLaunchRequest(path=root.resolve(), port=8765, open_browser=False)
+    ]
+
+
 def test_serve_stdio_and_dialect_validate_commands(tmp_path: Path) -> None:
     root = _calculation(tmp_path)
     app = create_app(web_launcher=lambda _request: None, environ={})
