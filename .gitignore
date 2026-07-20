@@ -1,5 +1,6 @@
 .superpowers/
 .brainstorm-server.*
+.worktrees/
 
 # Local VASP calculation outputs. Curated test fixtures under tests/ remain trackable.
 /POSCAR
