@@ -233,7 +233,7 @@ describe("CrystalPanel", () => {
     const { renderer, view } = setup();
     view.unmount();
     expect(renderer.dispose).toHaveBeenCalledOnce();
-    expect(disconnect).toHaveBeenCalledOnce();
+    expect(disconnect).toHaveBeenCalledTimes(2);
     vi.unstubAllGlobals();
   });
 

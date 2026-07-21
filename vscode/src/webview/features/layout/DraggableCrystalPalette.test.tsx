@@ -1,11 +1,34 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { useRef, useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DraggableCrystalPalette } from "./DraggableCrystalPalette.js";
+
+let viewportSize = { width: 300, height: 200 };
+let paletteSize = { width: 80, height: 50 };
+const observers: ControllableResizeObserver[] = [];
+const originalResizeObserver = globalThis.ResizeObserver;
+const originalWindowResizeObserver = window.ResizeObserver;
+
+class ControllableResizeObserver {
+  readonly observe = vi.fn();
+  readonly unobserve = vi.fn();
+  readonly disconnect = vi.fn();
+
+  constructor(private readonly callback: ResizeObserverCallback) {
+    observers.push(this);
+  }
+
+  trigger(): void {
+    this.callback([], this as unknown as ResizeObserver);
+  }
+}
+
+const rectangle = (width: number, height: number): DOMRect =>
+  ({ width, height } as DOMRect);
 
 function Harness({
   initialPosition = { x: 10, y: 10 },
@@ -42,6 +65,29 @@ function Harness({
 }
 
 describe("DraggableCrystalPalette", () => {
+  beforeEach(() => {
+    observers.length = 0;
+    viewportSize = { width: 300, height: 200 };
+    paletteSize = { width: 80, height: 50 };
+    globalThis.ResizeObserver = ControllableResizeObserver as unknown as typeof ResizeObserver;
+    window.ResizeObserver = ControllableResizeObserver as unknown as typeof ResizeObserver;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.dataset.testid === "viewport")
+          return rectangle(viewportSize.width, viewportSize.height);
+        if (this.classList.contains("crystal-palette"))
+          return rectangle(paletteSize.width, paletteSize.height);
+        return rectangle(0, 0);
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    globalThis.ResizeObserver = originalResizeObserver;
+    window.ResizeObserver = originalWindowResizeObserver;
+  });
+
   it("starts collapsed with an accessible expansion control", () => {
     render(<Harness />);
 
@@ -97,27 +143,51 @@ describe("DraggableCrystalPalette", () => {
     expect(setCapture).toHaveBeenCalledOnce();
   });
 
-  it("re-clamps an off-screen position after viewport resize", () => {
+  it("clamps a persisted off-screen position immediately when expanded", async () => {
+    const changed = vi.fn();
+    render(
+      <Harness
+        initialCollapsed
+        initialPosition={{ x: 250, y: 170 }}
+        onPositionChange={changed}
+      />,
+    );
+
+    await userEvent.setup().click(
+      screen.getByRole("button", { name: "Expand crystal tools" }),
+    );
+
+    expect(changed).toHaveBeenLastCalledWith({ x: 220, y: 150 });
+  });
+
+  it("re-clamps when the observed viewport changes without window resize", () => {
     const changed = vi.fn();
     render(
       <Harness
         initialCollapsed={false}
-        initialPosition={{ x: 250, y: 170 }}
+        initialPosition={{ x: 100, y: 80 }}
         onPositionChange={changed}
       />,
     );
     const viewport = screen.getByTestId("viewport");
     const palette = screen.getByRole("group", { name: "Crystal tools" });
-    Object.defineProperty(viewport, "getBoundingClientRect", {
-      value: () => ({ width: 200, height: 100 }),
-    });
-    Object.defineProperty(palette, "getBoundingClientRect", {
-      value: () => ({ width: 60, height: 40 }),
-    });
+    expect(observers).toHaveLength(1);
+    expect(observers[0]!.observe).toHaveBeenCalledWith(viewport);
+    expect(observers[0]!.observe).toHaveBeenCalledWith(palette);
 
-    fireEvent(window, new Event("resize"));
+    viewportSize = { width: 120, height: 90 };
+    act(() => observers[0]!.trigger());
 
-    expect(changed).toHaveBeenLastCalledWith({ x: 140, y: 60 });
+    expect(changed).toHaveBeenLastCalledWith({ x: 40, y: 40 });
+  });
+
+  it("disconnects palette observation during cleanup", () => {
+    const view = render(<Harness initialCollapsed={false} />);
+    expect(observers).toHaveLength(1);
+
+    view.unmount();
+
+    expect(observers[0]!.disconnect).toHaveBeenCalledOnce();
   });
 
   it("resets to the collapsed default position", async () => {

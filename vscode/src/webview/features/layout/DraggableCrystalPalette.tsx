@@ -67,13 +67,23 @@ export function DraggableCrystalPalette({
 
   useEffect(() => {
     if (collapsed) return;
-    const handleResize = (): void => {
+    const viewport = viewportRef.current;
+    const palette = paletteRef.current;
+    if (!viewport || !palette) return;
+    const reclamp = (): void => {
       const next = bounded(position);
       if (next && (next.x !== position.x || next.y !== position.y))
         onPositionChange(next);
     };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    reclamp();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", reclamp);
+      return () => window.removeEventListener("resize", reclamp);
+    }
+    const observer = new ResizeObserver(reclamp);
+    observer.observe(viewport);
+    observer.observe(palette);
+    return () => observer.disconnect();
   }, [collapsed, onPositionChange, position, viewportRef]);
 
   const beginDrag = (event: ReactPointerEvent<HTMLDivElement>): void => {
