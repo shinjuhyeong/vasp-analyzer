@@ -98,6 +98,31 @@ describe("analysis hosts", () => {
     host.dispose();
   });
 
+  it("rejects persisted state from an unsupported schema version", () => {
+    const host = new VsCodeHost({
+      postMessage: vi.fn(),
+      getState: () => ({
+        version: 3,
+        selectedStep: 1,
+        selectedSite: 0,
+        forceMode: "raw",
+        forceScale: 250,
+        layout: {
+          structurePercent: 60,
+          inspectorWidth: 280,
+          inspectorCollapsed: false,
+          paletteX: 20,
+          paletteY: 20,
+          paletteCollapsed: false,
+        },
+      }),
+      setState: vi.fn(),
+    }, window);
+
+    expect(host.getState()).toBeUndefined();
+    host.dispose();
+  });
+
   it("correlates concurrent VS Code responses by request ID", async () => {
     const messages: unknown[] = [];
     const api = { postMessage: (message: unknown) => messages.push(message), getState: () => undefined, setState: () => undefined };

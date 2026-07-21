@@ -218,6 +218,7 @@ function protocolError(value: unknown): ProtocolErrorShape | undefined {
 function persistedState(value: unknown): PersistedAnalysisState | undefined {
   if (!isRecord(value)) return undefined;
   const state = value;
+  if (state.version !== undefined && state.version !== 2) return undefined;
   if (!Number.isSafeInteger(state.selectedStep) || Number(state.selectedStep) < 0) return undefined;
   if (state.selectedSite !== null && (!Number.isSafeInteger(state.selectedSite) || Number(state.selectedSite) < 0)) {
     return undefined;

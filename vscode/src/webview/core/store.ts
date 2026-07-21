@@ -51,6 +51,14 @@ function finiteOr(value: number | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+function normalizeForceScale(value: number | undefined, fallback = 10): number {
+  return clamp(
+    finiteOr(value, finiteOr(fallback, 10)),
+    MIN_FORCE_SCALE,
+    MAX_FORCE_SCALE,
+  );
+}
+
 export function normalizeLayout(
   layout: Partial<LayoutPreferences> | undefined,
   fallback: LayoutPreferences = DEFAULT_LAYOUT,
@@ -82,7 +90,7 @@ export function analysisReducer(state: AnalysisState, action: AnalysisAction): A
         selectedStep: step,
         selectedSite: validSite(action.dataset, step, action.persisted?.selectedSite ?? state.selectedSite),
         forceMode: action.persisted?.forceMode ?? state.forceMode,
-        forceScale: clamp(action.persisted?.forceScale ?? state.forceScale, MIN_FORCE_SCALE, MAX_FORCE_SCALE),
+        forceScale: normalizeForceScale(action.persisted?.forceScale, state.forceScale),
         layout: action.persisted ? normalizeLayout(action.persisted.layout) : state.layout,
       };
     }
@@ -99,7 +107,7 @@ export function analysisReducer(state: AnalysisState, action: AnalysisAction): A
     case "setForceMode":
       return { ...state, forceMode: action.mode };
     case "setForceScale":
-      return { ...state, forceScale: clamp(action.scale, MIN_FORCE_SCALE, MAX_FORCE_SCALE) };
+      return { ...state, forceScale: normalizeForceScale(action.scale, state.forceScale) };
     case "setLayout":
       return { ...state, layout: normalizeLayout(action.layout, state.layout) };
     case "resetLayout":

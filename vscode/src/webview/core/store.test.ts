@@ -51,6 +51,18 @@ describe("analysis preferences", () => {
     expect(analysisReducer(initialAnalysisState, { type: "setForceScale", scale }).forceScale).toBe(expected);
   });
 
+  it.each([Number.NaN, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY])(
+    "retains the safe current force scale for non-finite input %s",
+    (scale) => {
+      const current = { ...initialAnalysisState, forceScale: 250 };
+
+      const next = analysisReducer(current, { type: "setForceScale", scale });
+
+      expect(next.forceScale).toBe(250);
+      expect(Number.isFinite(next.forceScale)).toBe(true);
+    },
+  );
+
   it("normalizes partial layout updates without changing unrelated preferences", () => {
     const state = analysisReducer(initialAnalysisState, {
       type: "setLayout",
