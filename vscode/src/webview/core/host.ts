@@ -45,7 +45,33 @@ function invalidResponse(): HostRequestError {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasOwnProperties(value: Record<string, unknown>, properties: readonly string[]): boolean {
+  return properties.every((property) => Object.prototype.hasOwnProperty.call(value, property));
+}
+
+function isRecordWith(value: unknown, properties: readonly string[]): value is Record<string, unknown> {
+  return isRecord(value) && hasOwnProperties(value, properties);
+}
+
+function isDenseArray(value: unknown): value is readonly unknown[] {
+  if (!Array.isArray(value)) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.prototype.hasOwnProperty.call(value, index)) return false;
+  }
+  return true;
+}
+
+function isArrayOf(value: unknown, guard: (item: unknown) => boolean): value is readonly unknown[] {
+  if (!isDenseArray(value)) return false;
+  for (const item of value) {
+    if (!guard(item)) return false;
+  }
+  return true;
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -61,7 +87,7 @@ function isNullable<T>(value: unknown, guard: (candidate: unknown) => candidate 
 }
 
 function isStringArray(value: unknown): value is readonly string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
+  return isArrayOf(value, (item) => typeof item === "string");
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -69,19 +95,19 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 function isVec3(value: unknown): boolean {
-  return Array.isArray(value) && value.length === 3 && value.every(isFiniteNumber);
+  return isDenseArray(value) && value.length === 3 && isArrayOf(value, isFiniteNumber);
 }
 
 function isMat3(value: unknown): boolean {
-  return Array.isArray(value) && value.length === 3 && value.every(isVec3);
+  return isDenseArray(value) && value.length === 3 && isArrayOf(value, isVec3);
 }
 
 function isVec3Array(value: unknown): boolean {
-  return Array.isArray(value) && value.every(isVec3);
+  return isArrayOf(value, isVec3);
 }
 
 function isSourceFile(value: unknown): boolean {
-  return isRecord(value)
+  return isRecordWith(value, ["path", "size", "mtimeNs", "fingerprint"])
     && typeof value.path === "string"
     && isNonNegativeInteger(value.size)
     && isNonNegativeInteger(value.mtimeNs)
@@ -89,7 +115,8 @@ function isSourceFile(value: unknown): boolean {
 }
 
 function isSite(value: unknown): boolean {
-  if (!isRecord(value) || !isRecord(value.selectiveDynamics)) return false;
+  if (!isRecordWith(value, ["siteIndex", "element", "initialFractionalPosition", "initialCartesianPosition", "selectiveDynamics"])
+    || !isRecordWith(value.selectiveDynamics, ["a", "b", "c"])) return false;
   const mask = value.selectiveDynamics;
   return isNonNegativeInteger(value.siteIndex)
     && typeof value.element === "string"
@@ -99,7 +126,7 @@ function isSite(value: unknown): boolean {
 }
 
 function isForceComponent(value: unknown): boolean {
-  return isRecord(value)
+  return isRecordWith(value, ["siteIndex", "axis", "value", "magnitude"])
     && isNonNegativeInteger(value.siteIndex)
     && (value.axis === "a" || value.axis === "b" || value.axis === "c")
     && isFiniteNumber(value.value)
@@ -107,7 +134,7 @@ function isForceComponent(value: unknown): boolean {
 }
 
 function isEnergyTerm(value: unknown): boolean {
-  return isRecord(value)
+  return isRecordWith(value, ["key", "rawLabel", "value", "unit", "kind"])
     && isNonEmptyString(value.key)
     && isNonEmptyString(value.rawLabel)
     && isFiniteNumber(value.value)
@@ -119,7 +146,7 @@ function isParameterValue(value: unknown): boolean {
   return typeof value === "boolean"
     || typeof value === "string"
     || isFiniteNumber(value)
-    || (Array.isArray(value) && value.every(isFiniteNumber));
+    || isArrayOf(value, isFiniteNumber);
 }
 
 function isOptionalString(value: unknown): boolean {
@@ -127,7 +154,9 @@ function isOptionalString(value: unknown): boolean {
 }
 
 function isParameterOccurrence(value: unknown): boolean {
-  return isRecord(value)
+  return isRecordWith(value, [
+    "key", "rawKey", "rawValue", "value", "unit", "category", "description", "ordinal", "lineNumber",
+  ])
     && isNonEmptyString(value.key)
     && isNonEmptyString(value.rawKey)
     && isNonEmptyString(value.rawValue)
@@ -140,16 +169,21 @@ function isParameterOccurrence(value: unknown): boolean {
 }
 
 function isIonicStep(value: unknown): value is IonicStep {
-  if (!isRecord(value)
+  if (!isRecordWith(value, [
+    "index", "lattice", "fractionalPositions", "cartesianPositions", "rawForces",
+    "freeForces", "freeForceNorms", "totalEnergy", "energyTerms", "externalPressureKb",
+    "pulayStressKb", "stressTensorKb", "cellVolume", "deltaEnergy", "scfIterations",
+    "electronicConverged", "ionicConverged", "strongestFreeComponent", "rmsFreeForce",
+  ])
     || !isNonNegativeInteger(value.index)
     || !isMat3(value.lattice)
     || !isVec3Array(value.fractionalPositions)
     || !isVec3Array(value.cartesianPositions)
     || !isVec3Array(value.rawForces)
     || !isNullable(value.freeForces, (item): item is readonly unknown[] => isVec3Array(item))
-    || !isNullable(value.freeForceNorms, (item): item is readonly number[] => Array.isArray(item) && item.every(isFiniteNumber))
+    || !isNullable(value.freeForceNorms, (item): item is readonly number[] => isArrayOf(item, isFiniteNumber))
     || !isNullable(value.totalEnergy, isFiniteNumber)
-    || !Array.isArray(value.energyTerms) || !value.energyTerms.every(isEnergyTerm)
+    || !isArrayOf(value.energyTerms, isEnergyTerm)
     || !isNullable(value.externalPressureKb, isFiniteNumber)
     || !isNullable(value.pulayStressKb, isFiniteNumber)
     || !isNullable(value.stressTensorKb, (item): item is readonly unknown[] => isMat3(item))
@@ -175,14 +209,14 @@ function isIonicStep(value: unknown): value is IonicStep {
 
 function isCapability(value: unknown): boolean {
   const names = ["structure", "convergence", "dos", "band", "charge"];
-  return isRecord(value)
+  return isRecordWith(value, ["name", "available", "reason"])
     && typeof value.name === "string" && names.includes(value.name)
     && typeof value.available === "boolean"
     && (value.reason === null || typeof value.reason === "string");
 }
 
 function isWarning(value: unknown): boolean {
-  return isRecord(value)
+  return isRecordWith(value, ["category", "message", "byteOffset", "lineNumber"])
     && (value.category === "IncompleteTail" || value.category === "IgnoredCompatibilityMetadata")
     && typeof value.message === "string"
     && isNullable(value.byteOffset, isNonNegativeInteger)
@@ -190,7 +224,9 @@ function isWarning(value: unknown): boolean {
 }
 
 function isProvenance(value: unknown): boolean {
-  return isRecord(value)
+  return isRecordWith(value, [
+    "adapter", "adapterVersion", "dialect", "profileId", "normalizationRules", "compatibilityMetadata",
+  ])
     && typeof value.adapter === "string"
     && typeof value.adapterVersion === "string"
     && typeof value.dialect === "string"
@@ -200,15 +236,18 @@ function isProvenance(value: unknown): boolean {
 }
 
 function isCalculationDataset(value: unknown): value is CalculationDataset {
-  if (!isRecord(value)
+  if (!isRecordWith(value, [
+    "schemaVersion", "root", "sourceFiles", "sites", "ionicSteps", "parameters",
+    "capabilities", "warnings", "provenance",
+  ])
     || value.schemaVersion !== 2
     || typeof value.root !== "string"
-    || !Array.isArray(value.sourceFiles) || !value.sourceFiles.every(isSourceFile)
-    || !Array.isArray(value.sites) || !value.sites.every(isSite)
-    || !Array.isArray(value.ionicSteps) || !value.ionicSteps.every(isIonicStep)
-    || !Array.isArray(value.parameters) || !value.parameters.every(isParameterOccurrence)
-    || !Array.isArray(value.capabilities) || !value.capabilities.every(isCapability)
-    || !Array.isArray(value.warnings) || !value.warnings.every(isWarning)
+    || !isArrayOf(value.sourceFiles, isSourceFile)
+    || !isArrayOf(value.sites, isSite)
+    || !isArrayOf(value.ionicSteps, isIonicStep)
+    || !isArrayOf(value.parameters, isParameterOccurrence)
+    || !isArrayOf(value.capabilities, isCapability)
+    || !isArrayOf(value.warnings, isWarning)
     || !(value.provenance === null || isProvenance(value.provenance))) return false;
   const siteCount = (value.sites as readonly unknown[]).length;
   return (value.ionicSteps as readonly IonicStep[]).every((step) => step.cartesianPositions.length === siteCount);

@@ -8,6 +8,27 @@ import { DEFAULT_CONVERGENCE } from "./store.js";
 
 const step = twoStepDataset.ionicSteps[0]!;
 
+function detailedDatasetResult(): any {
+  const result: any = structuredClone(twoStepDataset);
+  result.parameters = [{
+    key: "encut", rawKey: "ENCUT", rawValue: "520", value: [520],
+    unit: null, category: null, description: null, ordinal: 0, lineNumber: null,
+  }];
+  result.ionicSteps = result.ionicSteps.map((item: any) => ({
+    ...item,
+    energyTerms: [{ key: "ewald", rawLabel: "Ewald energy", value: -4.2, unit: "eV", kind: "contribution" }],
+    externalPressureKb: 2.5,
+    pulayStressKb: null,
+    stressTensorKb: [[1, 0, 0], [0, 2, 0], [0, 0, 3]],
+    cellVolume: 27,
+  }));
+  return result;
+}
+
+function sparse(length: number): unknown[] {
+  return new Array(length);
+}
+
 function vscodeHarness() {
   const messages: Array<{ requestId: number }> = [];
   const host = new VsCodeHost({
@@ -231,22 +252,7 @@ describe("analysis hosts", () => {
   });
 
   it("accepts a complete schema-2 dataset", async () => {
-    const result = {
-      ...twoStepDataset,
-      schemaVersion: 2,
-      parameters: [{
-        key: "encut", rawKey: "ENCUT", rawValue: "520", value: 520,
-        unit: "eV", category: "electronic", description: "Cutoff", ordinal: 0, lineNumber: 4,
-      }],
-      ionicSteps: twoStepDataset.ionicSteps.map((item) => ({
-        ...item,
-        energyTerms: [{ key: "ewald", rawLabel: "Ewald energy", value: -4.2, unit: "eV", kind: "contribution" }],
-        externalPressureKb: 2.5,
-        pulayStressKb: null,
-        stressTensorKb: [[1, 0, 0], [0, 2, 0], [0, 0, 3]],
-        cellVolume: 27,
-      })),
-    };
+    const result = detailedDatasetResult();
     const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 1, result }) });
 
     await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).resolves.toEqual(result);
@@ -260,21 +266,40 @@ describe("analysis hosts", () => {
     ["malformed parameter occurrence", (dataset: any) => { dataset.parameters[0].ordinal = -1; }],
     ["non-finite typed parameter tuple", (dataset: any) => { dataset.parameters[0].value = [1, Number.POSITIVE_INFINITY]; }],
   ])("rejects %s in a schema-2 result", async (_name, mutate) => {
-    const result: any = {
-      ...twoStepDataset,
-      schemaVersion: 2,
-      parameters: [{ key: "encut", rawKey: "ENCUT", rawValue: "520", value: [520], unit: null, category: null, description: null, ordinal: 0, lineNumber: null }],
-      ionicSteps: twoStepDataset.ionicSteps.map((item) => ({
-        ...item,
-        energyTerms: [{ key: "ewald", rawLabel: "Ewald energy", value: -4.2, unit: "eV", kind: "contribution" }],
-        externalPressureKb: 2.5,
-        pulayStressKb: null,
-        stressTensorKb: [[1, 0, 0], [0, 2, 0], [0, 0, 3]],
-        cellVolume: 27,
-      })),
-    };
+    const result = detailedDatasetResult();
     mutate(result);
     const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 1, result }) });
+
+    await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it.each([
+    ["lattice row", (dataset: any) => { dataset.ionicSteps[0].lattice[0] = sparse(3); }],
+    ["stress row", (dataset: any) => { dataset.ionicSteps[0].stressTensorKb[0] = sparse(3); }],
+    ["fractional positions", (dataset: any) => { dataset.ionicSteps[0].fractionalPositions = sparse(2); }],
+    ["Cartesian positions", (dataset: any) => { dataset.ionicSteps[0].cartesianPositions = sparse(2); }],
+    ["raw forces", (dataset: any) => { dataset.ionicSteps[0].rawForces = sparse(2); }],
+    ["free forces", (dataset: any) => { dataset.ionicSteps[0].freeForces = sparse(2); }],
+    ["free force norms", (dataset: any) => { dataset.ionicSteps[0].freeForceNorms = sparse(2); }],
+    ["energy terms", (dataset: any) => { dataset.ionicSteps[0].energyTerms = sparse(1); }],
+    ["parameter tuple", (dataset: any) => { dataset.parameters[0].value = sparse(1); }],
+    ["source files", (dataset: any) => { dataset.sourceFiles = sparse(1); }],
+    ["sites", (dataset: any) => { dataset.sites = sparse(2); }],
+    ["ionic steps", (dataset: any) => { dataset.ionicSteps = sparse(2); }],
+    ["parameters", (dataset: any) => { dataset.parameters = sparse(1); }],
+    ["capabilities", (dataset: any) => { dataset.capabilities = sparse(5); }],
+    ["warnings", (dataset: any) => { dataset.warnings = sparse(1); }],
+  ])("rejects a sparse %s array", async (_name, mutate) => {
+    const result = detailedDatasetResult();
+    mutate(result);
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 1, result }) });
+
+    await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("rejects a dataset whose required fields are inherited", async () => {
+    const inheritedOnly = Object.create(detailedDatasetResult());
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 1, result: inheritedOnly }) });
 
     await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).rejects.toMatchObject({ code: "invalid_response" });
   });
