@@ -4,12 +4,109 @@ from pathlib import Path
 
 import pytest
 
-from vasp_analyzer.cli.corpus import validate_corpus
+from vasp_analyzer.cli.corpus import (
+    summarize_detail_datasets,
+    validate_corpus,
+    validate_corpus_details,
+)
 from vasp_analyzer.calculation.cache import CacheStore
 from vasp_analyzer.calculation.session import CalculationSession
+from vasp_analyzer.core import CalculationDataset, EnergyTerm, IonicStep, ParameterOccurrence
 
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "outcar"
+IDENTITY = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+
+
+def _step(
+    *,
+    energy_terms: tuple[EnergyTerm, ...] = (),
+    stress_tensor_kb=None,
+) -> IonicStep:
+    return IonicStep(
+        index=0,
+        lattice=IDENTITY,
+        fractional_positions=(),
+        cartesian_positions=(),
+        raw_forces=(),
+        free_forces=(),
+        free_force_norms=(),
+        total_energy=None,
+        energy_terms=energy_terms,
+        stress_tensor_kb=stress_tensor_kb,
+        delta_energy=None,
+        scf_iterations=None,
+        electronic_converged=None,
+        ionic_converged=None,
+        strongest_free_component=None,
+        rms_free_force=None,
+    )
+
+
+def test_detail_summary_accumulates_exact_path_free_counters_once() -> None:
+    datasets = (
+        CalculationDataset(
+            root="/calculation/first",
+            source_files=(),
+            sites=(),
+            ionic_steps=(
+                _step(
+                    energy_terms=(
+                        EnergyTerm(
+                            key="ewald",
+                            raw_label="Ewald energy",
+                            value=-12.5,
+                            kind="contribution",
+                        ),
+                        EnergyTerm(
+                            key="toten",
+                            raw_label="free energy TOTEN",
+                            value=-10.0,
+                            kind="aggregate",
+                        ),
+                    ),
+                    stress_tensor_kb=IDENTITY,
+                ),
+            ),
+            parameters=(
+                ParameterOccurrence(
+                    key="encut",
+                    raw_key="ENCUT",
+                    raw_value="520",
+                    value=520,
+                    ordinal=0,
+                ),
+                ParameterOccurrence(
+                    key="home_tag",
+                    raw_key="HOME_TAG",
+                    raw_value="alpha",
+                    value="alpha",
+                    ordinal=1,
+                ),
+            ),
+            capabilities=(),
+        ),
+        CalculationDataset(
+            root="/calculation/second",
+            source_files=(),
+            sites=(),
+            ionic_steps=(_step(),),
+            capabilities=(),
+        ),
+    )
+
+    report = summarize_detail_datasets(iter(datasets))
+
+    assert report.model_dump(by_alias=False) == {
+        "files_seen": 2,
+        "files_with_energy_terms": 1,
+        "files_with_stress": 1,
+        "files_with_parameters": 1,
+        "energy_terms": 2,
+        "parameter_occurrences": 2,
+        "non_finite_energy_terms": 0,
+        "invalid_stress_shapes": 0,
+    }
 
 
 def corpus_root_or_skip() -> Path:
@@ -33,6 +130,16 @@ def test_actual_home_barrier_corpus() -> None:
     assert report.incomplete == 14
     assert report.max_steps == 3_000
     assert report.peak_rss_bytes < report.bytes_total
+
+
+@pytest.mark.corpus
+def test_configured_corpus_detailed_metadata_is_finite_and_bounded() -> None:
+    report = validate_corpus_details(corpus_root_or_skip())
+
+    assert report.files_seen > 0
+    assert report.non_finite_energy_terms == 0
+    assert report.invalid_stress_shapes == 0
+    assert report.parameter_occurrences >= report.files_with_parameters
 
 
 @pytest.mark.corpus

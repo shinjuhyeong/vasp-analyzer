@@ -44,6 +44,20 @@ Browser mode prints a URL, binds only `127.0.0.1`, rejects foreign Host headers,
 
 `--port` and `--no-open` imply browser mode. The HTTP protocol accepts only `application/json` and rejects a supplied Origin unless it exactly matches the active loopback URL. A failed automatic browser launch leaves the ready server running and prints the URL; stop it with Ctrl+C.
 
+## Structure and convergence workspace
+
+The upper structure region is synchronized with the lower analysis workspace. Both the compact structure toolbar and the convergence workspace provide a slider plus integer input for the same ionic-step selection. Changing either control updates the crystal, selected-step values, graphs, and tables together. The draggable `Crystal tools` palette remains movable while collapsed, and atom overlays use high-contrast labels without changing the colored `a`/`b`/`c` axes.
+
+Convergence starts with **Energy** only. Select **Energy**, **Force**, and **Cell & Stress** in any combination; the lower region divides equally between the selected modules and wraps on narrow views. Each module independently selects one metric and switches between Graph and Table:
+
+- Energy graphs total energy or energy change. Its selected-step table preserves contribution and aggregate rows reported by OUTCAR, including unknown finite labels, and ranks the two largest absolute non-aggregate contributions.
+- Force graphs strongest or RMS free force. Its selected-step table shows every atom's Cartesian position, raw force, Selective Dynamics state, projected free force, and norms; the two largest eligible free components are ranked, and selecting a row selects the same atom in the crystal viewer.
+- Cell & Stress graphs external pressure or cell volume. Its selected-step table preserves VASP's pressure/stress sign convention in kB, shows the exact `1 kB = 0.1 GPa` conversion, and includes Pulay stress, volume, and the full 3x3 stress tensor when available.
+
+Module selection, metric selection, and Graph/Table modes are restored after reopening. The initial or normalized-empty state remains Energy-only.
+
+The **Parameters** analysis tab has interpreted and raw views of effective values echoed by OUTCAR. Interpreted mode categorizes recognized keys and uses the last repeated occurrence as the effective value. Raw mode retains every ordered occurrence, including repeated or unknown home-version keys. It does not claim whether a value was explicitly present in INCAR or chosen by a VASP default.
+
 ## Declarative compatibility profiles
 
 Profiles are data-only TOML, schema-versioned, snake_case, strict, and fail closed. Unknown keys, aliases, types, versions, executable hooks, regex deletion, or partial normalization rules are rejected. Supported 0.1.0 fields are shown completely here:
@@ -92,6 +106,8 @@ python -m pytest -m corpus tests/corpus -v
 ```
 
 On POSIX shells use `export` instead of `set`. Raw calculations, cache files, corpus reports, and absolute corpus paths are ignored and must never be committed or emitted in checked-in reports.
+
+The detailed opt-in gate additionally reports only aggregate counts for schema 2 energy terms, stress tensors, and effective-parameter occurrences. It consumes analyzed datasets one at a time and retains no source paths or calculation content in its report.
 
 ## Planned analysis seams
 

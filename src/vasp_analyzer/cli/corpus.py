@@ -6,13 +6,20 @@ import math
 import os
 import sys
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
 from time import perf_counter
 
 import numpy as np
 from pydantic import Field
 
-from vasp_analyzer.core import AnalyzerError, DatasetConsistencyError, FrozenModel
+from vasp_analyzer.calculation.session import CalculationSession
+from vasp_analyzer.core import (
+    AnalyzerError,
+    CalculationDataset,
+    DatasetConsistencyError,
+    FrozenModel,
+)
 from vasp_analyzer.parsing.adapters.outcar_ase import iter_outcar_steps
 from vasp_analyzer.parsing.dialects import detect_dialect
 from vasp_analyzer.parsing.recovery import ScanResult, scan_outcar
@@ -36,6 +43,69 @@ class CorpusReport(FrozenModel):
     peak_rss_bytes: int = Field(ge=0)
     warnings: tuple[str, ...]
     fingerprints: tuple[str, ...]
+
+
+class CorpusDetailReport(FrozenModel):
+    """Path-free detailed-metadata counters from analyzed datasets."""
+
+    files_seen: int = Field(ge=0)
+    files_with_energy_terms: int = Field(ge=0)
+    files_with_stress: int = Field(ge=0)
+    files_with_parameters: int = Field(ge=0)
+    energy_terms: int = Field(ge=0)
+    parameter_occurrences: int = Field(ge=0)
+    non_finite_energy_terms: int = Field(ge=0)
+    invalid_stress_shapes: int = Field(ge=0)
+
+
+def summarize_detail_datasets(
+    datasets: Iterable[CalculationDataset],
+) -> CorpusDetailReport:
+    """Consume datasets once while retaining only bounded integer counters."""
+
+    files_seen = files_with_energy_terms = files_with_stress = 0
+    files_with_parameters = energy_terms = parameter_occurrences = 0
+    non_finite_energy_terms = invalid_stress_shapes = 0
+    for dataset in datasets:
+        files_seen += 1
+        terms = tuple(term for step in dataset.ionic_steps for term in step.energy_terms)
+        tensors = tuple(
+            step.stress_tensor_kb
+            for step in dataset.ionic_steps
+            if step.stress_tensor_kb is not None
+        )
+        files_with_energy_terms += bool(terms)
+        files_with_stress += bool(tensors)
+        files_with_parameters += bool(dataset.parameters)
+        energy_terms += len(terms)
+        parameter_occurrences += len(dataset.parameters)
+        non_finite_energy_terms += sum(not math.isfinite(term.value) for term in terms)
+        invalid_stress_shapes += sum(
+            len(tensor) != 3 or any(len(row) != 3 for row in tensor)
+            for tensor in tensors
+        )
+    return CorpusDetailReport(
+        files_seen=files_seen,
+        files_with_energy_terms=files_with_energy_terms,
+        files_with_stress=files_with_stress,
+        files_with_parameters=files_with_parameters,
+        energy_terms=energy_terms,
+        parameter_occurrences=parameter_occurrences,
+        non_finite_energy_terms=non_finite_energy_terms,
+        invalid_stress_shapes=invalid_stress_shapes,
+    )
+
+
+def validate_corpus_details(root: Path) -> CorpusDetailReport:
+    """Analyze case-insensitive OUTCAR names and return path-free detail counts."""
+
+    outcars = sorted(
+        path
+        for path in Path(root).rglob("*")
+        if path.is_file() and path.name.casefold() == "outcar"
+    )
+    datasets = (CalculationSession(path).load() for path in outcars)
+    return summarize_detail_datasets(datasets)
 
 
 def _peak_rss_bytes() -> int:
@@ -188,4 +258,10 @@ def validate_corpus(root: Path) -> CorpusReport:
     )
 
 
-__all__ = ["CorpusReport", "validate_corpus"]
+__all__ = [
+    "CorpusDetailReport",
+    "CorpusReport",
+    "summarize_detail_datasets",
+    "validate_corpus",
+    "validate_corpus_details",
+]

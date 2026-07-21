@@ -77,21 +77,42 @@ jobs:
         working-directory: vscode
       - run: python -m pip install build
       - run: python -m build
-      - name: Inspect packaged offline assets
+      - name: Inspect schema 2 packaged offline assets
         shell: python
         run: |
-          import glob, tarfile, zipfile
+          import glob, pathlib, re, tarfile, zipfile
           wheel = glob.glob("dist/*.whl")[0]
           sdist = glob.glob("dist/*.tar.gz")[0]
           vsix = glob.glob("vscode/*.vsix")[0]
           with zipfile.ZipFile(wheel) as archive:
-              assert "vasp_analyzer/web_assets/index.js" in archive.namelist()
-              assert "vasp_analyzer/web_assets/index.css" in archive.namelist()
+              names = archive.namelist()
+              assert "vasp_analyzer/web_assets/index.js" in names
+              assert "vasp_analyzer/web_assets/index.css" in names
+              models = archive.read("vasp_analyzer/core/models.py").decode()
+              assert "schema_version: Literal[2]" in models
           with tarfile.open(sdist) as archive:
               names = archive.getnames()
               assert any(name.endswith("/vscode/dist/webview/index.js") for name in names)
+              protocol_test = next(
+                  name for name in names
+                  if name.endswith("/tests/unit/transport/test_protocol.py")
+              )
+              fixture = archive.extractfile(protocol_test).read().decode()
+              assert 'response["schemaVersion"] == 2' in fixture
           with zipfile.ZipFile(vsix) as archive:
-              assert "extension/dist/webview/index.js" in archive.namelist()
+              names = archive.namelist()
+              assert "extension/dist/extension.cjs" in names
+              assert "extension/dist/webview/index.js" in names
+          runtime_sources = (
+              path for suffix in ("*.ts", "*.tsx")
+              for path in pathlib.Path("vscode/src").rglob(suffix)
+              if ".test." not in path.name
+          )
+          offenders = [
+              path.as_posix() for path in runtime_sources
+              if re.search(r"https?://", path.read_text(encoding="utf-8"))
+          ]
+          assert offenders == [], offenders
       - uses: actions/upload-artifact@v4
         with:
           name: vasp-analyzer-release-artifacts
