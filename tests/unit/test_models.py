@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -157,6 +158,52 @@ def test_new_scientific_values_reject_non_finite_numbers(value: float) -> None:
 def test_new_detail_models_reject_invalid_contract_values(model, kwargs) -> None:
     with pytest.raises(ValidationError):
         model(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        [1, "2"],
+        (True,),
+        Decimal("0.1"),
+        b"abc",
+        (2**53 + 1,),
+    ],
+)
+def test_parameter_occurrence_rejects_lossy_typed_value_coercion(value) -> None:
+    with pytest.raises(ValidationError):
+        ParameterOccurrence(
+            key="custom",
+            raw_key="CUSTOM",
+            raw_value=str(value),
+            value=value,
+            ordinal=0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected_type"),
+    [
+        (True, bool),
+        (7, int),
+        (7.5, float),
+        ("unknown", str),
+        ((1.0, 2.0), tuple),
+    ],
+)
+def test_parameter_occurrence_preserves_strict_supported_value_types(
+    value, expected_type
+) -> None:
+    parameter = ParameterOccurrence(
+        key="custom",
+        raw_key="CUSTOM",
+        raw_value=str(value),
+        value=value,
+        ordinal=0,
+    )
+
+    assert type(parameter.value) is expected_type
+    assert parameter.value == value
 
 
 @pytest.mark.parametrize(

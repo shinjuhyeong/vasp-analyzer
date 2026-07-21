@@ -104,6 +104,15 @@ class ParameterOccurrence(FrozenModel):
             raise ValueError("parameter text must not be empty")
         return value
 
+    @field_validator("value", mode="before")
+    @classmethod
+    def require_strict_value_type(cls, value: object) -> object:
+        if type(value) in (bool, int, float, str):
+            return value
+        if type(value) is tuple and all(type(item) is float for item in value):
+            return value
+        raise ValueError("parameter value must use an exact supported type")
+
     @field_validator("value")
     @classmethod
     def require_finite_value(
