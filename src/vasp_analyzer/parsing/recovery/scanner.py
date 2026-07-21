@@ -249,7 +249,7 @@ def scan_outcar(
     pending: dict[str, object] | None = None
     next_details = _empty_details()
     next_detail_start: int | None = None
-    upcoming_lattice_seen = False
+    upcoming_volume_crossed_lattice = False
     post_force_detail_mode = False
     force_rows_just_finished = False
     parameter_section_active = False
@@ -463,7 +463,7 @@ def scan_outcar(
                         f"stress block at byte {stress_block_start} ended before a complete tensor"
                     )
                 if next_detail_start is not None and (
-                    upcoming_lattice_seen or not next_details_are_only_volume()
+                    upcoming_volume_crossed_lattice or not next_details_are_only_volume()
                 ):
                     raise OutcarFormatError(
                         f"details at byte {next_detail_start} crossed a lattice boundary"
@@ -496,7 +496,8 @@ def scan_outcar(
                 if incomplete_lattice:
                     break
                 lattice = _mat3(lattice_rows, line_start)
-                upcoming_lattice_seen = True
+                if next_detail_start is not None:
+                    upcoming_volume_crossed_lattice = True
                 force_rows_just_finished = False
                 continue
 
@@ -576,7 +577,7 @@ def scan_outcar(
                 }
                 next_details = _empty_details()
                 next_detail_start = None
-                upcoming_lattice_seen = False
+                upcoming_volume_crossed_lattice = False
                 post_force_detail_mode = False
                 force_rows_just_finished = True
                 continue

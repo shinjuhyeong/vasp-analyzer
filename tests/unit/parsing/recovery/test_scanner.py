@@ -124,6 +124,54 @@ def test_pre_lattice_volumes_attach_to_the_matching_force_records() -> None:
     )
 
 
+def test_lattice_before_volume_does_not_consume_volume_crossing(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        b"NIONS = 1 ions\n"
+        b"direct lattice vectors reciprocal lattice vectors\n"
+        b"4 0 0 0.25 0 0\n0 4 0 0 0.25 0\n0 0 4 0 0 0.25\n"
+        b"header diagnostics\n"
+        b"volume of cell : 125.0\n"
+        b"direct lattice vectors reciprocal lattice vectors\n"
+        b"5 0 0 0.2 0 0\n0 5 0 0 0.2 0\n0 0 5 0 0 0.2\n"
+        b"FORCE on cell =-STRESS in cart. coord. units (eV):\n"
+        b"in kB 1 2 3 0.1 0.2 0.3\n"
+        b"external pressure = 6.0 kB\n"
+        b"POSITION TOTAL-FORCE\n--------------------\n"
+        b"0 0 0 0.1 0 0\n"
+        b"free energy TOTEN = -40.0 eV\n"
+        b"General timing and accounting informations for this job:\n"
+    )
+
+    scan = scan_outcar(path, HOME_BARRIER)
+
+    assert scan.steps[0].lattice[0] == (5.0, 0.0, 0.0)
+    assert scan.steps[0].cell_volume == pytest.approx(125.0)
+    assert scan.steps[0].external_pressure_kb == pytest.approx(6.0)
+
+
+def test_append_resume_replays_lattice_before_volume_order_once(tmp_path: Path) -> None:
+    truncated = (FIXTURES / "detail-initial-lattice-truncated.OUTCAR").read_bytes()
+    complete = (FIXTURES / "detail-initial-lattice-two-step.OUTCAR").read_bytes()
+    assert complete.startswith(truncated)
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(truncated)
+
+    first = scan_outcar(path, HOME_BARRIER)
+    path.write_bytes(complete)
+    second = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+
+    assert [step.step_id for step in first.steps] == [0]
+    assert [warning.category for warning in first.warnings] == ["IncompleteTail"]
+    assert first.checkpoint.replay_provisional is True
+    assert second.resumed_from == first.checkpoint.last_verified_offset
+    assert [step.step_id for step in second.steps] == [1]
+    assert second.steps[0].lattice[0] == (6.0, 0.0, 0.0)
+    assert second.steps[0].cell_volume == pytest.approx(216.0)
+    assert second.steps[0].external_pressure_kb == pytest.approx(-5.0)
+    assert second.parameters == ()
+
+
 def test_append_resume_replays_pre_lattice_volume_once(tmp_path: Path) -> None:
     truncated = (FIXTURES / "detail-pre-lattice-truncated.OUTCAR").read_bytes()
     complete = (FIXTURES / "detail-pre-lattice-two-step.OUTCAR").read_bytes()
