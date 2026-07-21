@@ -79,8 +79,131 @@ class MarkerAliases(FrozenModel):
         return _marker_tuple(value, required=True)
 
 
+class EnergyTermRule(FrozenModel):
+    key: str
+    labels: tuple[str, ...]
+    kind: Literal["contribution", "aggregate"]
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, value: str) -> str:
+        if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", value) is None:
+            raise ValueError("energy key must be a bounded snake-case identifier")
+        return value
+
+    @field_validator("labels")
+    @classmethod
+    def validate_labels(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return _marker_tuple(value, required=True)
+
+
+class DetailMarkers(FrozenModel):
+    energy_section: tuple[str, ...] = ("FREE ENERGIE OF THE ION-ELECTRON SYSTEM",)
+    stress_section: tuple[str, ...] = ("FORCE on cell =-STRESS",)
+    external_pressure: tuple[str, ...] = ("external pressure",)
+    cell_volume: tuple[str, ...] = ("volume of cell",)
+    parameter_sections: tuple[str, ...] = ("INCAR:",)
+
+    @field_validator(
+        "energy_section",
+        "stress_section",
+        "external_pressure",
+        "cell_volume",
+        "parameter_sections",
+    )
+    @classmethod
+    def validate_markers(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return _marker_tuple(value, required=True)
+
+
+STANDARD_ENERGY_TERMS: tuple[EnergyTermRule, ...] = (
+    EnergyTermRule(
+        key="ewald",
+        labels=("alpha Z PSCENC", "Ewald energy TEWEN", "Ewald energy"),
+        kind="contribution",
+    ),
+    EnergyTermRule(
+        key="hartree",
+        labels=("-Hartree energ DENC", "Hartree energy"),
+        kind="contribution",
+    ),
+    EnergyTermRule(
+        key="exchange_correlation",
+        labels=("-exchange EXHF", "-V(xc)+E(xc) XCENC", "exchange-correlation"),
+        kind="contribution",
+    ),
+    EnergyTermRule(
+        key="paw_double_counting",
+        labels=("PAW double counting",),
+        kind="contribution",
+    ),
+    EnergyTermRule(
+        key="entropy_ts",
+        labels=("entropy T*S EENTRO", "entropy T*S"),
+        kind="contribution",
+    ),
+    EnergyTermRule(
+        key="eigenvalues",
+        labels=("eigenvalues EBANDS", "eigenvalues"),
+        kind="contribution",
+    ),
+    EnergyTermRule(
+        key="atomic_energy",
+        labels=("atomic energy EATOM", "atomic energy"),
+        kind="contribution",
+    ),
+    EnergyTermRule(
+        key="toten",
+        labels=("free energy TOTEN",),
+        kind="aggregate",
+    ),
+    EnergyTermRule(
+        key="energy_without_entropy",
+        labels=("energy without entropy",),
+        kind="aggregate",
+    ),
+    EnergyTermRule(
+        key="sigma_to_zero",
+        labels=("energy(sigma->0)",),
+        kind="aggregate",
+    ),
+)
+
+
 class OutcarRule(FrozenModel):
     markers: MarkerAliases = MarkerAliases()
+    details: DetailMarkers = DetailMarkers()
+    energy_terms: tuple[EnergyTermRule, ...] = STANDARD_ENERGY_TERMS
+
+    @field_validator("energy_terms", mode="before")
+    @classmethod
+    def extend_standard_energy_terms(cls, value: object) -> object:
+        if not isinstance(value, (list, tuple)):
+            return value
+        declared_keys = {
+            item.get("key") if isinstance(item, dict) else getattr(item, "key", None)
+            for item in value
+        }
+        return tuple(value) + tuple(
+            item for item in STANDARD_ENERGY_TERMS if item.key not in declared_keys
+        )
+
+    @model_validator(mode="after")
+    def reject_ambiguous_energy_aliases(self) -> "OutcarRule":
+        owners: dict[str, str] = {}
+        keys: set[str] = set()
+        for rule in self.energy_terms:
+            if rule.key in keys:
+                raise ValueError(f"duplicate energy key {rule.key!r}")
+            keys.add(rule.key)
+            for label in rule.labels:
+                folded = " ".join(label.split()).casefold()
+                owner = owners.setdefault(folded, rule.key)
+                if owner != rule.key:
+                    raise ValueError(
+                        f"energy alias {label!r} is ambiguous between {owner!r} and {rule.key!r}"
+                    )
+        return self
 
 
 class CompatibilityProfile(FrozenModel):
