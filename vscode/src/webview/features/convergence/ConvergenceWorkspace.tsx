@@ -1,12 +1,13 @@
 import type { ReactElement } from "react";
 
 import type {
-  AnalysisMetric,
   AnalysisModuleId,
   CalculationDataset,
   ConvergencePreferences,
-  ModuleMode,
 } from "../../core/contracts.js";
+import { CellStressModule } from "./CellStressModule.js";
+import { EnergyModule } from "./EnergyModule.js";
+import { ForceModule } from "./ForceModule.js";
 import { IonicStepControl } from "./IonicStepControl.js";
 
 export interface ConvergenceWorkspaceProps {
@@ -25,41 +26,6 @@ const moduleLabels: Readonly<Record<AnalysisModuleId, string>> = {
   force: "Force",
   cellStress: "Cell & Stress",
 };
-
-const metricOptions: Readonly<
-  Record<
-    AnalysisModuleId,
-    readonly Readonly<{ value: AnalysisMetric; label: string }>[]
-  >
-> = {
-  energy: [
-    { value: "totalEnergy", label: "Total energy" },
-    { value: "deltaEnergy", label: "Energy change" },
-  ],
-  force: [
-    { value: "strongestFreeComponent", label: "Strongest free component" },
-    { value: "rmsFreeForce", label: "RMS free force" },
-  ],
-  cellStress: [
-    { value: "externalPressure", label: "External pressure" },
-    { value: "cellVolume", label: "Cell volume" },
-  ],
-};
-
-function placeholderFor(id: AnalysisModuleId, mode: ModuleMode): string {
-  switch (id) {
-    case "energy":
-      return `Energy ${mode} view will be available in the detailed analysis module.`;
-    case "force":
-      return `Force ${mode} view will be available in the detailed analysis module.`;
-    case "cellStress":
-      return `Cell & Stress ${mode} view will be available in the detailed analysis module.`;
-    default: {
-      const unreachable: never = id;
-      return unreachable;
-    }
-  }
-}
 
 function ModulePicker({
   selected,
@@ -90,64 +56,28 @@ function ModulePicker({
 
 function ModuleSlot({
   id,
+  dataset,
+  selectedIndex,
   preferences,
+  onSelectStep,
   onPreferencesChange,
-}: Pick<ConvergenceWorkspaceProps, "preferences" | "onPreferencesChange"> & {
+  onSelectSite,
+}: ConvergenceWorkspaceProps & {
   readonly id: AnalysisModuleId;
 }): ReactElement {
-  const label = moduleLabels[id];
-  const changeMetric = (metric: AnalysisMetric): void => {
-    onPreferencesChange({
-      ...preferences,
-      metrics: { ...preferences.metrics, [id]: metric },
-    });
-  };
-  const changeMode = (mode: ModuleMode): void => {
+  const changeMode = (mode: "graph" | "table"): void => {
     onPreferencesChange({
       ...preferences,
       modes: { ...preferences.modes, [id]: mode },
     });
   };
-  return (
-    <section className="convergence-module" aria-label={`${label} analysis`}>
-      <header className="convergence-module-header">
-        <h3>{label}</h3>
-        <label>
-          <span className="visually-hidden">{label} metric</span>
-          <select
-            aria-label={`${label} metric`}
-            value={preferences.metrics[id]}
-            onChange={(event) =>
-              changeMetric(event.target.value as AnalysisMetric)
-            }
-          >
-            {metricOptions[id].map(({ value, label: optionLabel }) => (
-              <option key={value} value={value}>{optionLabel}</option>
-            ))}
-          </select>
-        </label>
-        <div
-          className="convergence-mode-picker"
-          aria-label={`${label} presentation mode`}
-        >
-          {(["graph", "table"] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              aria-label={`${label} ${mode === "graph" ? "Graph" : "Table"} mode`}
-              aria-pressed={preferences.modes[id] === mode}
-              onClick={() => changeMode(mode)}
-            >
-              {mode === "graph" ? "Graph" : "Table"}
-            </button>
-          ))}
-        </div>
-      </header>
-      <p className="module-placeholder" role="status">
-        {placeholderFor(id, preferences.modes[id])}
-      </p>
-    </section>
-  );
+  const common = { dataset, selectedIndex, mode: preferences.modes[id], onModeChange: changeMode, onSelectStep };
+  switch (id) {
+    case "energy": return <section className="convergence-module" aria-label="Energy analysis"><EnergyModule {...common} metric={preferences.metrics.energy} onMetricChange={(metric) => onPreferencesChange({ ...preferences, metrics: { ...preferences.metrics, energy: metric } })} /></section>;
+    case "force": return <section className="convergence-module" aria-label="Force analysis"><ForceModule {...common} metric={preferences.metrics.force} onMetricChange={(metric) => onPreferencesChange({ ...preferences, metrics: { ...preferences.metrics, force: metric } })} onSelectSite={onSelectSite} /></section>;
+    case "cellStress": return <section className="convergence-module" aria-label="Cell & Stress analysis"><CellStressModule {...common} metric={preferences.metrics.cellStress} onMetricChange={(metric) => onPreferencesChange({ ...preferences, metrics: { ...preferences.metrics, cellStress: metric } })} /></section>;
+    default: { const unreachable: never = id; return unreachable; }
+  }
 }
 
 export function ConvergenceWorkspace(props: ConvergenceWorkspaceProps): ReactElement {
@@ -181,8 +111,7 @@ export function ConvergenceWorkspace(props: ConvergenceWorkspaceProps): ReactEle
           <ModuleSlot
             key={id}
             id={id}
-            preferences={props.preferences}
-            onPreferencesChange={props.onPreferencesChange}
+            {...props}
           />
         ))}
       </div>

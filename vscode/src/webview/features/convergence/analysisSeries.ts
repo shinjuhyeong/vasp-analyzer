@@ -1,4 +1,4 @@
-import type { CalculationDataset } from "../../core/contracts.js";
+import type { CalculationDataset, CellStressMetric, EnergyMetric, ForceMetric } from "../../core/contracts.js";
 import type { ChartPoint, ChartSeries } from "./SeriesChart.js";
 
 export interface PlotPoint extends ChartPoint {
@@ -40,6 +40,32 @@ export const forceSeries = (
     "Force",
     "eV per angstrom",
   );
+
+const metricDefinitions = {
+  totalEnergy: { id: "total-energy", label: "Total energy", unit: "eV", select: (step: CalculationDataset["ionicSteps"][number]) => step.totalEnergy },
+  deltaEnergy: { id: "delta-energy", label: "Energy change", unit: "eV", select: (step: CalculationDataset["ionicSteps"][number]) => step.deltaEnergy },
+  strongestFreeComponent: { id: "strongest-force", label: "Strongest free component", unit: "eV/Å", select: (step: CalculationDataset["ionicSteps"][number]) => step.strongestFreeComponent?.magnitude ?? null },
+  rmsFreeForce: { id: "rms-force", label: "RMS free force", unit: "eV/Å", select: (step: CalculationDataset["ionicSteps"][number]) => step.rmsFreeForce },
+  externalPressure: { id: "external-pressure", label: "External pressure", unit: "kB", select: (step: CalculationDataset["ionicSteps"][number]) => step.externalPressureKb },
+  cellVolume: { id: "cell-volume", label: "Cell volume", unit: "Å³", select: (step: CalculationDataset["ionicSteps"][number]) => step.cellVolume },
+} as const;
+
+export function metricSeries(
+  dataset: CalculationDataset,
+  metric: EnergyMetric | ForceMetric | CellStressMetric,
+): PlotSeries {
+  const definition = metricDefinitions[metric];
+  return Object.freeze({
+    id: definition.id,
+    label: definition.label,
+    points: points(dataset, definition.select, definition.label, definition.unit),
+  });
+}
+
+export const metricAxis = (metric: EnergyMetric | ForceMetric | CellStressMetric) => {
+  const { label, unit } = metricDefinitions[metric];
+  return Object.freeze({ label, unit });
+};
 
 export const convergenceSeries = (
   dataset: CalculationDataset,

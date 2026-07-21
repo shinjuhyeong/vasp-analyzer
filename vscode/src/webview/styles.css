@@ -508,6 +508,36 @@ select {
   border-radius: 3px;
   background: var(--vscode-dropdown-background, #292d33);
 }
+
+.detail-table-scroll {
+  max-width: 100%;
+  overflow: auto;
+}
+.detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.detail-table th,
+.detail-table td {
+  border-bottom: 1px solid var(--vscode-panel-border);
+  padding: 0.35rem 0.45rem;
+  text-align: right;
+}
+.detail-table th:first-child,
+.detail-table td:first-child { text-align: left; }
+.detail-table tr[data-rank="1"],
+.detail-rank-cell.rank-1 { background: color-mix(in srgb, var(--vscode-charts-red) 20%, transparent); }
+.detail-table tr[data-rank="2"],
+.detail-rank-cell.rank-2 { background: color-mix(in srgb, var(--vscode-charts-yellow) 18%, transparent); }
+.detail-rank { display: block; font-size: 0.72rem; font-weight: 700; }
+.force-detail-table tbody tr { cursor: pointer; }
+.cell-stress-details dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 0.7rem; }
+.cell-stress-details dt { font-weight: 600; }
+.cell-stress-details dd { margin: 0; }
+.stress-tensor { width: auto; }
+.detail-unavailable { color: var(--vscode-descriptionForeground); }
 .module-placeholder {
   min-height: 96px;
   margin: 10px 0 0;

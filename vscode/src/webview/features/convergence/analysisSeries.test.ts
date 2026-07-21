@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { twoStepDataset } from "../../test/fixtures.js";
-import { convergenceSeries, forceSeries } from "./analysisSeries.js";
+import { convergenceSeries, forceSeries, metricAxis, metricSeries } from "./analysisSeries.js";
 
 describe("convergence series", () => {
   it("uses parser step IDs for labels while preserving array indices for selection", () => {
@@ -34,5 +34,18 @@ describe("convergence series", () => {
     };
     expect(forceSeries(dataset)[0]!.y).toBeNull();
     expect(convergenceSeries(dataset).find((series) => series.id === "rms-force")!.points[0]!.y).toBeNull();
+  });
+
+  it("builds one metric-specific pressure series without filling missing values", () => {
+    const series = metricSeries(twoStepDataset, "externalPressure");
+    expect(series.label).toBe("External pressure");
+    expect(series.points.map(({ y }) => y)).toEqual([null, null]);
+    expect(metricAxis("externalPressure")).toEqual({ label: "External pressure", unit: "kB" });
+  });
+
+  it("publishes exact axes for energy, force, and volume metrics", () => {
+    expect(metricAxis("totalEnergy")).toEqual({ label: "Total energy", unit: "eV" });
+    expect(metricAxis("strongestFreeComponent")).toEqual({ label: "Strongest free component", unit: "eV/Å" });
+    expect(metricAxis("cellVolume")).toEqual({ label: "Cell volume", unit: "Å³" });
   });
 });
