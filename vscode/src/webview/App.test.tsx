@@ -69,6 +69,32 @@ class DeferredHost extends MemoryHost {
 }
 
 describe("analysis workspace", () => {
+  it("starts Energy-only and synchronizes workspace and toolbar step controls", async () => {
+    render(<App host={new MemoryHost(twoStepDataset)} rendererFactory={inertRendererFactory} />);
+    expect(await screen.findByRole("button", { name: "Energy module" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Force module" })).toHaveAttribute("aria-pressed", "false");
+    const workspaceStep = screen.getByRole("spinbutton", { name: "Convergence ionic step number" });
+    const user = userEvent.setup();
+    await user.clear(workspaceStep);
+    await user.type(workspaceStep, "2{Enter}");
+    expect(screen.getByRole("spinbutton", { name: "Ionic step number" })).toHaveValue(2);
+    expect(screen.getAllByText("2 / 2")).toHaveLength(2);
+  });
+
+  it("persists module selection, metric, and mode changes", async () => {
+    const host = new MemoryHost(twoStepDataset);
+    render(<App host={host} rendererFactory={inertRendererFactory} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Force module" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Force metric" }), "rmsFreeForce");
+    await user.click(screen.getByRole("button", { name: "Force Table mode" }));
+    await waitFor(() => expect(host.state?.convergence).toMatchObject({
+      selectedModules: ["energy", "force"],
+      metrics: { force: "rmsFreeForce" },
+      modes: { force: "table" },
+    }));
+  });
+
   it("uses a compact toolbar and starts crystal tools collapsed", async () => {
     render(<App host={new MemoryHost()} rendererFactory={inertRendererFactory} />);
     expect(await screen.findByLabelText("Ionic step number")).toBeVisible();
@@ -95,15 +121,15 @@ describe("analysis workspace", () => {
     expect(screen.queryByRole("button", { name: "Expand crystal tools" })).not.toBeInTheDocument();
   });
 
-  it("synchronizes a convergence point with the single control and structure region", async () => {
+  it("synchronizes the convergence step control with the toolbar and structure region", async () => {
     render(<App host={new MemoryHost()} structure={FakeStructure} />);
-    await userEvent.setup().click(await screen.findByLabelText("Force at ionic step 2: 0.1 eV per angstrom"));
+    const number = await screen.findByLabelText("Convergence ionic step number");
+    fireEvent.change(number, { target: { value: "2" } });
     expect(screen.getByLabelText("Ionic step number")).toHaveValue(2);
     expect(screen.getByTestId("structure-step")).toHaveTextContent("1");
-    expect(screen.getByText("-11.000000 eV")).toBeVisible();
   });
 
-  it("keeps noncontiguous parser step labels distinct from selection indices", async () => {
+  it("keeps noncontiguous parser step identifiers distinct from selection indices", async () => {
     const dataset = {
       ...twoStepDataset,
       ionicSteps: twoStepDataset.ionicSteps.map((step, position) => ({
@@ -112,10 +138,9 @@ describe("analysis workspace", () => {
       })),
     };
     render(<App host={new MemoryHost(dataset)} structure={FakeStructure} />);
-    await userEvent.setup().click(await screen.findByRole("button", { name: /Force at ionic step 21/ }));
+    fireEvent.change(await screen.findByLabelText("Convergence ionic step number"), { target: { value: "2" } });
     expect(screen.getByLabelText("Ionic step number")).toHaveValue(2);
     expect(screen.getByTestId("structure-step")).toHaveTextContent("20");
-    expect(screen.getByRole("heading", { name: "Step 21" })).toBeVisible();
   });
 
   it("reports an empty ionic trajectory instead of remaining in loading state", async () => {

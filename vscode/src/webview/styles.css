@@ -456,6 +456,74 @@ select {
   overflow: auto;
   padding: 14px;
 }
+.convergence-workspace {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.convergence-workspace-controls,
+.convergence-workspace-controls > div,
+.convergence-module-picker,
+.convergence-module-header,
+.convergence-mode-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.convergence-workspace-controls {
+  justify-content: space-between;
+}
+.convergence-module-picker button,
+.convergence-mode-picker button {
+  padding: 4px 8px;
+  border: 1px solid var(--vscode-button-border, #454a53);
+  border-radius: 3px;
+  background: var(--vscode-button-secondaryBackground, #31353c);
+}
+.convergence-module-picker button[aria-pressed="true"],
+.convergence-mode-picker button[aria-pressed="true"] {
+  border-color: var(--vscode-focusBorder, #4ca6ea);
+  background: var(--vscode-button-background, #0e639c);
+}
+.convergence-module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+.convergence-module {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--vscode-panel-border, #343840);
+  border-radius: 5px;
+  background: var(--vscode-editor-background, #17191d);
+}
+.convergence-module-header h3 {
+  margin: 0 auto 0 0;
+}
+.convergence-module-header select {
+  padding: 4px 6px;
+  border: 1px solid var(--vscode-dropdown-border, #454a53);
+  border-radius: 3px;
+  background: var(--vscode-dropdown-background, #292d33);
+}
+.module-placeholder {
+  min-height: 96px;
+  margin: 10px 0 0;
+  color: var(--vscode-descriptionForeground, #9ca3af);
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .convergence-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;
@@ -492,26 +560,6 @@ select {
 .chart-point { fill: #58a6ff; stroke: var(--vscode-editor-background, #17191d); stroke-width: 1.5; transition: cx 150ms ease-out, cy 150ms ease-out; }
 [data-series="1"] .chart-point { fill: #f2cc60; }
 .chart-point[data-selected="true"] { stroke: var(--vscode-foreground, #fff); stroke-width: 2.5; }
-.chart-point-controls {
-  display: flex;
-  gap: 3px;
-  max-width: 100%;
-  margin-top: 5px;
-  overflow-x: auto;
-  padding: 2px;
-}
-.chart-point-controls button {
-  min-width: 24px;
-  padding: 2px 5px;
-  border: 1px solid var(--vscode-button-border, #454a53);
-  border-radius: 3px;
-  background: var(--vscode-button-secondaryBackground, #31353c);
-  font-size: 10px;
-}
-.chart-point-controls button[aria-pressed="true"] {
-  border-color: var(--vscode-focusBorder, #4ca6ea);
-  background: var(--vscode-button-background, #0e639c);
-}
 .chart-legend {
   display: flex;
   flex-wrap: wrap;

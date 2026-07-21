@@ -129,7 +129,8 @@ export function SeriesChart({
       <svg
         data-testid={`${ariaLabel}-visual`}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        aria-hidden="true"
+        role="group"
+        aria-label={ariaLabel}
         preserveAspectRatio="none"
       >
         <line className="chart-axis" x1={LEFT} x2={LEFT} y1={TOP} y2={HEIGHT - BOTTOM} />
@@ -159,9 +160,20 @@ export function SeriesChart({
                 key={point.id}
                 className="chart-point"
                 data-selected={selected}
+                role={point.selectionIndex === undefined || !onSelect ? undefined : "button"}
+                tabIndex={point.selectionIndex === undefined || !onSelect ? undefined : 0}
+                aria-label={point.selectionIndex === undefined || !onSelect ? undefined : point.ariaLabel}
+                aria-pressed={point.selectionIndex === undefined || !onSelect ? undefined : selected}
                 cx={xFor(point.x, xRange)}
                 cy={yFor(point.y!, yRange)}
                 r={selected ? 5 : 3}
+                onClick={point.selectionIndex === undefined || !onSelect ? undefined : () => onSelect(point.selectionIndex!)}
+                onKeyDown={point.selectionIndex === undefined || !onSelect ? undefined : (event: KeyboardEvent<SVGCircleElement>) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelect(point.selectionIndex!);
+                  }
+                }}
               />
               );
             })}
@@ -175,22 +187,6 @@ export function SeriesChart({
           </li>
         ))}
       </ul>
-      {onSelect && (
-        <div className="chart-point-controls" aria-label={`${ariaLabel} data points`}>
-          {series.flatMap((item) => item.points).filter((point) => point.selectionIndex !== undefined).map((point) => (
-            <button
-              key={point.id}
-              type="button"
-              aria-label={point.ariaLabel}
-              aria-pressed={point.selectionIndex === selectedIndex}
-              aria-current={point.selectionIndex === selectedIndex ? "true" : undefined}
-              onClick={() => onSelect(point.selectionIndex!)}
-            >
-              {point.displayLabel ?? point.x}
-            </button>
-          ))}
-        </div>
-      )}
       {series.every(({ points }) => points.every(({ y }) => y === null)) && <p className="chart-unavailable">No values available</p>}
     </div>
   );

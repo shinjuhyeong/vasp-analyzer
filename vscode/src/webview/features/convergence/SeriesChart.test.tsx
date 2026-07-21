@@ -10,7 +10,7 @@ const axes = {
   yAxis: { label: "Force", unit: "eV/angstrom" },
 };
 
-it("uses native button activation without duplicate keyboard dispatch", () => {
+it("keeps SVG data marks pointer and keyboard selectable without a redundant button list", () => {
   const select = vi.fn();
   const disconnect = vi.fn();
   vi.stubGlobal(
@@ -50,13 +50,16 @@ it("uses native button activation without duplicate keyboard dispatch", () => {
       onSelect={select}
     />,
   );
-  expect(screen.getByTestId("Forces-visual")).toHaveAttribute("aria-hidden", "true");
-  const missing = screen.getByRole("button", { name: "Force at ionic step 11: unavailable" });
+  const visual = screen.getByRole("group", { name: "Forces" });
+  expect(visual).toHaveAttribute("aria-label", "Forces");
+  expect(screen.queryByLabelText("Forces data points")).not.toBeInTheDocument();
+  expect(document.querySelector(".chart-point-controls")).not.toBeInTheDocument();
   const point = screen.getByRole("button", { name: "Force at ionic step 21: 0.2 eV per angstrom" });
+  expect(point.tagName.toLowerCase()).toBe("circle");
   expect(point).toHaveAttribute("aria-pressed", "true");
   fireEvent.keyDown(point, { key: "Enter" });
   fireEvent.click(point);
-  expect(select.mock.calls).toEqual([[1]]);
+  expect(select.mock.calls).toEqual([[1], [1]]);
   view.unmount();
   expect(disconnect).toHaveBeenCalledOnce();
   vi.unstubAllGlobals();
@@ -139,5 +142,5 @@ it("renders zero-point and all-null series without manufacturing visual points",
   );
   expect(screen.getByText("No values available")).toBeVisible();
   expect(screen.getByTestId("Missing-visual").querySelector(".chart-point")).toBeNull();
-  expect(screen.getByRole("button", { name: /unavailable/ })).toBeVisible();
+  expect(screen.queryByRole("button", { name: /unavailable/ })).not.toBeInTheDocument();
 });

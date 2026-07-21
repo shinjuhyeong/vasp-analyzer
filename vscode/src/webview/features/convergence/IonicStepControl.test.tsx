@@ -11,7 +11,16 @@ it("shows the selected ionic step as a one-based slider and number", () => {
 
   expect(screen.getByLabelText("Ionic step slider")).toHaveValue("2");
   expect(screen.getByLabelText("Ionic step number")).toHaveValue(2);
-  expect(screen.getByText("/ 120")).toBeInTheDocument();
+  expect(screen.getByText("2 / 120")).toBeInTheDocument();
+});
+
+it("prefixes only accessible labels for a second synchronized control", () => {
+  render(<IonicStepControl total={120} selectedIndex={1} onSelect={vi.fn()} labelPrefix="Convergence " />);
+
+  expect(screen.getByLabelText("Convergence ionic step slider")).toHaveValue("2");
+  expect(screen.getByLabelText("Convergence ionic step number")).toHaveValue(2);
+  expect(screen.getByText("Ionic step slider")).toBeVisible();
+  expect(screen.getByText("Ionic step number")).toBeVisible();
 });
 
 it("converts a typed one-based ionic step to a zero-based index", async () => {

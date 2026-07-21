@@ -11,6 +11,7 @@ import {
 import type {
   AnalysisHost,
   CalculationDataset,
+  ConvergencePreferences,
   IonicStep,
   Site,
 } from "./core/contracts.js";
@@ -32,6 +33,8 @@ export interface AnalysisRegionProps {
   readonly forceScale: number;
   readonly onSelectSite: (siteIndex: number | null) => void;
   readonly onSelectStep: (arrayIndex: number) => void;
+  readonly convergencePreferences: ConvergencePreferences;
+  readonly onConvergencePreferencesChange: (next: ConvergencePreferences) => void;
   readonly palettePosition: Readonly<PalettePosition>;
   readonly paletteCollapsed: boolean;
   readonly onPalettePositionChange: (position: Readonly<PalettePosition>) => void;
@@ -63,12 +66,18 @@ function DefaultConvergence({
   dataset,
   selectedStepIndex,
   onSelectStep,
+  convergencePreferences,
+  onConvergencePreferencesChange,
+  onSelectSite,
 }: AnalysisRegionProps): ReactElement {
   return (
     <ConvergencePanel
       dataset={dataset}
       selectedIndex={selectedStepIndex}
+      preferences={convergencePreferences}
       onSelectStep={onSelectStep}
+      onPreferencesChange={onConvergencePreferencesChange}
+      onSelectSite={onSelectSite}
     />
   );
 }
@@ -183,6 +192,14 @@ export function App({
       dispatch({ type: "selectSite", site });
     },
     onSelectStep: (step) => dispatch({ type: "selectStep", step }),
+    convergencePreferences: state.convergence,
+    onConvergencePreferencesChange: (next) => {
+      dispatch({ type: "setModules", modules: next.selectedModules });
+      for (const module of ["energy", "force", "cellStress"] as const) {
+        dispatch({ type: "setModuleMetric", module, metric: next.metrics[module] });
+        dispatch({ type: "setModuleMode", module, mode: next.modes[module] });
+      }
+    },
     palettePosition: { x: state.layout.paletteX, y: state.layout.paletteY },
     paletteCollapsed: state.layout.paletteCollapsed,
     onPalettePositionChange: (position) =>

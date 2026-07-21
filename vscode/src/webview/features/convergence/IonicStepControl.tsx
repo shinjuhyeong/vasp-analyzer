@@ -4,13 +4,21 @@ export interface IonicStepControlProps {
   readonly total: number;
   readonly selectedIndex: number;
   readonly onSelect: (index: number) => void;
+  readonly labelPrefix?: string;
 }
 
 const clamp = (value: number, minimum: number, maximum: number): number =>
   Math.min(maximum, Math.max(minimum, value));
 
-export function IonicStepControl({ total, selectedIndex, onSelect }: IonicStepControlProps): ReactElement {
+export function IonicStepControl({
+  total,
+  selectedIndex,
+  onSelect,
+  labelPrefix = "",
+}: IonicStepControlProps): ReactElement {
   const selectedStep = selectedIndex + 1;
+  const accessibleLabel = (suffix: "slider" | "number"): string =>
+    labelPrefix ? `${labelPrefix}ionic step ${suffix}` : `Ionic step ${suffix}`;
   const [draft, setDraft] = useState(String(selectedStep));
 
   useEffect(() => setDraft(String(selectedStep)), [selectedStep]);
@@ -42,11 +50,11 @@ export function IonicStepControl({ total, selectedIndex, onSelect }: IonicStepCo
 
   return (
     <div>
-      <label>
-        Ionic step slider
+      <div>
+        <span>Ionic step slider</span>
         <input
           type="range"
-          aria-label="Ionic step slider"
+          aria-label={accessibleLabel("slider")}
           min="1"
           max={Math.max(total, 1)}
           step="1"
@@ -58,12 +66,12 @@ export function IonicStepControl({ total, selectedIndex, onSelect }: IonicStepCo
             onSelect(step - 1);
           }}
         />
-      </label>
-      <label>
-        Ionic step number
+      </div>
+      <div>
+        <span>Ionic step number</span>
         <input
           type="number"
-          aria-label="Ionic step number"
+          aria-label={accessibleLabel("number")}
           min="1"
           max={Math.max(total, 1)}
           step="1"
@@ -76,8 +84,8 @@ export function IonicStepControl({ total, selectedIndex, onSelect }: IonicStepCo
           onBlur={normalizeDraft}
           onKeyDown={handleKeyDown}
         />
-      </label>
-      <span>/ {total}</span>
+      </div>
+      <span>{selectedStep} / {total}</span>
     </div>
   );
 }
