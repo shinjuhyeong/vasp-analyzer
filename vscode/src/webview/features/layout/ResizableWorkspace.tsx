@@ -1,6 +1,8 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
+  useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
@@ -21,6 +23,9 @@ export interface ResizableWorkspaceProps {
   readonly analysis: ReactNode;
 }
 
+export const WORKSPACE_SPLITTER_SIZE = 8;
+export const MIN_ANALYSIS_HEIGHT = 48;
+
 const clampStructurePercent = (value: number): number =>
   Math.min(MAX_STRUCTURE_PERCENT, Math.max(MIN_STRUCTURE_PERCENT, value));
 
@@ -33,6 +38,24 @@ export function ResizableWorkspace({
   analysis,
 }: ResizableWorkspaceProps): ReactElement {
   const workspace = useRef<HTMLElement>(null);
+  const [workspaceHeight, setWorkspaceHeight] = useState(0);
+
+  useLayoutEffect(() => {
+    const element = workspace.current;
+    if (!element) return;
+    const measure = (): void => {
+      const height = element.getBoundingClientRect().height;
+      setWorkspaceHeight(Number.isFinite(height) && height > 0 ? height : 0);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!fullScreen) return;
@@ -46,10 +69,19 @@ export function ResizableWorkspace({
   const updateFromPointer = (event: ReactPointerEvent<HTMLElement>): void => {
     const bounds = workspace.current?.getBoundingClientRect();
     if (!bounds || bounds.height <= 0) return;
+    const usableHeight = Math.max(
+      1,
+      bounds.height - WORKSPACE_SPLITTER_SIZE - MIN_ANALYSIS_HEIGHT,
+    );
     onStructurePercentChange(
-      clampStructurePercent(((event.clientY - bounds.top) / bounds.height) * 100),
+      clampStructurePercent(((event.clientY - bounds.top) / usableHeight) * 100),
     );
   };
+  const usableTrackHeight = Math.max(
+    0,
+    workspaceHeight - WORKSPACE_SPLITTER_SIZE - MIN_ANALYSIS_HEIGHT,
+  );
+  const structureSize = usableTrackHeight * (structurePercent / 100);
 
   return (
     <main
@@ -60,7 +92,12 @@ export function ResizableWorkspace({
           : "analysis-workspace"
       }
       style={
-        { "--structure-percent": `${structurePercent}%` } as CSSProperties
+        {
+          "--structure-size":
+            workspaceHeight > 0
+              ? `${structureSize}px`
+              : `min(${structurePercent}%, calc(100% - ${WORKSPACE_SPLITTER_SIZE + MIN_ANALYSIS_HEIGHT}px))`,
+        } as CSSProperties
       }
     >
       {structure}

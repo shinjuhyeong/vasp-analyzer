@@ -161,8 +161,36 @@ describe("analysis workspace", () => {
     await user.click(screen.getByRole("button", { name: "select O" }));
 
     expect(host.state).toEqual({
-      version: 2, selectedStep: 1, selectedSite: 1, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+      version: 2, selectedStep: 1, selectedSite: 1, forceMode: "free", forceScale: 10,
+      layout: { ...DEFAULT_LAYOUT, inspectorCollapsed: false },
     });
+  });
+
+  it("auto-expands only for the first fresh atom selection", async () => {
+    const InspectorSelection = ({
+      selectedSite,
+      inspectorCollapsed,
+      onSelectSite,
+      onInspectorCollapsedChange,
+    }: AnalysisRegionProps) => (
+      <div>
+        <output data-testid="inspector-state">
+          {selectedSite?.siteIndex ?? "none"}:{inspectorCollapsed ? "collapsed" : "expanded"}
+        </output>
+        <button type="button" onClick={() => onSelectSite(0)}>select first</button>
+        <button type="button" onClick={() => onInspectorCollapsedChange(true)}>collapse inspector</button>
+        <button type="button" onClick={() => onSelectSite(1)}>select second</button>
+      </div>
+    );
+    render(<App host={new MemoryHost()} structure={InspectorSelection} convergence={FakeConvergence} />);
+    const user = userEvent.setup();
+    expect(await screen.findByTestId("inspector-state")).toHaveTextContent("none:collapsed");
+
+    await user.click(screen.getByRole("button", { name: "select first" }));
+    expect(screen.getByTestId("inspector-state")).toHaveTextContent("0:expanded");
+    await user.click(screen.getByRole("button", { name: "collapse inspector" }));
+    await user.click(screen.getByRole("button", { name: "select second" }));
+    expect(screen.getByTestId("inspector-state")).toHaveTextContent("1:collapsed");
   });
 
   it("shows one active analysis tab and capability-aware disabled future tabs", async () => {

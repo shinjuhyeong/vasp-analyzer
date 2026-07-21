@@ -86,7 +86,6 @@ export function CrystalPanel({
   const renderer = useRef<ReturnType<CrystalRendererFactory> | null>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
   const selectHandler = useRef(onSelectSite);
-  const inspectorCollapsedHandler = useRef(onInspectorCollapsedChange);
   const [repeat, setRepeat] = useState<SupercellRepeat>([1, 1, 1]);
   const [repeatInputs, setRepeatInputs] = useState<
     readonly [string, string, string]
@@ -198,14 +197,6 @@ export function CrystalPanel({
   useEffect(() => {
     selectHandler.current = onSelectSite;
   }, [onSelectSite]);
-
-  useEffect(() => {
-    inspectorCollapsedHandler.current = onInspectorCollapsedChange;
-  }, [onInspectorCollapsedChange]);
-
-  useEffect(() => {
-    if (selectedSite) inspectorCollapsedHandler.current(false);
-  }, [selectedSite?.siteIndex]);
 
   useEffect(() => {
     if (!container.current) return;

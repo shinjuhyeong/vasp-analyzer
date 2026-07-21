@@ -169,7 +169,18 @@ export function App({
     selectedSite,
     forceMode: state.forceMode,
     forceScale: state.forceScale,
-    onSelectSite: (site) => dispatch({ type: "selectSite", site }),
+    onSelectSite: (site) => {
+      if (
+        site !== null &&
+        state.selectedSite === null &&
+        state.layout.inspectorCollapsed
+      )
+        dispatch({
+          type: "setLayout",
+          layout: { inspectorCollapsed: false },
+        });
+      dispatch({ type: "selectSite", site });
+    },
     onSelectStep: (step) => dispatch({ type: "selectStep", step }),
     palettePosition: { x: state.layout.paletteX, y: state.layout.paletteY },
     paletteCollapsed: state.layout.paletteCollapsed,

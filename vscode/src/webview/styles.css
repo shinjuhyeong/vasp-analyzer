@@ -25,7 +25,7 @@ select {
 
 .analysis-workspace {
   display: grid;
-  grid-template-rows: minmax(0, var(--structure-percent, 60%)) 8px minmax(48px, 1fr);
+  grid-template-rows: minmax(0, var(--structure-size, 60%)) 8px minmax(48px, 1fr);
   height: 100%;
   min-height: 360px;
   background: var(--vscode-editor-background, #17191d);
@@ -142,7 +142,7 @@ select {
 .crystal-main {
   position: relative;
   grid-column: 1;
-  min-width: 0;
+  min-width: min(240px, calc(100% - 32px));
   min-height: 0;
   overflow: hidden;
 }

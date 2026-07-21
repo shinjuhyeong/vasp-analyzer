@@ -66,6 +66,47 @@ const setup = () => {
 };
 
 describe("CrystalPanel", () => {
+  it("preserves a restored collapsed inspector when an atom is already selected", () => {
+    const onInspectorCollapsedChange = vi.fn();
+    const { props, view } = setup();
+    view.rerender(
+      <CrystalPanel
+        {...props}
+        selectedSite={twoStepDataset.sites[0]!}
+        inspectorCollapsed
+        onInspectorCollapsedChange={onInspectorCollapsedChange}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Expand atom inspector" })).toBeVisible();
+    expect(onInspectorCollapsedChange).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite deliberate collapse when the selected atom changes", () => {
+    const onInspectorCollapsedChange = vi.fn();
+    const { props, view } = setup();
+    view.rerender(
+      <CrystalPanel
+        {...props}
+        selectedSite={twoStepDataset.sites[0]!}
+        inspectorCollapsed
+        onInspectorCollapsedChange={onInspectorCollapsedChange}
+      />,
+    );
+
+    view.rerender(
+      <CrystalPanel
+        {...props}
+        selectedSite={twoStepDataset.sites[1]!}
+        inspectorCollapsed
+        onInspectorCollapsedChange={onInspectorCollapsedChange}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Expand atom inspector" })).toBeVisible();
+    expect(onInspectorCollapsedChange).not.toHaveBeenCalled();
+  });
+
   it("places renderer controls inside the crystal tools palette", () => {
     setup();
     expect(screen.getByRole("group", { name: "Crystal tools" })).toContainElement(
@@ -233,7 +274,7 @@ describe("CrystalPanel", () => {
     const { renderer, view } = setup();
     view.unmount();
     expect(renderer.dispose).toHaveBeenCalledOnce();
-    expect(disconnect).toHaveBeenCalledTimes(2);
+    expect(disconnect).toHaveBeenCalledTimes(3);
     vi.unstubAllGlobals();
   });
 
@@ -300,10 +341,10 @@ describe("CrystalPanel", () => {
       />,
     );
     expect(await screen.findByRole("table", { name: "Atomic positions and forces" })).toBeVisible();
-    expect(disconnect).toHaveBeenCalledTimes(2);
+    expect(disconnect).toHaveBeenCalledTimes(3);
     expect(renderer.dispose).toHaveBeenCalledOnce();
     expect(() => view.unmount()).not.toThrow();
-    expect(disconnect).toHaveBeenCalledTimes(2);
+    expect(disconnect).toHaveBeenCalledTimes(3);
     expect(renderer.dispose).toHaveBeenCalledOnce();
     vi.unstubAllGlobals();
   });
