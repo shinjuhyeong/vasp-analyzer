@@ -66,6 +66,12 @@ const setup = () => {
 };
 
 describe("CrystalPanel", () => {
+  it("classifies the element legend as a high-contrast atom overlay", () => {
+    setup();
+    expect(screen.getByRole("list", { name: "Elements in structure" })).toHaveClass(
+      "atom-overlay",
+    );
+  });
   it("preserves a restored collapsed inspector when an atom is already selected", () => {
     const onInspectorCollapsedChange = vi.fn();
     const { props, view } = setup();

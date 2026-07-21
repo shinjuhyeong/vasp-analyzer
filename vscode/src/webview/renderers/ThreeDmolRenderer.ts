@@ -343,6 +343,7 @@ export class ThreeDmolRenderer implements CrystalRenderer {
   private constraints: readonly ConstraintGlyph[] = [];
   private forceScale = 1;
   private selectedSite: number | null = null;
+  private hoveredSite: number | null = null;
   private volumetric: VolumetricLayer | null = null;
   private readonly layers: Record<LayerName, boolean> = {
     cell: true,
@@ -523,6 +524,7 @@ export class ThreeDmolRenderer implements CrystalRenderer {
     this.selectCallback = () => undefined;
     this.hoverCallback = () => undefined;
     this.errorCallback = () => undefined;
+    this.hoveredSite = null;
     try {
       this.viewer?.clear();
     } catch {
@@ -618,8 +620,16 @@ export class ThreeDmolRenderer implements CrystalRenderer {
         clickable: true,
         callback: () => this.selectCallback(site.siteIndex),
         hoverable: true,
-        hover_callback: () => this.hoverCallback(site.siteIndex),
-        unhover_callback: () => this.hoverCallback(null),
+        hover_callback: () => {
+          this.hoveredSite = site.siteIndex;
+          this.hoverCallback(site.siteIndex);
+          this.draw();
+        },
+        unhover_callback: () => {
+          this.hoveredSite = null;
+          this.hoverCallback(null);
+          this.draw();
+        },
       });
       if (selected)
         viewer.addSphere({
@@ -630,6 +640,22 @@ export class ThreeDmolRenderer implements CrystalRenderer {
           wireframe: true,
         });
     }
+    const atomOverlaySite = frame.sites.find(
+      (site) =>
+        site.role === "primary" &&
+        site.siteIndex === (this.hoveredSite ?? this.selectedSite),
+    );
+    if (atomOverlaySite)
+      viewer.addLabel(
+        `${atomOverlaySite.element} ${atomOverlaySite.siteIndex + 1}`,
+        {
+          position: xyz(atomOverlaySite.cartesianPosition),
+          fontColor: "white",
+          backgroundColor: 0x111827,
+          backgroundOpacity: 0.72,
+          fontSize: 13,
+        },
+      );
     if (this.layers.forces)
       for (const glyph of this.forces) {
         if (!glyph.vector || Math.hypot(...glyph.vector) < 1e-12) continue;

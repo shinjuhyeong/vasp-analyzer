@@ -56,7 +56,17 @@ export function DraggableCrystalPalette({
     readonly clientX: number;
     readonly clientY: number;
     readonly position: Readonly<PalettePosition>;
+    readonly owner: HTMLDivElement;
   } | null>(null);
+
+  const cancelActiveDrag = useCallback((): void => {
+    const current = drag.current;
+    drag.current = null;
+    if (current?.owner.hasPointerCapture?.(current.pointerId))
+      current.owner.releasePointerCapture?.(current.pointerId);
+  }, []);
+
+  useEffect(() => cancelActiveDrag, [cancelActiveDrag, collapsed]);
 
   const bounded = (desired: Readonly<PalettePosition>): PalettePosition | null => {
     const viewport = viewportRef.current;
@@ -100,6 +110,7 @@ export function DraggableCrystalPalette({
       clientX: event.clientX,
       clientY: event.clientY,
       position,
+      owner: event.currentTarget,
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
@@ -121,24 +132,36 @@ export function DraggableCrystalPalette({
 
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (drag.current?.pointerId !== event.pointerId) return;
-    drag.current = null;
-    if (event.currentTarget.hasPointerCapture?.(event.pointerId))
-      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    cancelActiveDrag();
   };
 
   if (collapsed)
     return (
-      <button
+      <div
         ref={setMeasuredElement}
         className="crystal-palette-toggle"
-        type="button"
-        aria-label="Expand crystal tools"
-        aria-expanded="false"
         style={{ left: position.x, top: position.y }}
-        onClick={() => onCollapsedChange(false)}
       >
-        Crystal tools
-      </button>
+        <div
+          className="crystal-palette-drag-handle"
+          data-testid="collapsed-crystal-palette-handle"
+          onPointerDown={beginDrag}
+          onPointerMove={moveDrag}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+        >
+          <span aria-hidden="true">⋮⋮</span>
+          <span>Crystal tools</span>
+        </div>
+        <button
+          type="button"
+          aria-label="Expand crystal tools"
+          aria-expanded="false"
+          onClick={() => onCollapsedChange(false)}
+        >
+          Expand
+        </button>
+      </div>
     );
 
   return (

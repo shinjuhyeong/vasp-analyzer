@@ -35,10 +35,12 @@ function Harness({
   initialPosition = { x: 10, y: 10 },
   initialCollapsed = true,
   onPositionChange = vi.fn(),
+  onCollapsedChange = vi.fn(),
 }: {
   readonly initialPosition?: Readonly<{ x: number; y: number }>;
   readonly initialCollapsed?: boolean;
   readonly onPositionChange?: (position: Readonly<{ x: number; y: number }>) => void;
+  readonly onCollapsedChange?: (collapsed: boolean) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState(initialPosition);
@@ -53,7 +55,10 @@ function Harness({
           onPositionChange(next);
           setPosition(next);
         }}
-        onCollapsedChange={setCollapsed}
+        onCollapsedChange={(next) => {
+          onCollapsedChange(next);
+          setCollapsed(next);
+        }}
         onReset={() => {
           setPosition({ x: 10, y: 10 });
           setCollapsed(true);
@@ -101,6 +106,73 @@ describe("DraggableCrystalPalette", () => {
     expect(
       screen.queryByRole("group", { name: "Crystal tools" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("drags the collapsed handle without expanding the palette", () => {
+    const onPositionChange = vi.fn();
+    const onCollapsedChange = vi.fn();
+    render(
+      <Harness
+        initialCollapsed
+        onPositionChange={onPositionChange}
+        onCollapsedChange={onCollapsedChange}
+      />,
+    );
+    const handle = screen.getByTestId("collapsed-crystal-palette-handle");
+    Object.defineProperties(handle, {
+      setPointerCapture: { value: vi.fn() },
+      hasPointerCapture: { value: () => true },
+      releasePointerCapture: { value: vi.fn() },
+    });
+
+    fireEvent.pointerDown(handle, { pointerId: 9, clientX: 20, clientY: 20 });
+    fireEvent.pointerMove(handle, { pointerId: 9, clientX: 50, clientY: 45 });
+
+    expect(onPositionChange).toHaveBeenLastCalledWith({ x: 40, y: 35 });
+    expect(onCollapsedChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Expand crystal tools" }));
+    expect(onCollapsedChange).toHaveBeenCalledWith(false);
+  });
+
+  it("releases a collapsed drag during expansion and unmount cleanup", () => {
+    const view = render(<Harness initialCollapsed />);
+    const handle = screen.getByTestId("collapsed-crystal-palette-handle");
+    const releasePointerCapture = vi.fn();
+    Object.defineProperties(handle, {
+      setPointerCapture: { value: vi.fn(), configurable: true },
+      hasPointerCapture: { value: () => true, configurable: true },
+      releasePointerCapture: { value: releasePointerCapture, configurable: true },
+    });
+    fireEvent.pointerDown(handle, { pointerId: 6, clientX: 10, clientY: 10 });
+    fireEvent.click(screen.getByRole("button", { name: "Expand crystal tools" }));
+    expect(releasePointerCapture).toHaveBeenCalledWith(6);
+
+    const header = screen.getByTestId("crystal-palette-header");
+    Object.defineProperties(header, {
+      setPointerCapture: { value: vi.fn() },
+      hasPointerCapture: { value: () => true },
+      releasePointerCapture: { value: releasePointerCapture },
+    });
+    fireEvent.pointerDown(header, { pointerId: 7, clientX: 10, clientY: 10 });
+    view.unmount();
+    expect(releasePointerCapture).toHaveBeenCalledWith(7);
+  });
+
+  it("ends a collapsed drag on pointer cancel", () => {
+    const changed = vi.fn();
+    render(<Harness initialCollapsed onPositionChange={changed} />);
+    const handle = screen.getByTestId("collapsed-crystal-palette-handle");
+    const releasePointerCapture = vi.fn();
+    Object.defineProperties(handle, {
+      setPointerCapture: { value: vi.fn() },
+      hasPointerCapture: { value: () => true },
+      releasePointerCapture: { value: releasePointerCapture },
+    });
+    fireEvent.pointerDown(handle, { pointerId: 8, clientX: 10, clientY: 10 });
+    fireEvent.pointerCancel(handle, { pointerId: 8 });
+    fireEvent.pointerMove(handle, { pointerId: 8, clientX: 40, clientY: 40 });
+    expect(releasePointerCapture).toHaveBeenCalledWith(8);
+    expect(changed).not.toHaveBeenCalled();
   });
 
   it("captures pointer drag on its header and clamps to the viewport", async () => {
@@ -159,7 +231,9 @@ describe("DraggableCrystalPalette", () => {
 
     expect(changed).toHaveBeenLastCalledWith({ x: 250, y: 170 });
     expect(
-      screen.getByRole("button", { name: "Expand crystal tools" }),
+      screen.getByRole("button", { name: "Expand crystal tools" }).closest(
+        ".crystal-palette-toggle",
+      ),
     ).toHaveStyle({ left: "250px", top: "170px" });
   });
 
@@ -190,9 +264,12 @@ describe("DraggableCrystalPalette", () => {
       />,
     );
     const viewport = screen.getByTestId("viewport");
-    const toggle = screen.getByRole("button", { name: "Expand crystal tools" });
+    const toggle = screen
+      .getByRole("button", { name: "Expand crystal tools" })
+      .closest(".crystal-palette-toggle");
     expect(observers).toHaveLength(1);
     expect(observers[0]!.observe).toHaveBeenCalledWith(viewport);
+    expect(toggle).not.toBeNull();
     expect(observers[0]!.observe).toHaveBeenCalledWith(toggle);
 
     viewportSize = { width: 120, height: 90 };
@@ -245,7 +322,9 @@ describe("DraggableCrystalPalette", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Reset layout" }));
 
     expect(
-      screen.getByRole("button", { name: "Expand crystal tools" }),
+      screen.getByRole("button", { name: "Expand crystal tools" }).closest(
+        ".crystal-palette-toggle",
+      ),
     ).toHaveStyle({ left: "10px", top: "10px" });
     expect(
       screen.queryByRole("group", { name: "Crystal tools" }),

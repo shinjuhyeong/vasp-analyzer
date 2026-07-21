@@ -130,6 +130,33 @@ function fakeViewer() {
 
 describe("ThreeDmolRenderer adapter", () => {
   beforeEach(() => vi.clearAllMocks());
+  it("uses white-on-dark atom labels while preserving colored transparent axis labels", () => {
+    const viewer = fakeViewer();
+    const renderer = new ThreeDmolRenderer(
+      viewer as unknown as GLViewer,
+      document.createElement("div"),
+    );
+    renderer.setStructure(frame);
+    renderer.setSelectedSite(1);
+
+    expect(viewer.addLabel).toHaveBeenCalledWith("O 2", expect.objectContaining({
+      fontColor: "white",
+      backgroundColor: 0x111827,
+      backgroundOpacity: 0.72,
+    }));
+    expect(viewer.addLabel).toHaveBeenCalledWith("a", expect.objectContaining({
+      fontColor: 0xf85149,
+      backgroundOpacity: 0,
+    }));
+
+    viewer.addLabel.mockClear();
+    const atom = viewer.addSphere.mock.calls.find(([spec]) => spec.clickable)?.[0];
+    atom.hover_callback();
+    expect(viewer.addLabel).toHaveBeenCalledWith("O 2", expect.objectContaining({
+      fontColor: "white",
+      backgroundOpacity: 0.72,
+    }));
+  });
   it("maps every periodic image click back to its original site and scales only arrow geometry", () => {
     const viewer = fakeViewer(),
       container = document.createElement("div"),

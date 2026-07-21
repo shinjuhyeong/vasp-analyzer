@@ -457,7 +457,7 @@ export function CrystalPanel({
           }
           splitterHidden={structureFullScreen}
         >
-          <ul className="element-legend" aria-label="Elements in structure">
+          <ul className="element-legend atom-overlay" aria-label="Elements in structure">
             {legend.map((item) => (
               <li key={item.element} aria-label={`${item.element}, atom color ${item.color}, display radius ${item.radius.toFixed(2)} angstrom`}>
                 <span aria-hidden="true" style={{ backgroundColor: item.color }} />{item.element}
