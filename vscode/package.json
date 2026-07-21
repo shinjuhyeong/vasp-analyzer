@@ -15,7 +15,7 @@
   },
   "categories": ["Visualization", "Other"],
   "extensionKind": ["workspace"],
-  "main": "./dist/extension.js",
+  "main": "./dist/extension.cjs",
   "activationEvents": ["onStartupFinished", "onCommand:vaspAnalyzer.open"],
   "contributes": {
     "commands": [
@@ -71,11 +71,13 @@
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",
+    "@types/adm-zip": "0.5.8",
     "@types/node": "^24.0.0",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
     "@types/vscode": "^1.100.0",
     "@vscode/vsce": "^3.6.0",
+    "adm-zip": "0.6.0",
     "esbuild": "^0.25.0",
     "jsdom": "27.4.0",
     "typescript": "^5.8.0",

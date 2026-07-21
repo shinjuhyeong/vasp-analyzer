@@ -27,6 +27,9 @@ importers:
       '@testing-library/user-event':
         specifier: 14.6.1
         version: 14.6.1(@testing-library/dom@10.4.1)
+      '@types/adm-zip':
+        specifier: 0.5.8
+        version: 0.5.8
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
@@ -42,6 +45,9 @@ importers:
       '@vscode/vsce':
         specifier: ^3.6.0
         version: 3.9.2
+      adm-zip:
+        specifier: 0.6.0
+        version: 0.6.0
       esbuild:
         specifier: ^0.25.0
         version: 0.25.12
@@ -741,6 +747,9 @@ packages:
   '@textlint/types@15.7.1':
     resolution: {integrity: sha512-Vye/GmFNBTgVzZFtIFJTmLB+s2A7oIADxNG6r9UhfPuY+Czv0z5G3xeyFZZudPlfxURsKUyPIU5XsjOFqVp33A==}
 
+  '@types/adm-zip@0.5.8':
+    resolution: {integrity: sha512-RVVH7QvZYbN+ihqZ4kX/dMiowf6o+Jk1fNwiSdx0NahBJLU787zkULhGhJM8mf/obmLGmgdMM0bXsQTmyfbR7Q==}
+
   '@types/aria-query@5.0.4':
     resolution: {integrity: sha512-rfT93uj5s0PRL7EzccGMs3brplhcrghnDoV26NqKhCAS1hVo+WdNsPvE/yb6ilfr5hi2MEk6d5EWJTKdxg8jVw==}
 
@@ -858,6 +867,10 @@ packages:
     resolution: {integrity: sha512-XSxMosEEDO6vLxELAHVkwmhC0qe0ijZni2jB9Rcs8kQsW4lhTDQ/wMzmwFs/buotAWSnpmUp/dRWD2ufG3UYKA==}
     engines: {node: '>= 20'}
     hasBin: true
+
+  adm-zip@0.6.0:
+    resolution: {integrity: sha512-XleryMhbuksdKtofnWZ9Sk+4CUTbms4Mb/EU32SZwToAyZ5RgVos/ki8n+yr0LWHOGKuakbXTuuYNHLQjhddgg==}
+    engines: {node: '>=14.0'}
 
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
@@ -2660,6 +2673,10 @@ snapshots:
     dependencies:
       '@textlint/ast-node-types': 15.7.1
 
+  '@types/adm-zip@0.5.8':
+    dependencies:
+      '@types/node': 24.13.3
+
   '@types/aria-query@5.0.4': {}
 
   '@types/chai@5.2.3':
@@ -2813,6 +2830,8 @@ snapshots:
       keytar: 7.9.0
     transitivePeerDependencies:
       - supports-color
+
+  adm-zip@0.6.0: {}
 
   agent-base@7.1.4: {}
 

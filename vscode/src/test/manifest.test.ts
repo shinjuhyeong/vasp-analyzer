@@ -5,7 +5,7 @@ describe("extension manifest", () => {
   it("runs in the workspace host and contributes command and OUTCAR menu", async () => {
     const manifest = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
     expect(manifest.extensionKind).toEqual(["workspace"]);
-    expect(manifest.main).toBe("./dist/extension.js");
+    expect(manifest.main).toBe("./dist/extension.cjs");
     expect(manifest.activationEvents).toEqual(
       expect.arrayContaining(["onStartupFinished", "onCommand:vaspAnalyzer.open"]),
     );

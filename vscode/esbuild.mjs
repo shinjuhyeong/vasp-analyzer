@@ -7,7 +7,7 @@ await Promise.all([
   build({
     entryPoints: ["src/extension.ts"],
     bundle: true,
-    outfile: "dist/extension.js",
+    outfile: "dist/extension.cjs",
     platform: "node",
     format: "cjs",
     target: "node20",
