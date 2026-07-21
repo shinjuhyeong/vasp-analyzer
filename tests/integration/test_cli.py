@@ -30,7 +30,8 @@ def test_cli_accepts_all_discovery_forms(
     app = create_app(web_launcher=launches.append, environ={})
     monkeypatch.chdir(root)
 
-    result = runner.invoke(app, [] if argument is None else [argument])
+    arguments = [] if argument is None else [argument]
+    result = runner.invoke(app, [*arguments, "--web"])
 
     assert result.exit_code == 0, result.output
     assert launches[0].path == root.resolve()
@@ -80,7 +81,7 @@ def test_valid_handoff_sends_only_token_and_canonical_path(tmp_path: Path) -> No
         {"VASP_ANALYZER_ENDPOINT": r"\\.\pipe\x", "VASP_ANALYZER_TOKEN": "short"},
     ],
 )
-def test_absent_or_invalid_handoff_falls_back_without_sending(
+def test_absent_or_invalid_handoff_requires_explicit_web_without_sending(
     environment: dict[str, str], tmp_path: Path
 ) -> None:
     root = _calculation(tmp_path)
@@ -96,11 +97,12 @@ def test_absent_or_invalid_handoff_falls_back_without_sending(
     )
     result = runner.invoke(app, [str(root)])
 
-    assert result.exit_code == 0, result.output
-    assert launches[0].path == root.resolve()
+    assert result.exit_code == 2
+    assert launches == []
+    assert "VS Code extension" in result.output
 
 
-def test_stale_or_invalid_endpoint_response_falls_back(tmp_path: Path) -> None:
+def test_stale_or_invalid_endpoint_response_requires_explicit_web(tmp_path: Path) -> None:
     root = _calculation(tmp_path)
     launches: list[WebLaunchRequest] = []
     endpoint = r"\\.\pipe\vasp-analyzer-test" if os.name == "nt" else str(tmp_path / "endpoint.sock")
@@ -126,12 +128,12 @@ def test_stale_or_invalid_endpoint_response_falls_back(tmp_path: Path) -> None:
         if holder is not None:
             holder.close()
 
-    assert result.exit_code == 0, result.output
-    assert launches[0].path == root.resolve()
-    assert "VS Code handoff unavailable" in result.output
+    assert result.exit_code == 2
+    assert launches == []
+    assert "VS Code extension" in result.output
 
 
-def test_stale_endpoint_connection_falls_back_without_disclosing_credentials(
+def test_stale_endpoint_connection_fails_without_disclosing_credentials(
     tmp_path: Path,
 ) -> None:
     root = _calculation(tmp_path)
@@ -163,9 +165,9 @@ def test_stale_endpoint_connection_falls_back_without_disclosing_credentials(
         if holder is not None:
             holder.close()
 
-    assert result.exit_code == 0, result.output
-    assert launches[0].path == root.resolve()
-    assert "VS Code handoff unavailable" in result.output
+    assert result.exit_code == 2
+    assert launches == []
+    assert "VS Code extension" in result.output
     assert token not in result.output
     assert str(root.resolve()) not in result.output
 
@@ -184,28 +186,56 @@ def test_profile_is_validated_before_launch(tmp_path: Path) -> None:
     assert "Invalid profile" in result.output
 
 
-def test_forced_profile_skips_path_only_extension_handoff(tmp_path: Path) -> None:
+def test_forced_profile_is_carried_by_extension_handoff(tmp_path: Path) -> None:
     root = _calculation(tmp_path)
     profile = FIXTURES / "profiles" / "home-example.toml"
     launches: list[WebLaunchRequest] = []
+    sent: list[tuple[str, bytes]] = []
+    endpoint = r"\\.\pipe\vasp-analyzer-test" if os.name == "nt" else str(tmp_path / "endpoint.sock")
+    if os.name != "nt":
+        import socket
 
-    def unexpected_send(_address: str, _payload: bytes) -> bytes:
-        raise AssertionError("path-only handoff cannot preserve a forced profile")
+        holder = socket.socket(socket.AF_UNIX)
+        holder.bind(endpoint)
+    else:
+        holder = None
 
-    app = create_app(
-        web_launcher=launches.append,
-        endpoint_sender=unexpected_send,
-        environ={
-            "VASP_ANALYZER_ENDPOINT": r"\\.\pipe\vasp-analyzer-test",
-            "VASP_ANALYZER_TOKEN": "c" * 32,
-        },
-    )
+    def send(address: str, payload: bytes) -> bytes:
+        sent.append((address, payload))
+        return b'{"ok":true}\n'
 
-    result = runner.invoke(app, [str(root), "--profile", str(profile)])
+    try:
+        app = create_app(
+            web_launcher=launches.append,
+            endpoint_sender=send,
+            environ={
+                "VASP_ANALYZER_ENDPOINT": endpoint,
+                "VASP_ANALYZER_TOKEN": "c" * 32,
+            },
+        )
+        result = runner.invoke(app, [str(root), "--profile", str(profile)])
+    finally:
+        if holder is not None:
+            holder.close()
 
     assert result.exit_code == 0, result.output
-    assert launches[0].profile is not None
-    assert launches[0].profile.id == "home-example"
+    assert launches == []
+    assert json.loads(sent[0][1]) == {
+        "token": "c" * 32,
+        "path": str(root.resolve()),
+        "profile": str(profile.resolve()),
+    }
+
+
+def test_explicit_web_launch_is_the_only_browser_path(tmp_path: Path) -> None:
+    root = _calculation(tmp_path)
+    launches: list[WebLaunchRequest] = []
+    app = create_app(web_launcher=launches.append, environ={})
+
+    result = runner.invoke(app, [str(root), "--web"])
+
+    assert result.exit_code == 0
+    assert launches == [WebLaunchRequest(path=root.resolve())]
 
 
 def test_explicit_web_flags_skip_handoff_and_route_port_and_open_state(tmp_path: Path) -> None:

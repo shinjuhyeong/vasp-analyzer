@@ -34,6 +34,7 @@ class HandoffResponse(FrozenModel):
 class HandoffRequest(FrozenModel):
     token: str = Field(repr=False, min_length=32, max_length=512)
     path: str = Field(min_length=1, max_length=_MAX_CALCULATION_PATH_CHARS)
+    profile: str | None = Field(default=None, max_length=_MAX_CALCULATION_PATH_CHARS)
 
 
 def canonical_calculation_path(path: Path) -> Path:
@@ -281,6 +282,7 @@ def default_endpoint_sender(endpoint: str, payload: bytes) -> bytes:
 def try_extension_handoff(
     path: Path,
     *,
+    profile_path: Path | None = None,
     environ: Mapping[str, str] | None = None,
     sender: EndpointSender = default_endpoint_sender,
 ) -> bool:
@@ -293,8 +295,21 @@ def try_extension_handoff(
         return False
     try:
         canonical = canonical_calculation_path(path)
-        request = HandoffRequest(token=token, path=str(canonical))
-        payload = request.model_dump_json(by_alias=True).encode("utf-8") + b"\n"
+        canonical_profile = None
+        if profile_path is not None:
+            canonical_profile_path = Path(profile_path).expanduser().resolve(strict=True)
+            if not canonical_profile_path.is_file():
+                return False
+            canonical_profile = str(canonical_profile_path)
+        request = HandoffRequest(
+            token=token,
+            path=str(canonical),
+            profile=canonical_profile,
+        )
+        payload = (
+            request.model_dump_json(by_alias=True, exclude_none=True).encode("utf-8")
+            + b"\n"
+        )
         raw_response = sender(endpoint, payload)
         if len(raw_response) > _MAX_RESPONSE_BYTES:
             return False

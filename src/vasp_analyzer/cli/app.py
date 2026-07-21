@@ -139,23 +139,20 @@ def create_app(
             calculation_path = canonical_calculation_path(path or Path.cwd())
             selected_profile = load_profile(profile) if profile is not None else None
             browser_requested = web or port is not None or no_open
-            if selected_profile is None and not browser_requested:
+            if not browser_requested:
                 environment = os.environ if environ is None else environ
-                handoff_configured = bool(
-                    environment.get("VASP_ANALYZER_ENDPOINT")
-                    or environment.get("VASP_ANALYZER_TOKEN")
-                )
                 if try_extension_handoff(
                     calculation_path,
+                    profile_path=profile,
                     environ=environment,
                     sender=endpoint_sender,
                 ):
                     return
-                if handoff_configured:
-                    typer.echo(
-                        "VS Code handoff unavailable; using browser fallback.",
-                        err=True,
-                    )
+                raise AnalyzerError(
+                    "VS Code extension handoff unavailable; install or reload the Remote SSH "
+                    "workspace extension, then open a new integrated terminal. Use --web only "
+                    "for explicit browser mode."
+                )
             launcher(
                 WebLaunchRequest(
                     path=calculation_path,
