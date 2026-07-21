@@ -2,7 +2,7 @@
 
 import { render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ParameterOccurrence } from "../../core/contracts.js";
 import { ParametersPanel, effectiveParameters } from "./ParametersPanel.js";
@@ -84,5 +84,39 @@ describe("ParametersPanel", () => {
       "ibrion",
       "home_vector",
     ]);
+  });
+
+  it("keeps duplicate ordinal and raw-key occurrences distinct through raw search and view transitions", async () => {
+    const duplicateMetadata: readonly ParameterOccurrence[] = [
+      { key: "home_duplicate", rawKey: "HOME_DUPLICATE", rawValue: "alpha", value: "alpha", unit: null, category: null, description: null, ordinal: 7, lineNumber: 30 },
+      { key: "home_duplicate", rawKey: "HOME_DUPLICATE", rawValue: "beta", value: "beta", unit: null, category: null, description: null, ordinal: 7, lineNumber: 31 },
+    ];
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+
+    try {
+      render(<ParametersPanel parameters={duplicateMetadata} />);
+      await user.click(screen.getByRole("button", { name: "Raw parameters" }));
+      expect(screen.getAllByRole("row", { name: /HOME_DUPLICATE/ }).map((row) => row.textContent)).toEqual([
+        expect.stringContaining("alpha"),
+        expect.stringContaining("beta"),
+      ]);
+
+      const search = screen.getByRole("searchbox", { name: "Search parameters" });
+      await user.type(search, "beta");
+      expect(screen.getAllByRole("row", { name: /HOME_DUPLICATE/ })).toHaveLength(1);
+      expect(screen.getByRole("row", { name: /HOME_DUPLICATE/ })).toHaveTextContent("beta");
+      await user.clear(search);
+      await user.click(screen.getByRole("button", { name: "Interpreted parameters" }));
+      await user.click(screen.getByRole("button", { name: "Raw parameters" }));
+
+      expect(screen.getAllByRole("row", { name: /HOME_DUPLICATE/ }).map((row) => row.textContent)).toEqual([
+        expect.stringContaining("alpha"),
+        expect.stringContaining("beta"),
+      ]);
+      expect(consoleError.mock.calls.flat().join(" ")).not.toMatch(/same key|unique.*key/i);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });

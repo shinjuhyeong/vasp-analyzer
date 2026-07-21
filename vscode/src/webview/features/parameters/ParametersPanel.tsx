@@ -82,9 +82,12 @@ export function ParametersPanel({ parameters }: ParametersPanelProps): ReactElem
     (category === "all" || categoryOf(parameter) === category)
     && (!query || searchableText(parameter).includes(query)),
   );
-  const raw = [...parameters]
-    .sort((left, right) => left.ordinal - right.ordinal)
-    .filter((parameter) => !query || searchableText(parameter).includes(query));
+  const raw = parameters
+    .map((parameter, sourceIndex) => ({ parameter, sourceIndex }))
+    .sort((left, right) =>
+      left.parameter.ordinal - right.parameter.ordinal
+      || left.sourceIndex - right.sourceIndex)
+    .filter(({ parameter }) => !query || searchableText(parameter).includes(query));
 
   return (
     <section className="parameters-panel" aria-label="OUTCAR parameters">
@@ -138,8 +141,8 @@ export function ParametersPanel({ parameters }: ParametersPanelProps): ReactElem
           <caption>Every parameter occurrence in OUTCAR source order</caption>
           <thead><tr><th scope="col">Occurrence</th><th scope="col">Key</th><th scope="col">Raw value</th><th scope="col">Line</th></tr></thead>
           <tbody>
-            {raw.map((parameter) => (
-              <tr key={`${parameter.ordinal}:${parameter.rawKey}`}>
+            {raw.map(({ parameter, sourceIndex }) => (
+              <tr key={`${parameter.ordinal}:${parameter.rawKey}:${sourceIndex}`}>
                 <td>{parameter.ordinal + 1}</td>
                 <td>{parameter.rawKey}</td>
                 <td>{parameter.rawValue}</td>
