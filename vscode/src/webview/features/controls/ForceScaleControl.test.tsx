@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 
-import { ForceScaleControl, scaleToSlider, sliderToScale } from "./ForceScaleControl.js";
+import { ForceScaleControl, scaleToSlider, sliderPositionToScale, sliderToScale } from "./ForceScaleControl.js";
 
 it("maps force scale logarithmically to the slider", () => {
   expect(scaleToSlider(1)).toBe(0);
@@ -30,6 +30,29 @@ it("emits a finite force scale typed into the number control", async () => {
   await userEvent.setup().type(number, "500");
 
   expect(change).toHaveBeenLastCalledWith(500);
+});
+
+it("rounds slider-generated scales to stable readable precision", () => {
+  const emitted = sliderPositionToScale(scaleToSlider(10.023052));
+  expect(emitted).toBe(10.02);
+});
+
+it("formats an externally supplied high-precision scale without an unwieldy readout", () => {
+  render(<ForceScaleControl value={10.023052} onChange={vi.fn()} />);
+
+  expect(screen.getByText("10.02×")).toBeInTheDocument();
+  expect(screen.getByLabelText("Force vector scale number")).toHaveValue(10.023052);
+});
+
+it("preserves a valid direct decimal scale", async () => {
+  const change = vi.fn();
+  render(<ForceScaleControl value={10} onChange={change} />);
+
+  const number = screen.getByLabelText("Force vector scale number");
+  await userEvent.setup().clear(number);
+  await userEvent.setup().type(number, "10.023052");
+
+  expect(change).toHaveBeenLastCalledWith(10.023052);
 });
 
 it("keeps force scale unchanged for an empty draft", async () => {

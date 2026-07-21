@@ -13,6 +13,10 @@ export const scaleToSlider = (scale: number): number =>
 export const sliderToScale = (position: number): number =>
   MIN_SCALE * 10 ** (clamp(position, 0, 1) * LOG_RANGE);
 
+const stableScale = (value: number): number => Number(value.toPrecision(4));
+
+export const sliderPositionToScale = (position: number): number => stableScale(sliderToScale(position));
+
 export interface ForceScaleControlProps {
   readonly value: number;
   readonly onChange: (value: number) => void;
@@ -60,7 +64,7 @@ export function ForceScaleControl({ value, onChange }: ForceScaleControlProps): 
           max="1"
           step="0.001"
           value={scaleToSlider(value)}
-          onChange={(event) => onChange(sliderToScale(Number(event.target.value)))}
+          onChange={(event) => onChange(sliderPositionToScale(Number(event.target.value)))}
         />
       </label>
       <label>
@@ -76,7 +80,7 @@ export function ForceScaleControl({ value, onChange }: ForceScaleControlProps): 
           onKeyDown={handleKeyDown}
         />
       </label>
-      <output>{value}×</output>
+      <output>{stableScale(value)}×</output>
     </div>
   );
 }

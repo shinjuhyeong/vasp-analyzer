@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createControlEndpoint, type ControlEndpoint } from "../controlEndpoint.js";
+import { createControlEndpoint, resolveCalculation, type ControlEndpoint } from "../controlEndpoint.js";
 
 const endpoints: ControlEndpoint[] = [];
 
@@ -25,6 +25,37 @@ async function profileFixture(): Promise<string> {
 }
 
 describe("control endpoint", () => {
+  it.each(["outcar", "OuTcAr"])("preserves the canonical selected %s filename", async (filename) => {
+    const root = await mkdtemp(join(tmpdir(), "vasp-explicit-case-test-"));
+    const selected = join(root, filename);
+    await writeFile(selected, "fixture\n");
+
+    await expect(resolveCalculation(selected)).resolves.toEqual({
+      root: await realpath(root),
+      calculationPath: await realpath(selected),
+    });
+  });
+
+  it("locates the actual case-insensitive OUTCAR entry for a selected directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vasp-directory-case-test-"));
+    const outcar = join(root, "outcar");
+    await writeFile(outcar, "fixture\n");
+
+    await expect(resolveCalculation(root)).resolves.toEqual({
+      root: await realpath(root),
+      calculationPath: await realpath(outcar),
+    });
+  });
+
+  it("rejects a directory with ambiguous case-insensitive OUTCAR entries", async () => {
+    if (process.platform === "win32") return;
+    const root = await mkdtemp(join(tmpdir(), "vasp-ambiguous-case-test-"));
+    await writeFile(join(root, "OUTCAR"), "first\n");
+    await writeFile(join(root, "outcar"), "second\n");
+
+    await expect(resolveCalculation(root)).rejects.toThrow("multiple case-insensitive OUTCAR files");
+  });
+
   it("rejects an invalid token before opening a panel", async () => {
     const onOpen = vi.fn();
     const endpoint = await createControlEndpoint({ token: "s".repeat(32), onOpen });
@@ -49,6 +80,7 @@ describe("control endpoint", () => {
     await expect(endpoint.request({ token: endpoint.token, path: join(root, "OUTCAR") })).resolves.toEqual({ ok: true });
     expect(onOpen).toHaveBeenCalledWith({
       root: await import("node:fs/promises").then((fs) => fs.realpath(root)),
+      calculationPath: await import("node:fs/promises").then((fs) => fs.realpath(join(root, "OUTCAR"))),
       profilePath: null,
     }, expect.anything());
     expect((onOpen.mock.calls[0]?.[1] as AbortSignal).aborted).toBe(false);
@@ -64,8 +96,25 @@ describe("control endpoint", () => {
     await expect(endpoint.request({ token: endpoint.token, path: root, profile })).resolves.toEqual({ ok: true });
     expect(onOpen).toHaveBeenCalledWith({
       root: await import("node:fs/promises").then((fs) => fs.realpath(root)),
+      calculationPath: await import("node:fs/promises").then((fs) => fs.realpath(join(root, "OUTCAR"))),
       profilePath: await import("node:fs/promises").then((fs) => fs.realpath(profile)),
     }, expect.anything());
+  });
+
+  it("categorizes a panel or analyzer open failure separately from an invalid path", async () => {
+    const root = await calculationFixture();
+    const endpoint = await createControlEndpoint({
+      token: "o".repeat(32),
+      onOpen: async () => {
+        throw new Error("private process detail");
+      },
+    });
+    endpoints.push(endpoint);
+
+    await expect(endpoint.request({ token: endpoint.token, path: root })).resolves.toEqual({
+      ok: false,
+      error: "open_failed",
+    });
   });
 
   it.each(["missing", "directory"])("rejects a %s profile without opening", async (kind) => {
@@ -98,6 +147,25 @@ describe("control endpoint", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
+  it("rejects an unreadable OUTCAR without opening a panel", async () => {
+    if (process.platform === "win32" || process.getuid?.() === 0) return;
+    const root = await calculationFixture();
+    const outcar = join(root, "OUTCAR");
+    await chmod(outcar, 0o000);
+    const onOpen = vi.fn();
+    const endpoint = await createControlEndpoint({ token: "w".repeat(32), onOpen });
+    endpoints.push(endpoint);
+    try {
+      await expect(endpoint.request({ token: endpoint.token, path: root })).resolves.toEqual({
+        ok: false,
+        error: "invalid_path",
+      });
+      expect(onOpen).not.toHaveBeenCalled();
+    } finally {
+      await chmod(outcar, 0o600);
+    }
+  });
+
   it("rejects a directory named OUTCAR", async () => {
     const root = await mkdtemp(join(tmpdir(), "vasp-endpoint-directory-"));
     await mkdir(join(root, "OUTCAR"));
@@ -112,12 +180,12 @@ describe("control endpoint", () => {
   });
 
   it("aborts an in-flight canonicalization before invoking onOpen when closed", async () => {
-    let releaseResolution!: (value: string) => void;
+    let releaseResolution!: (value: { root: string; calculationPath: string }) => void;
     let resolutionStarted!: () => void;
     const started = new Promise<void>((resolve) => {
       resolutionStarted = resolve;
     });
-    const resolution = new Promise<string>((resolve) => {
+    const resolution = new Promise<{ root: string; calculationPath: string }>((resolve) => {
       releaseResolution = resolve;
     });
     const onOpen = vi.fn();
@@ -134,7 +202,7 @@ describe("control endpoint", () => {
     const requestResult = expect(request).rejects.toThrow("control endpoint closed before response");
     await started;
     const closing = endpoint.close();
-    releaseResolution("canonical");
+    releaseResolution({ root: "canonical", calculationPath: "canonical/OUTCAR" });
     await closing;
     endpoints.pop();
     await requestResult;
@@ -153,7 +221,7 @@ describe("control endpoint", () => {
     let sideEffects = 0;
     const endpoint = await createControlEndpoint({
       token: "c".repeat(32),
-      resolvePath: async () => "canonical",
+      resolvePath: async () => ({ root: "canonical", calculationPath: "canonical/OUTCAR" }),
       onOpen: async (_calculation, signal) => {
         openStarted();
         await barrier;

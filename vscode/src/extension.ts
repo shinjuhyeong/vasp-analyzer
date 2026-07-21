@@ -12,8 +12,9 @@ import {
 } from "./analyzerProcess.js";
 import {
   createControlEndpoint,
-  resolveCalculationRoot,
+  resolveCalculation,
   type ControlEndpoint,
+  type ResolvedCalculation,
 } from "./controlEndpoint.js";
 import { CALCULATION_OPEN_DIALOG_OPTIONS, calculationPanelKey } from "./openCalculation.js";
 import { webviewHtml } from "./webviewHtml.js";
@@ -23,6 +24,27 @@ interface WebviewRequest {
   readonly requestId: number;
   readonly method: Method;
   readonly params: Record<string, unknown>;
+}
+
+type CalculationOpenFailure = "input" | "analyzer" | "process";
+
+class CalculationOpenError extends Error {
+  constructor(readonly category: CalculationOpenFailure) {
+    super(category);
+  }
+}
+
+function calculationOpenMessage(error: unknown): string {
+  if (error instanceof CalculationOpenError && error.category === "input") {
+    return "VASP Analyzer could not find a readable OUTCAR. Check the selected file and its permissions, then retry.";
+  }
+  if (error instanceof CalculationOpenError && error.category === "analyzer") {
+    return "VASP Analyzer could not start the analyzer executable. Check the Remote SSH vaspAnalyzer executablePath/pythonPath settings, then inspect the Remote Extension Host log.";
+  }
+  if (error instanceof CalculationOpenError && error.category === "process") {
+    return "The analyzer process could not load this calculation. Check the analyzer executable and profile settings, then inspect the Remote Extension Host log.";
+  }
+  return "VASP Analyzer could not open the calculation. Reload the Remote SSH window, then inspect the Remote Extension Host log.";
 }
 
 const activationCoordinator = new ActivationCoordinator<ControlEndpoint>();
@@ -78,11 +100,11 @@ function activationPlan(context: vscode.ExtensionContext): {
   const processes = new Map<vscode.WebviewPanel, AnalyzerProcess>();
 
   const openCanonicalCalculation = async (
-    calculation: { readonly root: string; readonly profilePath: string | null },
+    calculation: ResolvedCalculation & { readonly profilePath: string | null },
     activationSignal: AbortSignal,
     requestSignal: AbortSignal = activationSignal,
   ): Promise<void> => {
-    const { root, profilePath } = calculation;
+    const { root, calculationPath, profilePath } = calculation;
     const panelKey = calculationPanelKey(root, profilePath);
     requireActive(activationSignal, requestSignal);
     const existing = panels.get(panelKey);
@@ -103,12 +125,12 @@ function activationPlan(context: vscode.ExtensionContext): {
     let analyzer: AnalyzerProcess;
     try {
       requireActive(activationSignal, requestSignal);
-      analyzer = spawnAnalyzer(root, configuredLaunch(profilePath), {
+      analyzer = spawnAnalyzer(calculationPath, configuredLaunch(profilePath), {
         requestTimeoutMs: configuredTimeout(),
       });
     } catch (error) {
       panel.dispose();
-      throw error;
+      throw new CalculationOpenError("analyzer");
     }
     panels.set(panelKey, panel);
     processes.set(panel, analyzer);
@@ -124,6 +146,7 @@ function activationPlan(context: vscode.ExtensionContext): {
             await panel.webview.postMessage({ type: "dataset", result });
           } catch {
             await panel.webview.postMessage({ type: "error", error: "Unable to load the calculation." });
+            void vscode.window.showErrorMessage(calculationOpenMessage(new CalculationOpenError("process")));
           }
           return;
         }
@@ -162,9 +185,14 @@ function activationPlan(context: vscode.ExtensionContext): {
 
   const openCalculation = async (candidate: string, activationSignal: AbortSignal): Promise<void> => {
     requireActive(activationSignal);
-    const root = await resolveCalculationRoot(candidate);
+    let calculation: ResolvedCalculation;
+    try {
+      calculation = await resolveCalculation(candidate);
+    } catch {
+      throw new CalculationOpenError("input");
+    }
     requireActive(activationSignal);
-    await openCanonicalCalculation({ root, profilePath: null }, activationSignal);
+    await openCanonicalCalculation({ ...calculation, profilePath: null }, activationSignal);
   };
 
   return {
@@ -202,8 +230,8 @@ function activationPlan(context: vscode.ExtensionContext): {
                 selected = choices?.[0];
               }
               if (selected) await openCalculation(selected.fsPath, activationSignal);
-            } catch {
-              void vscode.window.showErrorMessage("VASP Analyzer could not open this calculation.");
+            } catch (error) {
+              void vscode.window.showErrorMessage(calculationOpenMessage(error));
             }
           },
         );

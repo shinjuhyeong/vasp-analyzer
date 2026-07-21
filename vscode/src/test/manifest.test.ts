@@ -29,7 +29,7 @@ describe("extension manifest", () => {
   it("does not apply an extension filter to extensionless OUTCAR selections", async () => {
     const source = await readFile(new URL("../extension.ts", import.meta.url), "utf8");
     expect(source).not.toContain("filters:");
-    expect(source).toContain("resolveCalculationRoot");
+    expect(source).toContain("resolveCalculation");
     expect(source).toContain("new ActivationCoordinator<ControlEndpoint>()");
     expect(source).toContain("return activationCoordinator.deactivate()");
     expect(source).toContain("registerContextCleanup(context);");

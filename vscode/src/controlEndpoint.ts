@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { access, lstat, open, realpath, stat, unlink } from "node:fs/promises";
+import { access, lstat, open, readdir, realpath, stat, unlink } from "node:fs/promises";
 import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -23,10 +23,10 @@ export interface ControlEndpointOptions {
   readonly token?: string;
   readonly address?: string;
   readonly onOpen: (
-    calculation: { readonly root: string; readonly profilePath: string | null },
+    calculation: ResolvedCalculation & { readonly profilePath: string | null },
     signal: AbortSignal,
   ) => void | Promise<void>;
-  readonly resolvePath?: (candidate: string) => Promise<string>;
+  readonly resolvePath?: (candidate: string) => Promise<ResolvedCalculation>;
   readonly maxRequestBytes?: number;
   readonly maxResponseBytes?: number;
   readonly requestTimeoutMs?: number;
@@ -47,20 +47,50 @@ function secureTokenEqual(actual: unknown, expected: string): boolean {
   return timingSafeEqual(actualDigest, expectedDigest) && actual.length === expected.length;
 }
 
-export async function resolveCalculationRoot(candidate: string): Promise<string> {
+export interface ResolvedCalculation {
+  readonly root: string;
+  readonly calculationPath: string;
+}
+
+async function readableRegularFile(candidate: string): Promise<string> {
+  const canonical = await realpath(candidate);
+  await access(canonical, fsConstants.R_OK);
+  const metadata = await stat(canonical);
+  if (!metadata.isFile()) throw new Error("OUTCAR is not a regular file");
+  const handle = await open(canonical, "r");
+  await handle.close();
+  return canonical;
+}
+
+export async function resolveCalculation(candidate: string): Promise<ResolvedCalculation> {
   if (!candidate || candidate.includes("\0")) throw new Error("invalid calculation path");
   const resolved = await realpath(candidate);
   const metadata = await stat(resolved);
-  const root = metadata.isFile() && basename(resolved).toUpperCase() === "OUTCAR" ? dirname(resolved) : resolved;
-  if (!metadata.isDirectory() && root === resolved) throw new Error("calculation path is not a directory or OUTCAR");
-  const canonicalRoot = await realpath(root);
-  const outcar = join(canonicalRoot, "OUTCAR");
-  await access(outcar, fsConstants.R_OK);
-  const outcarMetadata = await stat(outcar);
-  if (!outcarMetadata.isFile()) throw new Error("OUTCAR is not a regular file");
-  const handle = await open(outcar, "r");
-  await handle.close();
-  return canonicalRoot;
+  if (metadata.isFile()) {
+    if (basename(resolved).toUpperCase() !== "OUTCAR") {
+      throw new Error("calculation path is not a directory or OUTCAR");
+    }
+    return {
+      root: await realpath(dirname(resolved)),
+      calculationPath: await readableRegularFile(resolved),
+    };
+  }
+  if (!metadata.isDirectory()) throw new Error("calculation path is not a directory or OUTCAR");
+
+  const canonicalRoot = await realpath(resolved);
+  const matches = (await readdir(canonicalRoot, { withFileTypes: true }))
+    .filter((entry) => entry.name.toUpperCase() === "OUTCAR")
+    .map((entry) => entry.name);
+  if (matches.length === 0) throw new Error("OUTCAR not found");
+  if (matches.length > 1) throw new Error("multiple case-insensitive OUTCAR files found");
+  return {
+    root: canonicalRoot,
+    calculationPath: await readableRegularFile(join(canonicalRoot, matches[0]!)),
+  };
+}
+
+export async function resolveCalculationRoot(candidate: string): Promise<string> {
+  return (await resolveCalculation(candidate)).root;
 }
 
 async function resolveProfilePath(candidate: string): Promise<string> {
@@ -121,7 +151,7 @@ export async function createControlEndpoint(options: ControlEndpointOptions): Pr
   const maxRequestBytes = options.maxRequestBytes ?? DEFAULT_MAX_REQUEST_BYTES;
   const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_RESPONSE_BYTES;
   const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const resolvePath = options.resolvePath ?? resolveCalculationRoot;
+  const resolvePath = options.resolvePath ?? resolveCalculation;
   const lifecycle = new AbortController();
   await prepareUnixAddress(address);
 
@@ -168,10 +198,15 @@ export async function createControlEndpoint(options: ControlEndpointOptions): Pr
           return;
         }
         try {
-          const canonicalRoot = await resolvePath(request.path);
+          const calculation = await resolvePath(request.path);
           const profilePath = request.profile === undefined ? null : await resolveProfilePath(request.profile);
           if (responded || lifecycle.signal.aborted) return;
-          await options.onOpen({ root: canonicalRoot, profilePath }, lifecycle.signal);
+          try {
+            await options.onOpen({ ...calculation, profilePath }, lifecycle.signal);
+          } catch {
+            respond({ ok: false, error: "open_failed" });
+            return;
+          }
           if (responded || lifecycle.signal.aborted) return;
           respond({ ok: true });
         } catch {
