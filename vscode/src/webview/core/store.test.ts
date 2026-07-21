@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { twoStepDataset } from "../test/fixtures.js";
-import { analysisReducer, initialAnalysisState } from "./store.js";
+import { analysisReducer, DEFAULT_CONVERGENCE, initialAnalysisState } from "./store.js";
 
 const defaultLayout = {
   structurePercent: 60,
@@ -18,6 +18,7 @@ describe("analysis preferences", () => {
       forceMode: "free",
       forceScale: 10,
       layout: defaultLayout,
+      convergence: DEFAULT_CONVERGENCE,
     });
   });
 
@@ -26,12 +27,17 @@ describe("analysis preferences", () => {
       type: "datasetLoaded",
       dataset: twoStepDataset,
       persisted: {
-        version: 2,
+        version: 3,
         selectedStep: 1,
         selectedSite: 0,
         forceMode: "raw",
         forceScale: 250,
         layout: { ...defaultLayout, inspectorCollapsed: false, paletteX: 80 },
+        convergence: {
+          selectedModules: ["force", "energy"],
+          metrics: { energy: "deltaEnergy", force: "rmsFreeForce", cellStress: "cellVolume" },
+          modes: { energy: "table", force: "graph", cellStress: "table" },
+        },
       },
     });
 
@@ -41,7 +47,34 @@ describe("analysis preferences", () => {
       forceMode: "raw",
       forceScale: 250,
       layout: { ...defaultLayout, inspectorCollapsed: false, paletteX: 80 },
+      convergence: {
+        selectedModules: ["energy", "force"],
+        metrics: { energy: "deltaEnergy", force: "rmsFreeForce", cellStress: "cellVolume" },
+        modes: { energy: "table", force: "graph", cellStress: "table" },
+      },
     });
+  });
+
+  it.each([
+    [[], ["energy"]],
+    [["force", "energy", "force", "cellStress"], ["energy", "force", "cellStress"]],
+    [["unknown", "force"], ["force"]],
+    [["unknown"], ["energy"]],
+  ])("normalizes module selection %j", (modules, expected) => {
+    const next = analysisReducer(initialAnalysisState, { type: "setModules", modules } as never);
+    expect(next.convergence.selectedModules).toEqual(expected);
+  });
+
+  it("updates valid metrics and modes while ignoring invalid values", () => {
+    const metric = analysisReducer(initialAnalysisState, { type: "setModuleMetric", module: "energy", metric: "deltaEnergy" } as never);
+    const invalidMetric = analysisReducer(metric, { type: "setModuleMetric", module: "energy", metric: "cellVolume" } as never);
+    const mode = analysisReducer(invalidMetric, { type: "setModuleMode", module: "force", mode: "table" } as never);
+    const invalidMode = analysisReducer(mode, { type: "setModuleMode", module: "force", mode: "cards" } as never);
+    const unknownModule = analysisReducer(invalidMode, { type: "setModuleMode", module: "unknown", mode: "table" } as never);
+
+    expect(unknownModule.convergence.metrics.energy).toBe("deltaEnergy");
+    expect(unknownModule.convergence.modes.force).toBe("table");
+    expect(unknownModule.convergence.modes).not.toHaveProperty("unknown");
   });
 
   it.each([

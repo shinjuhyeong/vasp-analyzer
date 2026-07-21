@@ -1,4 +1,12 @@
-import type { CalculationDataset, LayoutPreferences, PersistedAnalysisState } from "./contracts.js";
+import type {
+  AnalysisMetric,
+  AnalysisModuleId,
+  CalculationDataset,
+  ConvergencePreferences,
+  LayoutPreferences,
+  ModuleMode,
+  PersistedAnalysisState,
+} from "./contracts.js";
 
 export const MIN_FORCE_SCALE = 1;
 export const MAX_FORCE_SCALE = 1000;
@@ -16,6 +24,22 @@ export const DEFAULT_LAYOUT: LayoutPreferences = Object.freeze({
   paletteCollapsed: true,
 });
 
+export const ANALYSIS_MODULES: readonly AnalysisModuleId[] = Object.freeze([
+  "energy",
+  "force",
+  "cellStress",
+]);
+
+export const DEFAULT_CONVERGENCE: ConvergencePreferences = Object.freeze({
+  selectedModules: Object.freeze(["energy"] as const),
+  metrics: Object.freeze({
+    energy: "totalEnergy",
+    force: "strongestFreeComponent",
+    cellStress: "externalPressure",
+  }),
+  modes: Object.freeze({ energy: "graph", force: "graph", cellStress: "graph" }),
+});
+
 export interface AnalysisState {
   readonly dataset: CalculationDataset | null;
   readonly selectedStep: number;
@@ -23,6 +47,7 @@ export interface AnalysisState {
   readonly forceMode: "free" | "raw";
   readonly forceScale: number;
   readonly layout: LayoutPreferences;
+  readonly convergence: ConvergencePreferences;
 }
 
 export type AnalysisAction =
@@ -32,6 +57,9 @@ export type AnalysisAction =
   | { readonly type: "setForceMode"; readonly mode: "free" | "raw" }
   | { readonly type: "setForceScale"; readonly scale: number }
   | { readonly type: "setLayout"; readonly layout: Partial<LayoutPreferences> }
+  | { readonly type: "setModules"; readonly modules: readonly unknown[] }
+  | { readonly type: "setModuleMetric"; readonly module: AnalysisModuleId; readonly metric: AnalysisMetric }
+  | { readonly type: "setModuleMode"; readonly module: AnalysisModuleId; readonly mode: ModuleMode }
   | { readonly type: "resetLayout" };
 
 export const initialAnalysisState: AnalysisState = {
@@ -41,6 +69,7 @@ export const initialAnalysisState: AnalysisState = {
   forceMode: "free",
   forceScale: 10,
   layout: DEFAULT_LAYOUT,
+  convergence: DEFAULT_CONVERGENCE,
 };
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -73,6 +102,64 @@ export function normalizeLayout(
   };
 }
 
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function normalizeModules(value: unknown): readonly AnalysisModuleId[] {
+  const requested = Array.isArray(value) ? new Set(value) : new Set<unknown>();
+  const selected = ANALYSIS_MODULES.filter((module) => requested.has(module));
+  return selected.length === 0 ? ["energy"] : selected;
+}
+
+function energyMetric(value: unknown): ConvergencePreferences["metrics"]["energy"] {
+  return value === "deltaEnergy" ? value : "totalEnergy";
+}
+
+function forceMetric(value: unknown): ConvergencePreferences["metrics"]["force"] {
+  return value === "rmsFreeForce" ? value : "strongestFreeComponent";
+}
+
+function cellStressMetric(value: unknown): ConvergencePreferences["metrics"]["cellStress"] {
+  return value === "cellVolume" ? value : "externalPressure";
+}
+
+function moduleMode(value: unknown): ModuleMode {
+  return value === "table" ? value : "graph";
+}
+
+export function normalizeConvergence(value: unknown): ConvergencePreferences {
+  const convergence = record(value);
+  const metrics = record(convergence?.metrics);
+  const modes = record(convergence?.modes);
+  return {
+    selectedModules: normalizeModules(convergence?.selectedModules),
+    metrics: {
+      energy: energyMetric(metrics?.energy),
+      force: forceMetric(metrics?.force),
+      cellStress: cellStressMetric(metrics?.cellStress),
+    },
+    modes: {
+      energy: moduleMode(modes?.energy),
+      force: moduleMode(modes?.force),
+      cellStress: moduleMode(modes?.cellStress),
+    },
+  };
+}
+
+function metricForModule(module: AnalysisModuleId, metric: unknown): AnalysisMetric | undefined {
+  if (module === "energy" && (metric === "totalEnergy" || metric === "deltaEnergy")) return metric;
+  if (module === "force" && (metric === "strongestFreeComponent" || metric === "rmsFreeForce")) return metric;
+  if (module === "cellStress" && (metric === "externalPressure" || metric === "cellVolume")) return metric;
+  return undefined;
+}
+
+function isAnalysisModule(module: unknown): module is AnalysisModuleId {
+  return ANALYSIS_MODULES.some((candidate) => candidate === module);
+}
+
 function validSite(dataset: CalculationDataset, selectedStep: number, siteIndex: number | null): number | null {
   if (siteIndex === null) return null;
   const site = dataset.sites.find((candidate) => candidate.siteIndex === siteIndex);
@@ -92,6 +179,7 @@ export function analysisReducer(state: AnalysisState, action: AnalysisAction): A
         forceMode: action.persisted?.forceMode ?? state.forceMode,
         forceScale: normalizeForceScale(action.persisted?.forceScale, state.forceScale),
         layout: action.persisted ? normalizeLayout(action.persisted.layout) : state.layout,
+        convergence: action.persisted ? normalizeConvergence(action.persisted.convergence) : state.convergence,
       };
     }
     case "selectStep": {
@@ -110,6 +198,31 @@ export function analysisReducer(state: AnalysisState, action: AnalysisAction): A
       return { ...state, forceScale: normalizeForceScale(action.scale, state.forceScale) };
     case "setLayout":
       return { ...state, layout: normalizeLayout(action.layout, state.layout) };
+    case "setModules":
+      return {
+        ...state,
+        convergence: { ...state.convergence, selectedModules: normalizeModules(action.modules) },
+      };
+    case "setModuleMetric": {
+      const metric = metricForModule(action.module, action.metric);
+      if (!metric) return state;
+      return {
+        ...state,
+        convergence: {
+          ...state.convergence,
+          metrics: { ...state.convergence.metrics, [action.module]: metric },
+        },
+      };
+    }
+    case "setModuleMode":
+      if (!isAnalysisModule(action.module) || (action.mode !== "graph" && action.mode !== "table")) return state;
+      return {
+        ...state,
+        convergence: {
+          ...state.convergence,
+          modes: { ...state.convergence.modes, [action.module]: action.mode },
+        },
+      };
     case "resetLayout":
       return { ...state, layout: DEFAULT_LAYOUT };
   }

@@ -5,7 +5,7 @@ import type {
   LegacyPersistedAnalysisState,
   PersistedAnalysisState,
 } from "../core/contracts.js";
-import { DEFAULT_LAYOUT } from "../core/store.js";
+import { DEFAULT_CONVERGENCE, DEFAULT_LAYOUT } from "../core/store.js";
 
 const step = (index: number): IonicStep => ({
   index,
@@ -17,6 +17,10 @@ const step = (index: number): IonicStep => ({
   freeForceNorms: [0.1, 0],
   totalEnergy: -10 - index,
   energyTerms: [],
+  externalPressureKb: null,
+  pulayStressKb: null,
+  stressTensorKb: null,
+  cellVolume: 27,
   deltaEnergy: index === 0 ? null : -1,
   scfIterations: 8,
   electronicConverged: true,
@@ -26,7 +30,7 @@ const step = (index: number): IonicStep => ({
 });
 
 export const twoStepDataset: CalculationDataset = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   root: "/calculation",
   sourceFiles: [],
   sites: [
@@ -34,6 +38,7 @@ export const twoStepDataset: CalculationDataset = {
     { siteIndex: 1, element: "O", initialFractionalPosition: [0.5, 0.5, 0.5], initialCartesianPosition: [1.5, 1.5, 1.5], selectiveDynamics: { a: true, b: false, c: true } },
   ],
   ionicSteps: [step(0), step(1)],
+  parameters: [],
   capabilities: [
     { name: "structure", available: true, reason: null },
     { name: "convergence", available: true, reason: null },
@@ -57,12 +62,13 @@ export class MemoryHost implements AnalysisHost {
       : "version" in state
         ? state
         : {
-            version: 2,
+            version: 3,
             selectedStep: state.selectedStep,
             selectedSite: state.selectedSite,
             forceMode: "free",
             forceScale: 10,
             layout: DEFAULT_LAYOUT,
+            convergence: DEFAULT_CONVERGENCE,
           };
   }
 

@@ -9,9 +9,11 @@ import type {
 } from "./contracts.js";
 import {
   DEFAULT_LAYOUT,
+  DEFAULT_CONVERGENCE,
   MAX_FORCE_SCALE,
   MIN_FORCE_SCALE,
   normalizeLayout,
+  normalizeConvergence,
 } from "./store.js";
 
 interface VsCodeApi {
@@ -62,6 +64,10 @@ function isStringArray(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function isVec3(value: unknown): boolean {
   return Array.isArray(value) && value.length === 3 && value.every(isFiniteNumber);
 }
@@ -102,9 +108,35 @@ function isForceComponent(value: unknown): boolean {
 
 function isEnergyTerm(value: unknown): boolean {
   return isRecord(value)
-    && typeof value.name === "string"
+    && isNonEmptyString(value.key)
+    && isNonEmptyString(value.rawLabel)
     && isFiniteNumber(value.value)
-    && value.unit === "eV";
+    && value.unit === "eV"
+    && (value.kind === "contribution" || value.kind === "aggregate");
+}
+
+function isParameterValue(value: unknown): boolean {
+  return typeof value === "boolean"
+    || typeof value === "string"
+    || isFiniteNumber(value)
+    || (Array.isArray(value) && value.every(isFiniteNumber));
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value === null || typeof value === "string";
+}
+
+function isParameterOccurrence(value: unknown): boolean {
+  return isRecord(value)
+    && isNonEmptyString(value.key)
+    && isNonEmptyString(value.rawKey)
+    && isNonEmptyString(value.rawValue)
+    && isParameterValue(value.value)
+    && isOptionalString(value.unit)
+    && isOptionalString(value.category)
+    && isOptionalString(value.description)
+    && isNonNegativeInteger(value.ordinal)
+    && isNullable(value.lineNumber, isNonNegativeInteger);
 }
 
 function isIonicStep(value: unknown): value is IonicStep {
@@ -118,6 +150,10 @@ function isIonicStep(value: unknown): value is IonicStep {
     || !isNullable(value.freeForceNorms, (item): item is readonly number[] => Array.isArray(item) && item.every(isFiniteNumber))
     || !isNullable(value.totalEnergy, isFiniteNumber)
     || !Array.isArray(value.energyTerms) || !value.energyTerms.every(isEnergyTerm)
+    || !isNullable(value.externalPressureKb, isFiniteNumber)
+    || !isNullable(value.pulayStressKb, isFiniteNumber)
+    || !isNullable(value.stressTensorKb, (item): item is readonly unknown[] => isMat3(item))
+    || !isNullable(value.cellVolume, (item): item is number => isFiniteNumber(item) && item > 0)
     || !isNullable(value.deltaEnergy, isFiniteNumber)
     || !isNullable(value.scfIterations, isNonNegativeInteger)
     || !isNullable(value.electronicConverged, (item): item is boolean => typeof item === "boolean")
@@ -165,11 +201,12 @@ function isProvenance(value: unknown): boolean {
 
 function isCalculationDataset(value: unknown): value is CalculationDataset {
   if (!isRecord(value)
-    || value.schemaVersion !== 1
+    || value.schemaVersion !== 2
     || typeof value.root !== "string"
     || !Array.isArray(value.sourceFiles) || !value.sourceFiles.every(isSourceFile)
     || !Array.isArray(value.sites) || !value.sites.every(isSite)
     || !Array.isArray(value.ionicSteps) || !value.ionicSteps.every(isIonicStep)
+    || !Array.isArray(value.parameters) || !value.parameters.every(isParameterOccurrence)
     || !Array.isArray(value.capabilities) || !value.capabilities.every(isCapability)
     || !Array.isArray(value.warnings) || !value.warnings.every(isWarning)
     || !(value.provenance === null || isProvenance(value.provenance))) return false;
@@ -217,7 +254,7 @@ function protocolError(value: unknown): ProtocolErrorShape | undefined {
 function persistedState(value: unknown): PersistedAnalysisState | undefined {
   if (!isRecord(value)) return undefined;
   const state = value;
-  if (state.version !== undefined && state.version !== 2) return undefined;
+  if (state.version !== undefined && state.version !== 2 && state.version !== 3) return undefined;
   if (!Number.isSafeInteger(state.selectedStep) || Number(state.selectedStep) < 0) return undefined;
   if (state.selectedSite !== null && (!Number.isSafeInteger(state.selectedSite) || Number(state.selectedSite) < 0)) {
     return undefined;
@@ -226,12 +263,13 @@ function persistedState(value: unknown): PersistedAnalysisState | undefined {
     ? Math.min(MAX_FORCE_SCALE, Math.max(MIN_FORCE_SCALE, state.forceScale))
     : 10;
   return {
-    version: 2,
+    version: 3,
     selectedStep: Number(state.selectedStep),
     selectedSite: state.selectedSite === null ? null : Number(state.selectedSite),
     forceMode: state.forceMode === "raw" ? "raw" : "free",
     forceScale,
     layout: normalizeLayout(isRecord(state.layout) ? state.layout as Partial<LayoutPreferences> : DEFAULT_LAYOUT),
+    convergence: state.version === 3 ? normalizeConvergence(state.convergence) : DEFAULT_CONVERGENCE,
   };
 }
 

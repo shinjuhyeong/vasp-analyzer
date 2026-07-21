@@ -124,12 +124,13 @@ export function App({
   useEffect(() => {
     if (!state.dataset || load.host !== host || load.error !== null) return;
     host.setState({
-      version: 2,
+      version: 3,
       selectedStep: state.selectedStep,
       selectedSite: state.selectedSite,
       forceMode: state.forceMode,
       forceScale: state.forceScale,
       layout: state.layout,
+      convergence: state.convergence,
     });
   }, [host, load, state]);
 

@@ -6,17 +6,19 @@ import { HttpHost, VsCodeHost } from "./host.js";
 import type { PersistedAnalysisState } from "./contracts.js";
 import { createRuntimeHost } from "./runtimeHost.js";
 import { DEFAULT_LAYOUT } from "./store.js";
+import { DEFAULT_CONVERGENCE } from "./store.js";
 
 const migratedState = (
   selectedStep: number,
   selectedSite: number | null,
 ): PersistedAnalysisState => ({
-  version: 2,
+  version: 3,
   selectedStep,
   selectedSite,
   forceMode: "free",
   forceScale: 10,
   layout: DEFAULT_LAYOUT,
+  convergence: DEFAULT_CONVERGENCE,
 });
 
 describe("runtime host selection", () => {

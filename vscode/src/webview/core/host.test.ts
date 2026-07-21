@@ -4,6 +4,7 @@ import { HttpHost, HostRequestError, VsCodeHost } from "./host.js";
 import { describe, expect, it, vi } from "vitest";
 
 import { twoStepDataset } from "../test/fixtures.js";
+import { DEFAULT_CONVERGENCE } from "./store.js";
 
 const step = twoStepDataset.ionicSteps[0]!;
 
@@ -28,7 +29,7 @@ describe("analysis hosts", () => {
     const host = createHost({ selectedStep: 1, selectedSite: 0 });
 
     expect(host.getState()).toEqual({
-      version: 2,
+      version: 3,
       selectedStep: 1,
       selectedSite: 0,
       forceMode: "free",
@@ -41,11 +42,12 @@ describe("analysis hosts", () => {
         paletteY: 10,
         paletteCollapsed: true,
       },
+      convergence: DEFAULT_CONVERGENCE,
     });
     if (host instanceof VsCodeHost) host.dispose();
   });
 
-  it("normalizes malformed version-2 preferences independently", () => {
+  it("migrates version-2 preferences to Energy-only convergence defaults", () => {
     const host = new VsCodeHost({
       postMessage: vi.fn(),
       getState: () => ({
@@ -67,7 +69,7 @@ describe("analysis hosts", () => {
     }, window);
 
     expect(host.getState()).toEqual({
-      version: 2,
+      version: 3,
       selectedStep: 1,
       selectedSite: 0,
       forceMode: "raw",
@@ -80,6 +82,7 @@ describe("analysis hosts", () => {
         paletteY: 24,
         paletteCollapsed: false,
       },
+      convergence: DEFAULT_CONVERGENCE,
     });
     host.dispose();
   });
@@ -102,7 +105,7 @@ describe("analysis hosts", () => {
     const host = new VsCodeHost({
       postMessage: vi.fn(),
       getState: () => ({
-        version: 3,
+        version: 4,
         selectedStep: 1,
         selectedSite: 0,
         forceMode: "raw",
@@ -120,6 +123,52 @@ describe("analysis hosts", () => {
     }, window);
 
     expect(host.getState()).toBeUndefined();
+    host.dispose();
+  });
+
+  it("normalizes version-3 convergence preferences canonically", () => {
+    const host = new VsCodeHost({
+      postMessage: vi.fn(),
+      getState: () => ({
+        version: 3,
+        selectedStep: 0,
+        selectedSite: null,
+        forceMode: "free",
+        forceScale: 10,
+        layout: {},
+        convergence: {
+          selectedModules: ["cellStress", "energy", "cellStress", "unknown"],
+          metrics: { energy: "bad", force: "rmsFreeForce", cellStress: "cellVolume" },
+          modes: { energy: "table", force: "bad", cellStress: "table" },
+        },
+      }),
+      setState: vi.fn(),
+    }, window);
+
+    expect(host.getState()?.convergence).toEqual({
+      selectedModules: ["energy", "cellStress"],
+      metrics: { energy: "totalEnergy", force: "rmsFreeForce", cellStress: "cellVolume" },
+      modes: { energy: "table", force: "graph", cellStress: "table" },
+    });
+    host.dispose();
+  });
+
+  it("normalizes an empty version-3 module list to Energy only", () => {
+    const host = new VsCodeHost({
+      postMessage: vi.fn(),
+      getState: () => ({
+        version: 3,
+        selectedStep: 0,
+        selectedSite: null,
+        forceMode: "free",
+        forceScale: 10,
+        layout: {},
+        convergence: { selectedModules: [], metrics: {}, modes: {} },
+      }),
+      setState: vi.fn(),
+    }, window);
+
+    expect(host.getState()?.convergence.selectedModules).toEqual(["energy"]);
     host.dispose();
   });
 
@@ -179,6 +228,55 @@ describe("analysis hosts", () => {
 
     await expect(pending).rejects.toEqual(new HostRequestError("invalid_response", "Analyzer returned an invalid response"));
     host.dispose();
+  });
+
+  it("accepts a complete schema-2 dataset", async () => {
+    const result = {
+      ...twoStepDataset,
+      schemaVersion: 2,
+      parameters: [{
+        key: "encut", rawKey: "ENCUT", rawValue: "520", value: 520,
+        unit: "eV", category: "electronic", description: "Cutoff", ordinal: 0, lineNumber: 4,
+      }],
+      ionicSteps: twoStepDataset.ionicSteps.map((item) => ({
+        ...item,
+        energyTerms: [{ key: "ewald", rawLabel: "Ewald energy", value: -4.2, unit: "eV", kind: "contribution" }],
+        externalPressureKb: 2.5,
+        pulayStressKb: null,
+        stressTensorKb: [[1, 0, 0], [0, 2, 0], [0, 0, 3]],
+        cellVolume: 27,
+      })),
+    };
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 1, result }) });
+
+    await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).resolves.toEqual(result);
+  });
+
+  it.each([
+    ["non-finite nested stress", (dataset: any) => { dataset.ionicSteps[0].stressTensorKb[1][1] = Number.NaN; }],
+    ["malformed stress shape", (dataset: any) => { dataset.ionicSteps[0].stressTensorKb = [[1, 0, 0]]; }],
+    ["non-positive cell volume", (dataset: any) => { dataset.ionicSteps[0].cellVolume = 0; }],
+    ["empty energy label", (dataset: any) => { dataset.ionicSteps[0].energyTerms[0].rawLabel = "  "; }],
+    ["malformed parameter occurrence", (dataset: any) => { dataset.parameters[0].ordinal = -1; }],
+    ["non-finite typed parameter tuple", (dataset: any) => { dataset.parameters[0].value = [1, Number.POSITIVE_INFINITY]; }],
+  ])("rejects %s in a schema-2 result", async (_name, mutate) => {
+    const result: any = {
+      ...twoStepDataset,
+      schemaVersion: 2,
+      parameters: [{ key: "encut", rawKey: "ENCUT", rawValue: "520", value: [520], unit: null, category: null, description: null, ordinal: 0, lineNumber: null }],
+      ionicSteps: twoStepDataset.ionicSteps.map((item) => ({
+        ...item,
+        energyTerms: [{ key: "ewald", rawLabel: "Ewald energy", value: -4.2, unit: "eV", kind: "contribution" }],
+        externalPressureKb: 2.5,
+        pulayStressKb: null,
+        stressTensorKb: [[1, 0, 0], [0, 2, 0], [0, 0, 3]],
+        cellVolume: 27,
+      })),
+    };
+    mutate(result);
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 1, result }) });
+
+    await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).rejects.toMatchObject({ code: "invalid_response" });
   });
 
   it.each([

@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { App, type AnalysisRegionProps } from "./App.js";
 import { VsCodeHost } from "./core/host.js";
-import { DEFAULT_LAYOUT } from "./core/store.js";
+import { DEFAULT_CONVERGENCE, DEFAULT_LAYOUT } from "./core/store.js";
 import type { PersistedAnalysisState } from "./core/contracts.js";
 import { MemoryHost, twoStepDataset } from "./test/fixtures.js";
 import type { CrystalRendererFactory } from "./renderers/CrystalRenderer.js";
@@ -163,7 +163,8 @@ describe("analysis workspace", () => {
     expect(screen.getByTestId("structure-step")).toHaveTextContent("1");
     expect(screen.getByText("O 2")).toBeVisible();
     await waitFor(() => expect(host.state).toEqual({
-      version: 2, selectedStep: 1, selectedSite: 1, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+      version: 3, selectedStep: 1, selectedSite: 1, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+      convergence: DEFAULT_CONVERGENCE,
     }));
   });
 
@@ -173,7 +174,8 @@ describe("analysis workspace", () => {
 
     expect(await screen.findByText("No atom selected")).toBeVisible();
     await waitFor(() => expect(host.state).toEqual({
-      version: 2, selectedStep: 0, selectedSite: null, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+      version: 3, selectedStep: 0, selectedSite: null, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+      convergence: DEFAULT_CONVERGENCE,
     }));
   });
 
@@ -187,12 +189,13 @@ describe("analysis workspace", () => {
     await user.click(screen.getByRole("button", { name: "select O" }));
 
     expect(host.state).toEqual({
-      version: 2, selectedStep: 1, selectedSite: 1, forceMode: "free", forceScale: 10,
+      version: 3, selectedStep: 1, selectedSite: 1, forceMode: "free", forceScale: 10,
       layout: { ...DEFAULT_LAYOUT, inspectorCollapsed: false },
+      convergence: DEFAULT_CONVERGENCE,
     });
   });
 
-  it("normalizes legacy selection and all workspace changes into one version-2 state", async () => {
+  it("normalizes legacy selection and all workspace changes into one version-3 state", async () => {
     const user = userEvent.setup();
     const host = new MemoryHost(twoStepDataset, {
       selectedStep: 0,
@@ -231,7 +234,7 @@ describe("analysis workspace", () => {
 
     await waitFor(() =>
       expect(host.state).toMatchObject({
-        version: 2,
+        version: 3,
         selectedStep: 1,
         selectedSite: null,
         forceMode: "free",
@@ -343,12 +346,13 @@ describe("analysis workspace", () => {
 
   it("keeps compact controls in structure full-screen and restores layout on Escape", async () => {
     const host = new MemoryHost(twoStepDataset, {
-      version: 2,
+      version: 3,
       selectedStep: 0,
       selectedSite: 1,
       forceMode: "free",
       forceScale: 10,
       layout: { ...DEFAULT_LAYOUT, structurePercent: 70, inspectorWidth: 360, inspectorCollapsed: false },
+      convergence: DEFAULT_CONVERGENCE,
     });
     render(<App host={host} rendererFactory={inertRendererFactory} convergence={FakeConvergence} />);
     const separator = await screen.findByRole("separator", { name: "Resize structure and analysis regions" });
@@ -387,7 +391,8 @@ describe("analysis workspace", () => {
     expect(await screen.findByText("O 2")).toBeVisible();
     expect(screen.getByLabelText("Ionic step number")).toHaveValue(1);
     await waitFor(() => expect(hostB.setStateCalls).toEqual([{
-      version: 2, selectedStep: 0, selectedSite: 1, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+      version: 3, selectedStep: 0, selectedSite: 1, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+      convergence: DEFAULT_CONVERGENCE,
     }]));
   });
 

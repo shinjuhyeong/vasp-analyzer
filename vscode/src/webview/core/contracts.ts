@@ -30,9 +30,25 @@ export interface ForceComponent {
 }
 
 export interface EnergyTerm {
-  readonly name: string;
+  readonly key: string;
+  readonly rawLabel: string;
   readonly value: number;
   readonly unit: "eV";
+  readonly kind: "contribution" | "aggregate";
+}
+
+export type ParameterValue = boolean | number | string | readonly number[];
+
+export interface ParameterOccurrence {
+  readonly key: string;
+  readonly rawKey: string;
+  readonly rawValue: string;
+  readonly value: ParameterValue;
+  readonly unit: string | null;
+  readonly category: string | null;
+  readonly description: string | null;
+  readonly ordinal: number;
+  readonly lineNumber: number | null;
 }
 
 export interface IonicStep {
@@ -45,6 +61,10 @@ export interface IonicStep {
   readonly freeForceNorms: readonly number[] | null;
   readonly totalEnergy: number | null;
   readonly energyTerms: readonly EnergyTerm[];
+  readonly externalPressureKb: number | null;
+  readonly pulayStressKb: number | null;
+  readonly stressTensorKb: Mat3 | null;
+  readonly cellVolume: number | null;
   readonly deltaEnergy: number | null;
   readonly scfIterations: number | null;
   readonly electronicConverged: boolean | null;
@@ -76,11 +96,12 @@ export interface ParserProvenance {
 }
 
 export interface CalculationDataset {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly root: string;
   readonly sourceFiles: readonly SourceFile[];
   readonly sites: readonly Site[];
   readonly ionicSteps: readonly IonicStep[];
+  readonly parameters: readonly ParameterOccurrence[];
   readonly capabilities: readonly Capability[];
   readonly warnings: readonly ParserWarning[];
   readonly provenance: ParserProvenance | null;
@@ -98,13 +119,31 @@ export interface LayoutPreferences {
   readonly paletteCollapsed: boolean;
 }
 
+export type AnalysisModuleId = "energy" | "force" | "cellStress";
+export type ModuleMode = "graph" | "table";
+export type EnergyMetric = "totalEnergy" | "deltaEnergy";
+export type ForceMetric = "strongestFreeComponent" | "rmsFreeForce";
+export type CellStressMetric = "externalPressure" | "cellVolume";
+export type AnalysisMetric = EnergyMetric | ForceMetric | CellStressMetric;
+
+export interface ConvergencePreferences {
+  readonly selectedModules: readonly AnalysisModuleId[];
+  readonly metrics: Readonly<{
+    energy: EnergyMetric;
+    force: ForceMetric;
+    cellStress: CellStressMetric;
+  }>;
+  readonly modes: Readonly<Record<AnalysisModuleId, ModuleMode>>;
+}
+
 export interface PersistedAnalysisState {
-  readonly version: 2;
+  readonly version: 3;
   readonly selectedStep: number;
   readonly selectedSite: number | null;
   readonly forceMode: "free" | "raw";
   readonly forceScale: number;
   readonly layout: LayoutPreferences;
+  readonly convergence: ConvergencePreferences;
 }
 
 export interface LegacyPersistedAnalysisState {
