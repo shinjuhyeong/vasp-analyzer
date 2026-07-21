@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   type PointerEvent as ReactPointerEvent,
@@ -46,7 +47,10 @@ export function DraggableCrystalPalette({
   onReset,
   children,
 }: DraggableCrystalPaletteProps): ReactElement {
-  const paletteRef = useRef<HTMLDivElement>(null);
+  const measuredRef = useRef<HTMLElement>(null);
+  const setMeasuredElement = useCallback((element: HTMLElement | null) => {
+    measuredRef.current = element;
+  }, []);
   const drag = useRef<{
     readonly pointerId: number;
     readonly clientX: number;
@@ -56,7 +60,7 @@ export function DraggableCrystalPalette({
 
   const bounded = (desired: Readonly<PalettePosition>): PalettePosition | null => {
     const viewport = viewportRef.current;
-    const palette = paletteRef.current;
+    const palette = measuredRef.current;
     if (!viewport || !palette) return null;
     return clampPosition(
       desired,
@@ -66,9 +70,8 @@ export function DraggableCrystalPalette({
   };
 
   useEffect(() => {
-    if (collapsed) return;
     const viewport = viewportRef.current;
-    const palette = paletteRef.current;
+    const palette = measuredRef.current;
     if (!viewport || !palette) return;
     const reclamp = (): void => {
       const next = bounded(position);
@@ -126,6 +129,7 @@ export function DraggableCrystalPalette({
   if (collapsed)
     return (
       <button
+        ref={setMeasuredElement}
         className="crystal-palette-toggle"
         type="button"
         aria-label="Expand crystal tools"
@@ -139,7 +143,7 @@ export function DraggableCrystalPalette({
 
   return (
     <div
-      ref={paletteRef}
+      ref={setMeasuredElement}
       className="crystal-palette"
       role="group"
       aria-label="Crystal tools"

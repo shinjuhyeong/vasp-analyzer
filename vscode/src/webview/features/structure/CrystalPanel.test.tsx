@@ -300,10 +300,10 @@ describe("CrystalPanel", () => {
       />,
     );
     expect(await screen.findByRole("table", { name: "Atomic positions and forces" })).toBeVisible();
-    expect(disconnect).toHaveBeenCalledOnce();
+    expect(disconnect).toHaveBeenCalledTimes(2);
     expect(renderer.dispose).toHaveBeenCalledOnce();
     expect(() => view.unmount()).not.toThrow();
-    expect(disconnect).toHaveBeenCalledOnce();
+    expect(disconnect).toHaveBeenCalledTimes(2);
     expect(renderer.dispose).toHaveBeenCalledOnce();
     vi.unstubAllGlobals();
   });

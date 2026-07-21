@@ -9,6 +9,7 @@ import { DraggableCrystalPalette } from "./DraggableCrystalPalette.js";
 
 let viewportSize = { width: 300, height: 200 };
 let paletteSize = { width: 80, height: 50 };
+let toggleSize = { width: 50, height: 30 };
 const observers: ControllableResizeObserver[] = [];
 const originalResizeObserver = globalThis.ResizeObserver;
 const originalWindowResizeObserver = window.ResizeObserver;
@@ -69,6 +70,7 @@ describe("DraggableCrystalPalette", () => {
     observers.length = 0;
     viewportSize = { width: 300, height: 200 };
     paletteSize = { width: 80, height: 50 };
+    toggleSize = { width: 50, height: 30 };
     globalThis.ResizeObserver = ControllableResizeObserver as unknown as typeof ResizeObserver;
     window.ResizeObserver = ControllableResizeObserver as unknown as typeof ResizeObserver;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
@@ -77,6 +79,8 @@ describe("DraggableCrystalPalette", () => {
           return rectangle(viewportSize.width, viewportSize.height);
         if (this.classList.contains("crystal-palette"))
           return rectangle(paletteSize.width, paletteSize.height);
+        if (this.classList.contains("crystal-palette-toggle"))
+          return rectangle(toggleSize.width, toggleSize.height);
         return rectangle(0, 0);
       },
     );
@@ -143,12 +147,28 @@ describe("DraggableCrystalPalette", () => {
     expect(setCapture).toHaveBeenCalledOnce();
   });
 
+  it("immediately clamps an initially collapsed persisted position so the toggle is reachable", () => {
+    const changed = vi.fn();
+    render(
+      <Harness
+        initialCollapsed
+        initialPosition={{ x: 280, y: 190 }}
+        onPositionChange={changed}
+      />,
+    );
+
+    expect(changed).toHaveBeenLastCalledWith({ x: 250, y: 170 });
+    expect(
+      screen.getByRole("button", { name: "Expand crystal tools" }),
+    ).toHaveStyle({ left: "250px", top: "170px" });
+  });
+
   it("clamps a persisted off-screen position immediately when expanded", async () => {
     const changed = vi.fn();
     render(
       <Harness
         initialCollapsed
-        initialPosition={{ x: 250, y: 170 }}
+        initialPosition={{ x: 240, y: 165 }}
         onPositionChange={changed}
       />,
     );
@@ -158,6 +178,27 @@ describe("DraggableCrystalPalette", () => {
     );
 
     expect(changed).toHaveBeenLastCalledWith({ x: 220, y: 150 });
+  });
+
+  it("re-clamps the collapsed toggle when the observed viewport shrinks", () => {
+    const changed = vi.fn();
+    render(
+      <Harness
+        initialCollapsed
+        initialPosition={{ x: 150, y: 100 }}
+        onPositionChange={changed}
+      />,
+    );
+    const viewport = screen.getByTestId("viewport");
+    const toggle = screen.getByRole("button", { name: "Expand crystal tools" });
+    expect(observers).toHaveLength(1);
+    expect(observers[0]!.observe).toHaveBeenCalledWith(viewport);
+    expect(observers[0]!.observe).toHaveBeenCalledWith(toggle);
+
+    viewportSize = { width: 120, height: 90 };
+    act(() => observers[0]!.trigger());
+
+    expect(changed).toHaveBeenLastCalledWith({ x: 70, y: 60 });
   });
 
   it("re-clamps when the observed viewport changes without window resize", () => {
@@ -181,8 +222,11 @@ describe("DraggableCrystalPalette", () => {
     expect(changed).toHaveBeenLastCalledWith({ x: 40, y: 40 });
   });
 
-  it("disconnects palette observation during cleanup", () => {
-    const view = render(<Harness initialCollapsed={false} />);
+  it.each([
+    ["collapsed toggle", true],
+    ["expanded palette", false],
+  ])("disconnects %s observation during cleanup", (_label, collapsed) => {
+    const view = render(<Harness initialCollapsed={collapsed} />);
     expect(observers).toHaveLength(1);
 
     view.unmount();
