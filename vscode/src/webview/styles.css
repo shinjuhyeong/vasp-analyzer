@@ -25,44 +25,13 @@ select {
 
 .analysis-workspace {
   display: grid;
-  grid-template-rows: minmax(0, 60%) 8px minmax(0, 1fr);
+  grid-template-rows: minmax(0, var(--structure-percent, 60%)) 8px minmax(48px, 1fr);
   height: 100%;
   min-height: 360px;
   background: var(--vscode-editor-background, #17191d);
 }
-
-.analysis-workspace.split-30 {
-  grid-template-rows: minmax(0, 30%) 8px minmax(0, 1fr);
-}
-.analysis-workspace.split-35 {
-  grid-template-rows: minmax(0, 35%) 8px minmax(0, 1fr);
-}
-.analysis-workspace.split-40 {
-  grid-template-rows: minmax(0, 40%) 8px minmax(0, 1fr);
-}
-.analysis-workspace.split-45 {
-  grid-template-rows: minmax(0, 45%) 8px minmax(0, 1fr);
-}
-.analysis-workspace.split-50 {
-  grid-template-rows: minmax(0, 50%) 8px minmax(0, 1fr);
-}
-.analysis-workspace.split-55 {
-  grid-template-rows: minmax(0, 55%) 8px minmax(0, 1fr);
-}
-.analysis-workspace.split-60 {
-  grid-template-rows: minmax(0, 60%) 8px minmax(0, 1fr);
-}
-.analysis-workspace.split-65 {
-  grid-template-rows: minmax(0, 65%) 8px minmax(0, 1fr);
-}
-.analysis-workspace.split-70 {
-  grid-template-rows: minmax(0, 70%) 8px minmax(0, 1fr);
-}
-.analysis-workspace.split-75 {
-  grid-template-rows: minmax(0, 75%) 8px minmax(0, 1fr);
-}
-.analysis-workspace.split-80 {
-  grid-template-rows: minmax(0, 80%) 8px minmax(0, 1fr);
+.analysis-workspace.is-structure-fullscreen {
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .structure-region,
@@ -115,6 +84,13 @@ select {
   width: 96px;
   accent-color: var(--vscode-focusBorder, #4ca6ea);
 }
+.fullscreen-toggle {
+  padding: 4px 8px;
+  border: 1px solid var(--vscode-button-border, #454a53);
+  border-radius: 3px;
+  background: var(--vscode-button-secondaryBackground, #31353c);
+  white-space: nowrap;
+}
 .toolbar-control,
 .toolbar-control > div {
   display: flex;
@@ -148,18 +124,39 @@ select {
 
 .crystal-panel {
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
-.crystal-stage {
-  position: relative;
+.atom-inspector-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 8px var(--inspector-width, 280px);
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
+}
+.atom-inspector-layout.is-inspector-collapsed {
+  grid-template-columns: minmax(0, 1fr) 32px;
+}
+.crystal-main {
+  position: relative;
   grid-column: 1;
-  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.crystal-stage {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+}
+.crystal-main > .element-legend {
+  z-index: 1;
+  position: absolute;
+  top: 0;
+  left: 8px;
 }
 
 .element-legend { display: flex; gap: 0.75rem; list-style: none; margin: 0.35rem 0; padding: 0; flex-wrap: wrap; }
@@ -286,8 +283,7 @@ select {
 }
 .atom-detail {
   z-index: 1;
-  grid-column: 2;
-  grid-row: 1;
+  height: 100%;
   min-width: 0;
   overflow: auto;
   padding: 14px;
@@ -324,10 +320,52 @@ select {
   color: var(--vscode-foreground, #fff);
   background: #ffb30018;
 }
-.atom-detail-empty {
-  display: grid;
-  place-items: center;
-  text-align: center;
+.atom-inspector-splitter {
+  grid-column: 2;
+  cursor: col-resize;
+}
+.atom-inspector-splitter span {
+  width: 2px;
+  height: 42px;
+}
+.atom-inspector-slot {
+  position: relative;
+  grid-column: 3;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.atom-inspector-collapse {
+  z-index: 2;
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--vscode-button-border, #454a53);
+  border-radius: 3px;
+  background: var(--vscode-button-secondaryBackground, #31353c);
+}
+.atom-inspector-affordance {
+  grid-column: 2;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--vscode-panel-border, #343840);
+  background: var(--vscode-sideBar-background, #202328);
+  writing-mode: vertical-rl;
+}
+.atom-inspector-affordance:disabled {
+  color: var(--vscode-disabledForeground, #70757d);
+}
+.atom-inspector-layout.is-inspector-splitter-hidden {
+  grid-template-columns: minmax(0, 1fr) var(--inspector-width, 280px);
+}
+.analysis-workspace.is-structure-fullscreen .atom-inspector-splitter {
+  display: none;
+}
+.atom-inspector-layout.is-inspector-splitter-hidden .atom-inspector-slot {
+  grid-column: 2;
 }
 .renderer-fallback {
   display: grid;
@@ -516,7 +554,7 @@ select {
     overflow-x: auto;
   }
   .crystal-panel {
-    grid-template-columns: minmax(0, 1fr) 220px;
+    --inspector-width: 220px;
   }
   .crystal-palette { max-width: calc(100% - 8px); }
   .convergence-panel { grid-template-columns: 1fr; }

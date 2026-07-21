@@ -12,6 +12,8 @@ export interface CompactToolbarProps {
   readonly onForceModeChange: (mode: "free" | "raw") => void;
   readonly forceScale: number;
   readonly onForceScaleChange: (scale: number) => void;
+  readonly fullScreen: boolean;
+  readonly onFullScreenChange: (fullScreen: boolean) => void;
 }
 
 export function CompactToolbar({
@@ -23,6 +25,8 @@ export function CompactToolbar({
   onForceModeChange,
   forceScale,
   onForceScaleChange,
+  fullScreen,
+  onFullScreenChange,
 }: CompactToolbarProps): ReactElement {
   return (
     <header className="workspace-toolbar">
@@ -49,6 +53,19 @@ export function CompactToolbar({
       <div className="toolbar-control toolbar-force-control">
         <ForceScaleControl value={forceScale} onChange={onForceScaleChange} />
       </div>
+      <button
+        className="fullscreen-toggle"
+        type="button"
+        aria-label={
+          fullScreen
+            ? "Exit structure full-screen"
+            : "Enter structure full-screen"
+        }
+        aria-pressed={fullScreen}
+        onClick={() => onFullScreenChange(!fullScreen)}
+      >
+        {fullScreen ? "Restore" : "Expand"}
+      </button>
     </header>
   );
 }

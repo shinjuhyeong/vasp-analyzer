@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type ComponentType,
-  type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from "react";
 
@@ -19,6 +18,7 @@ import { analysisReducer, initialAnalysisState } from "./core/store.js";
 import { ConvergencePanel } from "./features/convergence/ConvergencePanel.js";
 import { CompactToolbar } from "./features/layout/CompactToolbar.js";
 import type { PalettePosition } from "./features/layout/DraggableCrystalPalette.js";
+import { ResizableWorkspace } from "./features/layout/ResizableWorkspace.js";
 import { CrystalPanel } from "./features/structure/CrystalPanel.js";
 import type { CrystalRendererFactory } from "./renderers/CrystalRenderer.js";
 
@@ -37,6 +37,11 @@ export interface AnalysisRegionProps {
   readonly onPalettePositionChange: (position: Readonly<PalettePosition>) => void;
   readonly onPaletteCollapsedChange: (collapsed: boolean) => void;
   readonly onResetLayout: () => void;
+  readonly inspectorWidth: number;
+  readonly inspectorCollapsed: boolean;
+  readonly onInspectorWidthChange: (width: number) => void;
+  readonly onInspectorCollapsedChange: (collapsed: boolean) => void;
+  readonly structureFullScreen: boolean;
 }
 
 export interface AppProps {
@@ -45,9 +50,6 @@ export interface AppProps {
   readonly convergence?: ComponentType<AnalysisRegionProps>;
   readonly rendererFactory?: CrystalRendererFactory;
 }
-
-const MIN_STRUCTURE_PERCENT = 30;
-const MAX_STRUCTURE_PERCENT = 80;
 
 function EmptyStructure({ selectedStep }: AnalysisRegionProps): ReactElement {
   return (
@@ -71,14 +73,6 @@ function DefaultConvergence({
   );
 }
 
-function clampSplit(value: number): number {
-  const clamped = Math.min(
-    MAX_STRUCTURE_PERCENT,
-    Math.max(MIN_STRUCTURE_PERCENT, value),
-  );
-  return Math.round(clamped / 5) * 5;
-}
-
 export function App({
   host,
   structure,
@@ -89,8 +83,12 @@ export function App({
   const [load, setLoad] = useState<
     Readonly<{ host: AnalysisHost | null; error: string | null }>
   >({ host: null, error: null });
-  const [split, setSplit] = useState(60);
-  const workspace = useRef<HTMLDivElement>(null);
+  const [fullScreen, setFullScreen] = useState(false);
+  const fullScreenSnapshot = useRef<Readonly<{
+    structurePercent: number;
+    inspectorWidth: number;
+    inspectorCollapsed: boolean;
+  }> | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -183,33 +181,43 @@ export function App({
     onPaletteCollapsedChange: (collapsed) =>
       dispatch({ type: "setLayout", layout: { paletteCollapsed: collapsed } }),
     onResetLayout: () => dispatch({ type: "resetLayout" }),
+    inspectorWidth: state.layout.inspectorWidth,
+    inspectorCollapsed: state.layout.inspectorCollapsed,
+    onInspectorWidthChange: (width) =>
+      dispatch({ type: "setLayout", layout: { inspectorWidth: width } }),
+    onInspectorCollapsedChange: (collapsed) =>
+      dispatch({ type: "setLayout", layout: { inspectorCollapsed: collapsed } }),
+    structureFullScreen: fullScreen,
   };
   const Structure = structure;
   const capabilityReason = (name: "dos" | "band" | "charge"): string =>
     state.dataset?.capabilities.find((capability) => capability.name === name)
       ?.reason ?? `${name} analysis is not available`;
 
-  const updateFromPointer = (event: ReactPointerEvent<HTMLElement>): void => {
-    const bounds = workspace.current?.getBoundingClientRect();
-    if (!bounds || bounds.height <= 0) return;
-    setSplit(clampSplit(((event.clientY - bounds.top) / bounds.height) * 100));
+  const changeFullScreen = (next: boolean): void => {
+    if (next === fullScreen) return;
+    if (next) {
+      fullScreenSnapshot.current = {
+        structurePercent: state.layout.structurePercent,
+        inspectorWidth: state.layout.inspectorWidth,
+        inspectorCollapsed: state.layout.inspectorCollapsed,
+      };
+    } else if (fullScreenSnapshot.current) {
+      dispatch({ type: "setLayout", layout: fullScreenSnapshot.current });
+      fullScreenSnapshot.current = null;
+    }
+    setFullScreen(next);
   };
 
   return (
-    <main
-      className={`analysis-workspace split-${split}`}
-      ref={workspace}
-      onPointerMove={(event) => {
-        if (event.currentTarget.hasPointerCapture?.(event.pointerId))
-          updateFromPointer(event);
-      }}
-      onPointerUp={(event) => {
-        if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
-          event.currentTarget.releasePointerCapture?.(event.pointerId);
-        }
-      }}
-    >
-      <section className="structure-region" aria-label="Crystal structure">
+    <ResizableWorkspace
+      structurePercent={state.layout.structurePercent}
+      onStructurePercentChange={(structurePercent) =>
+        dispatch({ type: "setLayout", layout: { structurePercent } })
+      }
+      fullScreen={fullScreen}
+      onFullScreenChange={changeFullScreen}
+      structure={<section className="structure-region" aria-label="Crystal structure">
         <CompactToolbar
           title={
             <div className="title-group">
@@ -227,6 +235,8 @@ export function App({
           onForceModeChange={(mode) => dispatch({ type: "setForceMode", mode })}
           forceScale={state.forceScale}
           onForceScaleChange={(scale) => dispatch({ type: "setForceScale", scale })}
+          fullScreen={fullScreen}
+          onFullScreenChange={changeFullScreen}
         />
         <div className="structure-canvas">
           {Structure ? (
@@ -237,36 +247,8 @@ export function App({
             <EmptyStructure {...regionProps} />
           )}
         </div>
-      </section>
-
-      <div
-        className="splitter"
-        role="separator"
-        aria-label="Resize structure and analysis regions"
-        aria-orientation="horizontal"
-        aria-valuemin={MIN_STRUCTURE_PERCENT}
-        aria-valuemax={MAX_STRUCTURE_PERCENT}
-        aria-valuenow={Math.round(split)}
-        tabIndex={0}
-        onPointerDown={(event) => {
-          workspace.current?.setPointerCapture?.(event.pointerId);
-          updateFromPointer(event);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowUp")
-            setSplit((value) => clampSplit(value - 5));
-          else if (event.key === "ArrowDown")
-            setSplit((value) => clampSplit(value + 5));
-          else if (event.key === "Home") setSplit(MIN_STRUCTURE_PERCENT);
-          else if (event.key === "End") setSplit(MAX_STRUCTURE_PERCENT);
-          else return;
-          event.preventDefault();
-        }}
-      >
-        <span />
-      </div>
-
-      <section className="analysis-region" aria-label="Calculation analysis">
+      </section>}
+      analysis={<section className="analysis-region" aria-label="Calculation analysis">
         <div className="tab-list" role="tablist" aria-label="Analysis type">
           <button type="button" role="tab" aria-selected="true">
             Convergence
@@ -306,7 +288,7 @@ export function App({
         <div className="analysis-content" role="tabpanel">
           <Convergence {...regionProps} />
         </div>
-      </section>
-    </main>
+      </section>}
+    />
   );
 }

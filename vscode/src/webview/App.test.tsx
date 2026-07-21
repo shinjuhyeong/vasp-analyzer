@@ -176,14 +176,14 @@ describe("analysis workspace", () => {
     expect(screen.getByRole("tab", { name: "Charge" })).toBeDisabled();
   });
 
-  it("resizes the vertical split by keyboard while clamping its bounds", async () => {
+  it("resizes the vertical split by keyboard to the supported near-full bound", async () => {
     render(<App host={new MemoryHost()} structure={FakeStructure} convergence={FakeConvergence} />);
     const separator = await screen.findByRole("separator", { name: "Resize structure and analysis regions" });
 
     fireEvent.keyDown(separator, { key: "End" });
-    expect(separator).toHaveAttribute("aria-valuenow", "80");
+    expect(separator).toHaveAttribute("aria-valuenow", "95");
     fireEvent.keyDown(separator, { key: "ArrowUp" });
-    expect(separator).toHaveAttribute("aria-valuenow", "75");
+    expect(separator).toHaveAttribute("aria-valuenow", "90");
     fireEvent.keyDown(separator, { key: "Home" });
     expect(separator).toHaveAttribute("aria-valuenow", "30");
   });
@@ -218,19 +218,49 @@ describe("analysis workspace", () => {
     Object.defineProperty(workspace, "getBoundingClientRect", { value: () => ({ top: 0, height: 100 }) });
     const setCapture = vi.fn();
     const releaseCapture = vi.fn();
-    Object.defineProperties(workspace, {
+    Object.defineProperties(separator, {
       setPointerCapture: { value: setCapture },
       hasPointerCapture: { value: () => true },
       releasePointerCapture: { value: releaseCapture },
     });
 
     fireEvent.pointerDown(separator, { pointerId: 7, clientY: 99 });
-    expect(separator).toHaveAttribute("aria-valuenow", "80");
-    fireEvent.pointerMove(workspace, { pointerId: 7, clientY: 1 });
+    expect(separator).toHaveAttribute("aria-valuenow", "95");
+    fireEvent.pointerMove(separator, { pointerId: 7, clientY: 1 });
     expect(separator).toHaveAttribute("aria-valuenow", "30");
-    fireEvent.pointerUp(workspace, { pointerId: 7 });
+    fireEvent.pointerUp(separator, { pointerId: 7 });
     expect(setCapture).toHaveBeenCalledWith(7);
     expect(releaseCapture).toHaveBeenCalledWith(7);
+  });
+
+  it("keeps compact controls in structure full-screen and restores layout on Escape", async () => {
+    const host = new MemoryHost(twoStepDataset, {
+      version: 2,
+      selectedStep: 0,
+      selectedSite: 1,
+      forceMode: "free",
+      forceScale: 10,
+      layout: { ...DEFAULT_LAYOUT, structurePercent: 70, inspectorWidth: 360, inspectorCollapsed: false },
+    });
+    render(<App host={host} rendererFactory={inertRendererFactory} convergence={FakeConvergence} />);
+    const separator = await screen.findByRole("separator", { name: "Resize structure and analysis regions" });
+    expect(separator).toHaveAttribute("aria-valuenow", "70");
+    expect(screen.getByRole("separator", { name: "Resize atom inspector" })).toHaveAttribute("aria-valuenow", "360");
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Enter structure full-screen" }));
+    expect(screen.getByLabelText("Ionic step number")).toBeVisible();
+    expect(screen.queryByTestId("convergence-step")).not.toBeInTheDocument();
+    expect(screen.queryByRole("separator", { name: "Resize structure and analysis regions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("separator", { name: "Resize atom inspector" })).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Collapse atom inspector" }));
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(await screen.findByTestId("convergence-step")).toBeVisible();
+    expect(screen.getByRole("separator", { name: "Resize structure and analysis regions" })).toHaveAttribute("aria-valuenow", "70");
+    expect(screen.getByRole("separator", { name: "Resize atom inspector" })).toHaveAttribute("aria-valuenow", "360");
+    await waitFor(() => expect(host.state).toMatchObject({
+      layout: { structurePercent: 70, inspectorWidth: 360, inspectorCollapsed: false },
+    }));
   });
 
   it("does not leak old selection into a replacement host before its dataset loads", async () => {

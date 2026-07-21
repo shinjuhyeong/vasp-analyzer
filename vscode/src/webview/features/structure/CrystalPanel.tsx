@@ -17,6 +17,7 @@ import {
   DraggableCrystalPalette,
   type PalettePosition,
 } from "../layout/DraggableCrystalPalette.js";
+import { ResizableAtomInspector } from "../layout/ResizableAtomInspector.js";
 
 export interface CrystalPanelProps {
   readonly sites: readonly Site[];
@@ -32,12 +33,18 @@ export interface CrystalPanelProps {
   readonly onPalettePositionChange?: (position: Readonly<PalettePosition>) => void;
   readonly onPaletteCollapsedChange?: (collapsed: boolean) => void;
   readonly onResetLayout?: () => void;
+  readonly inspectorWidth?: number;
+  readonly inspectorCollapsed?: boolean;
+  readonly onInspectorWidthChange?: (width: number) => void;
+  readonly onInspectorCollapsedChange?: (collapsed: boolean) => void;
+  readonly structureFullScreen?: boolean;
 }
 
 const DEFAULT_PALETTE_POSITION = Object.freeze({ x: 10, y: 10 });
 const ignorePosition = (): void => undefined;
 const ignoreCollapsed = (): void => undefined;
 const ignoreReset = (): void => undefined;
+const ignoreWidth = (): void => undefined;
 
 const LAYERS: readonly {
   readonly name: LayerName;
@@ -68,12 +75,18 @@ export function CrystalPanel({
   onPalettePositionChange = ignorePosition,
   onPaletteCollapsedChange = ignoreCollapsed,
   onResetLayout = ignoreReset,
+  inspectorWidth = 280,
+  inspectorCollapsed = false,
+  onInspectorWidthChange = ignoreWidth,
+  onInspectorCollapsedChange = ignoreCollapsed,
+  structureFullScreen = false,
 }: CrystalPanelProps) {
   const panel = useRef<HTMLDivElement>(null);
   const container = useRef<HTMLDivElement>(null);
   const renderer = useRef<ReturnType<CrystalRendererFactory> | null>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
   const selectHandler = useRef(onSelectSite);
+  const inspectorCollapsedHandler = useRef(onInspectorCollapsedChange);
   const [repeat, setRepeat] = useState<SupercellRepeat>([1, 1, 1]);
   const [repeatInputs, setRepeatInputs] = useState<
     readonly [string, string, string]
@@ -185,6 +198,14 @@ export function CrystalPanel({
   useEffect(() => {
     selectHandler.current = onSelectSite;
   }, [onSelectSite]);
+
+  useEffect(() => {
+    inspectorCollapsedHandler.current = onInspectorCollapsedChange;
+  }, [onInspectorCollapsedChange]);
+
+  useEffect(() => {
+    if (selectedSite) inspectorCollapsedHandler.current(false);
+  }, [selectedSite?.siteIndex]);
 
   useEffect(() => {
     if (!container.current) return;
@@ -427,7 +448,24 @@ export function CrystalPanel({
           reason={renderError}
         />
       ) : (
-        <>
+        <ResizableAtomInspector
+          width={inspectorWidth}
+          collapsed={inspectorCollapsed}
+          onWidthChange={onInspectorWidthChange}
+          onCollapsedChange={onInspectorCollapsedChange}
+          inspector={
+            selectedSite ? (
+              <AtomDetail
+                site={selectedSite}
+                sitePosition={sites.findIndex(
+                  (site) => site.siteIndex === selectedSite.siteIndex,
+                )}
+                step={selectedStep}
+              />
+            ) : null
+          }
+          splitterHidden={structureFullScreen}
+        >
           <ul className="element-legend" aria-label="Elements in structure">
             {legend.map((item) => (
               <li key={item.element} aria-label={`${item.element}, atom color ${item.color}, display radius ${item.radius.toFixed(2)} angstrom`}>
@@ -440,20 +478,7 @@ export function CrystalPanel({
             ref={container}
             aria-label="Interactive crystal viewer"
           />
-          {selectedSite ? (
-            <AtomDetail
-              site={selectedSite}
-              sitePosition={sites.findIndex(
-                (site) => site.siteIndex === selectedSite.siteIndex,
-              )}
-              step={selectedStep}
-            />
-          ) : (
-            <aside className="atom-detail atom-detail-empty">
-              Select an atom to inspect positions, forces, and constraints.
-            </aside>
-          )}
-        </>
+        </ResizableAtomInspector>
       )}
     </div>
   );
