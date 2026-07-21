@@ -103,6 +103,116 @@ def test_append_resume_replays_pre_force_details_once(tmp_path: Path) -> None:
     assert second.parameters == ()
 
 
+def test_pre_lattice_volumes_attach_to_the_matching_force_records() -> None:
+    scan = scan_outcar(FIXTURES / "detail-pre-lattice-two-step.OUTCAR", HOME_BARRIER)
+
+    assert [step.energy for step in scan.steps] == [-30.0, -31.0]
+    assert [step.cell_volume for step in scan.steps] == pytest.approx([125.0, 216.0])
+    assert [step.external_pressure_kb for step in scan.steps] == pytest.approx([7.0, -4.0])
+    assert scan.steps[0].lattice[0] == (5.0, 0.0, 0.0)
+    assert scan.steps[1].lattice[0] == (6.0, 0.0, 0.0)
+    assert [step.raw_forces[0][0] for step in scan.steps] == pytest.approx([0.1, 0.05])
+    assert scan.steps[0].stress_tensor_kb == (
+        (1.0, 0.1, 0.3),
+        (0.1, 2.0, 0.2),
+        (0.3, 0.2, 3.0),
+    )
+    assert scan.steps[1].stress_tensor_kb == (
+        (4.0, 0.4, 0.6),
+        (0.4, 5.0, 0.5),
+        (0.6, 0.5, 6.0),
+    )
+
+
+def test_append_resume_replays_pre_lattice_volume_once(tmp_path: Path) -> None:
+    truncated = (FIXTURES / "detail-pre-lattice-truncated.OUTCAR").read_bytes()
+    complete = (FIXTURES / "detail-pre-lattice-two-step.OUTCAR").read_bytes()
+    assert complete.startswith(truncated)
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(truncated)
+
+    first = scan_outcar(path, HOME_BARRIER)
+    path.write_bytes(complete)
+    second = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+
+    assert [step.step_id for step in first.steps] == [0]
+    assert first.steps[0].cell_volume == pytest.approx(125.0)
+    assert [warning.category for warning in first.warnings] == ["IncompleteTail"]
+    assert first.checkpoint.replay_provisional is True
+    assert second.resumed_from == first.checkpoint.last_verified_offset
+    assert [step.step_id for step in second.steps] == [1]
+    assert second.steps[0].cell_volume == pytest.approx(216.0)
+    assert second.steps[0].external_pressure_kb == pytest.approx(-4.0)
+    assert second.steps[0].raw_forces[0][0] == pytest.approx(0.05)
+    assert second.parameters == ()
+
+
+def test_pre_lattice_volume_cannot_cross_a_second_lattice(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        b"NIONS = 1 ions\n"
+        b"volume of cell : 125.0\n"
+        b"direct lattice vectors reciprocal lattice vectors\n"
+        b"5 0 0 0.2 0 0\n0 5 0 0 0.2 0\n0 0 5 0 0 0.2\n"
+        b"direct lattice vectors reciprocal lattice vectors\n"
+    )
+
+    with pytest.raises(OutcarFormatError, match="lattice boundary"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_pre_lattice_volume_rejects_ambiguous_pressure_before_lattice(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        b"NIONS = 1 ions\n"
+        b"volume of cell : 125.0\n"
+        b"external pressure = 2.0 kB\n"
+        b"direct lattice vectors reciprocal lattice vectors\n"
+    )
+
+    with pytest.raises(OutcarFormatError, match="lattice boundary"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_pre_lattice_volume_without_force_is_orphaned_at_normal_finish(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        b"NIONS = 1 ions\n"
+        b"volume of cell : 125.0\n"
+        b"General timing and accounting informations for this job:\n"
+    )
+
+    with pytest.raises(OutcarFormatError, match="not followed by a force record"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_duplicate_post_force_volume_is_ambiguous(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b"external pressure = 2.0 kB\n"
+        + b"volume of cell : 100.0\n"
+        + b"volume of cell : 101.0\n"
+    )
+
+    with pytest.raises(OutcarFormatError, match="ambiguous"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_unsectioned_volume_after_force_is_ambiguous(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes() + b"volume of cell : 100.0\n"
+    )
+
+    with pytest.raises(OutcarFormatError, match="ambiguous"):
+        scan_outcar(path, HOME_BARRIER)
+
+
 def test_vasp_blank_before_combined_aggregates_does_not_end_energy_section() -> None:
     scan = scan_outcar(FIXTURES / "ase-complete-one-step.OUTCAR", HOME_BARRIER)
 

@@ -249,6 +249,8 @@ def scan_outcar(
     pending: dict[str, object] | None = None
     next_details = _empty_details()
     next_detail_start: int | None = None
+    upcoming_lattice_seen = False
+    post_force_detail_mode = False
     force_rows_just_finished = False
     parameter_section_active = False
     energy_section_active = False
@@ -279,7 +281,7 @@ def scan_outcar(
 
         def finalize_pending(*, stable: bool) -> None:
             nonlocal pending, next_step_id, last_verified_offset
-            nonlocal energy_section_active
+            nonlocal energy_section_active, post_force_detail_mode
             if pending is None:
                 return
             if stable and stress_target == "pending":
@@ -294,6 +296,7 @@ def scan_outcar(
                 last_verified_offset = record.block_end
             pending = None
             energy_section_active = False
+            post_force_detail_mode = False
 
         def mark_next_detail(line_start: int) -> None:
             nonlocal next_detail_start
@@ -301,10 +304,55 @@ def scan_outcar(
                 next_detail_start = line_start
 
         def detail_target(line_start: int) -> dict[str, object]:
+            if next_detail_start is not None:
+                return next_details
             if pending is not None:
                 return pending
             mark_next_detail(line_start)
             return next_details
+
+        def volume_target(line_start: int) -> dict[str, object]:
+            if next_details["cell_volume"] is not None:
+                raise OutcarFormatError(
+                    f"cell volume at byte {line_start} is ambiguous with an unconsumed volume"
+                )
+            if (
+                pending is not None
+                and pending["cell_volume"] is not None
+                and post_force_detail_mode
+            ):
+                raise OutcarFormatError(
+                    f"cell volume at byte {line_start} is ambiguous with the current record"
+                )
+            if next_detail_start is not None:
+                return next_details
+            if pending is None:
+                mark_next_detail(line_start)
+                return next_details
+            has_current_details = (
+                pending["energy"] is not None
+                or pending["cell_volume"] is not None
+                or pending["stress_tensor_kb"] is not None
+                or pending["external_pressure_kb"] is not None
+                or pending["pulay_stress_kb"] is not None
+            )
+            if has_current_details and not post_force_detail_mode:
+                mark_next_detail(line_start)
+                return next_details
+            if not has_current_details and not post_force_detail_mode:
+                raise OutcarFormatError(
+                    f"cell volume at byte {line_start} is ambiguous without a detail section"
+                )
+            return pending
+
+        def next_details_are_only_volume() -> bool:
+            return (
+                next_details["cell_volume"] is not None
+                and next_details["energy_terms"] == []
+                and next_details["external_pressure_kb"] is None
+                and next_details["pulay_stress_kb"] is None
+                and next_details["stress_tensor_kb"] is None
+            )
 
         def active_stress_target() -> dict[str, object]:
             if stress_target == "pending" and pending is not None:
@@ -414,7 +462,9 @@ def scan_outcar(
                     raise OutcarFormatError(
                         f"stress block at byte {stress_block_start} ended before a complete tensor"
                     )
-                if pending is None and next_detail_start is not None:
+                if next_detail_start is not None and (
+                    upcoming_lattice_seen or not next_details_are_only_volume()
+                ):
                     raise OutcarFormatError(
                         f"details at byte {next_detail_start} crossed a lattice boundary"
                     )
@@ -446,6 +496,7 @@ def scan_outcar(
                 if incomplete_lattice:
                     break
                 lattice = _mat3(lattice_rows, line_start)
+                upcoming_lattice_seen = True
                 force_rows_just_finished = False
                 continue
 
@@ -525,6 +576,8 @@ def scan_outcar(
                 }
                 next_details = _empty_details()
                 next_detail_start = None
+                upcoming_lattice_seen = False
+                post_force_detail_mode = False
                 force_rows_just_finished = True
                 continue
 
@@ -549,9 +602,13 @@ def scan_outcar(
                     )
                 energy_section_active = False
                 stress_block_start = line_start
-                stress_target = "pending" if pending is not None else "next"
-                if pending is None:
+                stress_target = (
+                    "next" if next_detail_start is not None or pending is None else "pending"
+                )
+                if stress_target == "next":
                     mark_next_detail(line_start)
+                else:
+                    post_force_detail_mode = True
                 stress_rows = None
                 stress_3x3_complete = False
                 continue
@@ -586,7 +643,7 @@ def scan_outcar(
                 if len(stress_rows) == 3:
                     target = active_stress_target()
                     target["stress_tensor_kb"] = parse_stress_rows(tuple(stress_rows), unit="kB")
-                    if pending is not None:
+                    if target is pending:
                         pending["block_end"] = offset
                     clear_stress_state()
                     stress_3x3_complete = True
@@ -601,8 +658,9 @@ def scan_outcar(
             if pressure is not None:
                 target = detail_target(line_start)
                 target["external_pressure_kb"], target["pulay_stress_kb"] = pressure
-                if pending is not None:
+                if target is pending:
                     pending["block_end"] = offset
+                    post_force_detail_mode = True
                 continue
 
             if _contains_any(raw, dialect.profile.outcar.details.cell_volume) and not raw.endswith(
@@ -612,9 +670,9 @@ def scan_outcar(
                 break
             volume = parse_volume_line(raw, dialect.profile.outcar)
             if volume is not None:
-                target = detail_target(line_start)
+                target = volume_target(line_start)
                 target["cell_volume"] = volume
-                if pending is not None:
+                if target is pending:
                     pending["block_end"] = offset
                 continue
 
@@ -634,7 +692,7 @@ def scan_outcar(
                 else:
                     target = active_stress_target()
                     target["stress_tensor_kb"] = parse_stress_rows((raw,))
-                    if pending is not None:
+                    if target is pending:
                         pending["block_end"] = offset
                     clear_stress_state()
                 continue
