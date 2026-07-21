@@ -149,6 +149,7 @@ export function DraggableCrystalPalette({
           onPointerMove={moveDrag}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
+          onLostPointerCapture={endDrag}
         >
           <span aria-hidden="true">⋮⋮</span>
           <span>Crystal tools</span>
@@ -179,6 +180,7 @@ export function DraggableCrystalPalette({
         onPointerMove={moveDrag}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
       >
         <strong>Crystal tools</strong>
         <span className="crystal-palette-actions">

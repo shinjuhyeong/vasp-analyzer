@@ -175,6 +175,69 @@ describe("DraggableCrystalPalette", () => {
     expect(changed).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      label: "collapsed handle",
+      collapsed: true,
+      ownerTestId: "collapsed-crystal-palette-handle",
+      actionName: "Expand crystal tools",
+      expectedCollapsed: false,
+    },
+    {
+      label: "expanded header",
+      collapsed: false,
+      ownerTestId: "crystal-palette-header",
+      actionName: "Collapse crystal tools",
+      expectedCollapsed: true,
+    },
+  ])(
+    "stops $label movement after pointer capture is lost and keeps its toggle usable",
+    ({ collapsed, ownerTestId, actionName, expectedCollapsed }) => {
+      const changed = vi.fn();
+      const onCollapsedChange = vi.fn();
+      render(
+        <Harness
+          initialCollapsed={collapsed}
+          onPositionChange={changed}
+          onCollapsedChange={onCollapsedChange}
+        />,
+      );
+      const owner = screen.getByTestId(ownerTestId);
+      const releasePointerCapture = vi.fn();
+      Object.defineProperties(owner, {
+        setPointerCapture: { value: vi.fn(), configurable: true },
+        hasPointerCapture: { value: () => true, configurable: true },
+        releasePointerCapture: { value: releasePointerCapture, configurable: true },
+      });
+
+      fireEvent.pointerDown(owner, { pointerId: 12, clientX: 10, clientY: 10 });
+      fireEvent.lostPointerCapture(owner, { pointerId: 12 });
+      fireEvent.pointerMove(owner, { pointerId: 12, clientX: 50, clientY: 40 });
+
+      expect(changed).not.toHaveBeenCalled();
+      expect(releasePointerCapture).toHaveBeenCalledOnce();
+      fireEvent.click(screen.getByRole("button", { name: actionName }));
+      expect(onCollapsedChange).toHaveBeenCalledWith(expectedCollapsed);
+    },
+  );
+
+  it("treats lost capture after explicit pointer release as an idempotent cleanup", () => {
+    render(<Harness initialCollapsed />);
+    const handle = screen.getByTestId("collapsed-crystal-palette-handle");
+    const releasePointerCapture = vi.fn();
+    Object.defineProperties(handle, {
+      setPointerCapture: { value: vi.fn(), configurable: true },
+      hasPointerCapture: { value: () => true, configurable: true },
+      releasePointerCapture: { value: releasePointerCapture, configurable: true },
+    });
+
+    fireEvent.pointerDown(handle, { pointerId: 13, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(handle, { pointerId: 13 });
+    fireEvent.lostPointerCapture(handle, { pointerId: 13 });
+
+    expect(releasePointerCapture).toHaveBeenCalledOnce();
+  });
+
   it("captures pointer drag on its header and clamps to the viewport", async () => {
     const changed = vi.fn();
     render(<Harness initialCollapsed={false} onPositionChange={changed} />);
