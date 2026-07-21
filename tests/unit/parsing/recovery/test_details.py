@@ -96,6 +96,35 @@ def test_pressure_parser_reads_external_and_pulay_values() -> None:
     ) == pytest.approx((-12.5, 3.25))
 
 
+def test_pressure_parser_accepts_external_pressure_without_pulay_stress() -> None:
+    assert parse_pressure_line(
+        b" external pressure = -12.5D+00 kB\n", STANDARD
+    ) == pytest.approx((-12.5, None))
+
+
+def test_pressure_parser_accepts_correctly_spelled_pulay_stress() -> None:
+    assert parse_pressure_line(
+        b" external pressure = 1.0 kB Pulay stress = 2.0 kB\n", STANDARD
+    ) == pytest.approx((1.0, 2.0))
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        b"external pressure = 1.0 kB Pullay stress = nope kB\n",
+        b"external pressure = 1.0 kB Pullay stress = 2.0 GPa\n",
+        b"external pressure = 1.0 KB\n",
+        b"external pressure = 1.0 kB Pullay stress = nan kB\n",
+        b"external pressure = 1.0 GPa\n",
+        b"external pressure = nan kB\n",
+        b"external pressure = 1.0 kB garbage\n",
+    ],
+)
+def test_pressure_parser_rejects_malformed_or_trailing_syntax(line: bytes) -> None:
+    with pytest.raises(OutcarFormatError, match="pressure line is malformed|non-finite"):
+        parse_pressure_line(line, STANDARD)
+
+
 def test_pressure_parser_returns_none_for_unrecognized_line() -> None:
     assert parse_pressure_line(b"random pressure = 1 kB\n", STANDARD) is None
 

@@ -65,6 +65,14 @@ def _marker_present(line: bytes, markers: tuple[str, ...]) -> bool:
     return any(marker.encode("utf-8").lower() in folded for marker in markers)
 
 
+def _literal_alias_pattern(markers: tuple[str, ...]) -> bytes:
+    patterns = []
+    for marker in markers:
+        tokens = marker.encode("utf-8").split()
+        patterns.append(rb"\s+".join(re.escape(token) for token in tokens))
+    return rb"(?:" + rb"|".join(patterns) + rb")"
+
+
 def parse_energy_line(line: bytes, rule: OutcarRule) -> EnergyTerm | None:
     """Parse one complete energy assignment, preserving unknown finite labels."""
     match = _ASSIGNMENT.fullmatch(line.rstrip(b"\r\n"))
@@ -104,22 +112,23 @@ def parse_pressure_line(
     """Parse VASP external pressure and optional (historically misspelled) Pulay stress."""
     if not _marker_present(line, rule.details.external_pressure):
         return None
-    external_match = re.search(
-        rb"external\s+pressure\s*=\s*(" + _NUMBER_TEXT + rb")\s*kB\b",
-        line,
-        re.IGNORECASE,
+    pattern = (
+        rb"\s*"
+        + _literal_alias_pattern(rule.details.external_pressure)
+        + rb"\s*=\s*("
+        + _NUMBER_TEXT
+        + rb")\s+(?-i:kB)"
+        + rb"(?:\s+Pu(?:l|ll)ay\s+stress\s*=\s*("
+        + _NUMBER_TEXT
+        + rb")\s+(?-i:kB))?\s*"
     )
-    if external_match is None:
+    match = re.fullmatch(pattern, line.rstrip(b"\r\n"), re.IGNORECASE)
+    if match is None:
         raise OutcarFormatError("external pressure line is malformed")
-    pulay_match = re.search(
-        rb"Pu(?:l|ll)ay\s+stress\s*=\s*(" + _NUMBER_TEXT + rb")\s*kB\b",
-        line,
-        re.IGNORECASE,
-    )
-    external = _finite_float(external_match.group(1), context="external pressure")
+    external = _finite_float(match.group(1), context="external pressure")
     pulay = (
-        _finite_float(pulay_match.group(1), context="Pulay stress")
-        if pulay_match is not None
+        _finite_float(match.group(2), context="Pulay stress")
+        if match.group(2) is not None
         else None
     )
     return external, pulay
