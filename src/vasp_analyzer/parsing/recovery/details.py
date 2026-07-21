@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from typing import Literal
 
 from vasp_analyzer.core import EnergyTerm, Mat3, OutcarFormatError, ParameterOccurrence
 from vasp_analyzer.parsing.profiles.models import OutcarRule
@@ -70,15 +71,17 @@ def parse_energy_line(line: bytes, rule: OutcarRule) -> EnergyTerm | None:
     if match is None:
         return None
     raw_label = _normalized_text(_decode(match.group("label"), context="energy label"))
+    tokens = match.group("values").split()
     value_tokens: list[bytes] = []
-    for token in match.group("values").split():
-        if token.lower() == b"ev":
-            break
+    for token in tokens:
         if _NUMBER.fullmatch(token) is None:
             break
         value_tokens.append(token)
     if not value_tokens:
         raise OutcarFormatError("energy assignment has no numeric value")
+    trailing = tokens[len(value_tokens) :]
+    if trailing not in ([], [b"eV"]):
+        raise OutcarFormatError("energy assignment has unsupported trailing syntax")
     values = tuple(_finite_float(token, context="energy value") for token in value_tokens)
     aliases = {
         _normalized_text(label).casefold(): item
@@ -127,7 +130,7 @@ def parse_volume_line(line: bytes, rule: OutcarRule) -> float | None:
     if not _marker_present(line, rule.details.cell_volume):
         return None
     match = re.search(
-        rb"(?:=|:)\s*(" + _NUMBER_TEXT + rb")\s*(?:[A-Za-z^0-9]*)?\s*$",
+        rb"(?:=|:)\s*(" + _NUMBER_TEXT + rb")\s*$",
         line.rstrip(b"\r\n"),
         re.IGNORECASE,
     )
@@ -139,14 +142,16 @@ def parse_volume_line(line: bytes, rule: OutcarRule) -> float | None:
     return value
 
 
-def parse_stress_rows(rows: tuple[bytes, ...]) -> Mat3:
-    """Parse either VASP's xx yy zz xy yz zx layout or an exact 3x3 matrix."""
+def parse_stress_rows(
+    rows: tuple[bytes, ...], *, unit: Literal["kB"] | None = None
+) -> Mat3:
+    """Parse explicitly kB VASP rows or a 3x3 tensor with validated kB context."""
     if len(rows) == 1:
         tokens = rows[0].split()
         if len(tokens) >= 2 and tokens[0].lower() == b"in" and tokens[1].lower() == b"kb":
             tokens = tokens[2:]
-        elif tokens and tokens[0].lower() in {b"total", b"kb"}:
-            tokens = tokens[1:]
+        else:
+            raise OutcarFormatError("six-component stress row must start with 'in kB'")
         if len(tokens) != 6:
             raise OutcarFormatError("stress row must contain six components")
         xx, yy, zz, xy, yz, zx = (
@@ -155,6 +160,8 @@ def parse_stress_rows(rows: tuple[bytes, ...]) -> Mat3:
         return ((xx, xy, zx), (xy, yy, yz), (zx, yz, zz))
     if len(rows) != 3:
         raise OutcarFormatError("stress tensor must contain one six-component or three rows")
+    if unit != "kB":
+        raise OutcarFormatError("3x3 stress tensor requires explicit kB context")
     parsed: list[tuple[float, float, float]] = []
     for row in rows:
         tokens = row.split()

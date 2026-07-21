@@ -65,6 +65,19 @@ def test_energy_parser_returns_none_for_non_assignment() -> None:
     assert parse_energy_line(b"-----\n", STANDARD) is None
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        b"home correction = 1.0 bananas\n",
+        b"home correction = 1.0 eV garbage\n",
+        b"energy without entropy = -9.9 eV energy(sigma->0) = -9.8 eV\n",
+    ],
+)
+def test_energy_parser_rejects_unsupported_units_or_trailing_syntax(line: bytes) -> None:
+    with pytest.raises(OutcarFormatError, match="trailing syntax"):
+        parse_energy_line(line, STANDARD)
+
+
 def test_energy_parser_fails_closed_on_a_non_numeric_assignment() -> None:
     with pytest.raises(OutcarFormatError, match="numeric"):
         parse_energy_line(b"home correction = unknown\n", STANDARD)
@@ -91,16 +104,21 @@ def test_volume_parser_reads_positive_cell_volume() -> None:
     assert parse_volume_line(b" volume of cell : 1.234D+02\n", STANDARD) == pytest.approx(123.4)
 
 
+@pytest.mark.parametrize("suffix", [b"kg", b"Angstrom^3", b"123 extra"])
+def test_volume_parser_rejects_explicit_units_or_trailing_syntax(suffix: bytes) -> None:
+    with pytest.raises(OutcarFormatError, match="malformed"):
+        parse_volume_line(b" volume of cell : 123 " + suffix + b"\n", STANDARD)
+
+
 @pytest.mark.parametrize("token", [b"0", b"-2", b"nan"])
 def test_volume_parser_rejects_non_positive_or_non_finite_values(token: bytes) -> None:
     with pytest.raises(OutcarFormatError):
         parse_volume_line(b" volume of cell : " + token + b"\n", STANDARD)
 
 
-def test_stress_parser_maps_vasp_six_component_order_to_symmetric_tensor() -> None:
-    parsed = parse_stress_rows((b" Total  1 2 3 4 5 6\n",))
-
-    assert parsed == ((1.0, 4.0, 6.0), (4.0, 2.0, 5.0), (6.0, 5.0, 3.0))
+def test_stress_parser_rejects_non_kb_total_row() -> None:
+    with pytest.raises(OutcarFormatError, match="in kB"):
+        parse_stress_rows((b" Total  1 2 3 4 5 6\n",))
 
 
 def test_stress_parser_accepts_vasp_in_kb_prefix() -> None:
@@ -110,9 +128,16 @@ def test_stress_parser_accepts_vasp_in_kb_prefix() -> None:
 
 
 def test_stress_parser_accepts_exact_three_by_three_rows() -> None:
-    parsed = parse_stress_rows((b"1 2 3\n", b"4 5 6\n", b"7 8 9\n"))
+    parsed = parse_stress_rows(
+        (b"1 2 3\n", b"4 5 6\n", b"7 8 9\n"), unit="kB"
+    )
 
     assert parsed == ((1.0, 2.0, 3.0), (4.0, 5.0, 6.0), (7.0, 8.0, 9.0))
+
+
+def test_stress_parser_requires_explicit_kb_context_for_three_by_three_rows() -> None:
+    with pytest.raises(OutcarFormatError, match="explicit kB"):
+        parse_stress_rows((b"1 2 3\n", b"4 5 6\n", b"7 8 9\n"))
 
 
 @pytest.mark.parametrize(
@@ -126,7 +151,7 @@ def test_stress_parser_accepts_exact_three_by_three_rows() -> None:
 )
 def test_stress_parser_rejects_malformed_complete_layouts(rows: tuple[bytes, ...]) -> None:
     with pytest.raises(OutcarFormatError):
-        parse_stress_rows(rows)
+        parse_stress_rows(rows, unit="kB" if len(rows) == 3 else None)
 
 
 def test_parameter_parser_preserves_order_repeats_and_coerces_safe_types() -> None:
