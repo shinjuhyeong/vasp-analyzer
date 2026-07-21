@@ -4,13 +4,21 @@ import type {
   AnalysisResult,
   CalculationDataset,
   IonicStep,
+  LegacyPersistedAnalysisState,
+  LayoutPreferences,
   PersistedAnalysisState,
 } from "./contracts.js";
+import {
+  DEFAULT_LAYOUT,
+  MAX_FORCE_SCALE,
+  MIN_FORCE_SCALE,
+  normalizeLayout,
+} from "./store.js";
 
 interface VsCodeApi {
   postMessage(message: unknown): void;
   getState(): unknown;
-  setState(state: PersistedAnalysisState): void;
+  setState(state: PersistedAnalysisState | LegacyPersistedAnalysisState): void;
 }
 
 interface EventTargetLike {
@@ -208,13 +216,23 @@ function protocolError(value: unknown): ProtocolErrorShape | undefined {
 }
 
 function persistedState(value: unknown): PersistedAnalysisState | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const state = value as Partial<PersistedAnalysisState>;
+  if (!isRecord(value)) return undefined;
+  const state = value;
   if (!Number.isSafeInteger(state.selectedStep) || Number(state.selectedStep) < 0) return undefined;
   if (state.selectedSite !== null && (!Number.isSafeInteger(state.selectedSite) || Number(state.selectedSite) < 0)) {
     return undefined;
   }
-  return { selectedStep: Number(state.selectedStep), selectedSite: state.selectedSite ?? null };
+  const forceScale = isFiniteNumber(state.forceScale)
+    ? Math.min(MAX_FORCE_SCALE, Math.max(MIN_FORCE_SCALE, state.forceScale))
+    : 10;
+  return {
+    version: 2,
+    selectedStep: Number(state.selectedStep),
+    selectedSite: state.selectedSite === null ? null : Number(state.selectedSite),
+    forceMode: state.forceMode === "raw" ? "raw" : "free",
+    forceScale,
+    layout: normalizeLayout(isRecord(state.layout) ? state.layout as Partial<LayoutPreferences> : DEFAULT_LAYOUT),
+  };
 }
 
 export class VsCodeHost implements AnalysisHost {
@@ -258,8 +276,9 @@ export class VsCodeHost implements AnalysisHost {
     return persistedState(this.api.getState());
   }
 
-  setState(state: PersistedAnalysisState): void {
-    this.api.setState(state);
+  setState(state: PersistedAnalysisState | LegacyPersistedAnalysisState): void {
+    const normalized = persistedState(state);
+    if (normalized) this.api.setState(normalized);
   }
 
   dispose(): void {
@@ -331,10 +350,12 @@ export class HttpHost implements AnalysisHost {
     return this.state;
   }
 
-  setState(state: PersistedAnalysisState): void {
-    this.state = state;
+  setState(state: PersistedAnalysisState | LegacyPersistedAnalysisState): void {
+    const normalized = persistedState(state);
+    if (!normalized) return;
+    this.state = normalized;
     try {
-      this.storage?.setItem(BROWSER_STATE_KEY, JSON.stringify(state));
+      this.storage?.setItem(BROWSER_STATE_KEY, JSON.stringify(normalized));
     } catch {
       // The browser may disable storage; in-memory state remains usable.
     }

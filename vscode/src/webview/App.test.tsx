@@ -180,7 +180,7 @@ describe("analysis workspace", () => {
   it("propagates force mode and scale to both analysis regions", async () => {
     const Region = ({ forceMode, forceScale }: AnalysisRegionProps) => <output>{forceMode}:{forceScale}</output>;
     render(<App host={new MemoryHost()} structure={Region} convergence={Region} />);
-    await screen.findAllByText("free:1");
+    await screen.findAllByText("free:10");
 
     fireEvent.change(screen.getByLabelText("Force components"), { target: { value: "raw" } });
     fireEvent.change(screen.getByLabelText("Force vector scale"), { target: { value: "3" } });

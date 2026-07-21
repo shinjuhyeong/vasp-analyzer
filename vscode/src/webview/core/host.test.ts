@@ -18,6 +18,86 @@ function vscodeHarness() {
 }
 
 describe("analysis hosts", () => {
+  it.each([
+    ["VS Code", (state: unknown) => new VsCodeHost({ postMessage: vi.fn(), getState: () => state, setState: vi.fn() }, window)],
+    ["HTTP", (state: unknown) => new HttpHost("http://local", vi.fn(), {
+      getItem: () => JSON.stringify(state),
+      setItem: vi.fn(),
+    })],
+  ])("migrates legacy selection state in the %s host", (_name, createHost) => {
+    const host = createHost({ selectedStep: 1, selectedSite: 0 });
+
+    expect(host.getState()).toEqual({
+      version: 2,
+      selectedStep: 1,
+      selectedSite: 0,
+      forceMode: "free",
+      forceScale: 10,
+      layout: {
+        structurePercent: 60,
+        inspectorWidth: 280,
+        inspectorCollapsed: true,
+        paletteX: 10,
+        paletteY: 10,
+        paletteCollapsed: true,
+      },
+    });
+    if (host instanceof VsCodeHost) host.dispose();
+  });
+
+  it("normalizes malformed version-2 preferences independently", () => {
+    const host = new VsCodeHost({
+      postMessage: vi.fn(),
+      getState: () => ({
+        version: 2,
+        selectedStep: 1,
+        selectedSite: 0,
+        forceMode: "raw",
+        forceScale: 250,
+        layout: {
+          structurePercent: Number.NaN,
+          inspectorWidth: 420,
+          inspectorCollapsed: "no",
+          paletteX: -15,
+          paletteY: 24,
+          paletteCollapsed: false,
+        },
+      }),
+      setState: vi.fn(),
+    }, window);
+
+    expect(host.getState()).toEqual({
+      version: 2,
+      selectedStep: 1,
+      selectedSite: 0,
+      forceMode: "raw",
+      forceScale: 250,
+      layout: {
+        structurePercent: 60,
+        inspectorWidth: 420,
+        inspectorCollapsed: true,
+        paletteX: 0,
+        paletteY: 24,
+        paletteCollapsed: false,
+      },
+    });
+    host.dispose();
+  });
+
+  it.each([
+    [0, 1],
+    [1001, 1000],
+  ])("clamps persisted force scale %s to %s", (forceScale, expected) => {
+    const host = new VsCodeHost({
+      postMessage: vi.fn(),
+      getState: () => ({ version: 2, selectedStep: 0, selectedSite: null, forceMode: "free", forceScale, layout: {} }),
+      setState: vi.fn(),
+    }, window);
+
+    expect(host.getState()?.forceScale).toBe(expected);
+    host.dispose();
+  });
+
   it("correlates concurrent VS Code responses by request ID", async () => {
     const messages: unknown[] = [];
     const api = { postMessage: (message: unknown) => messages.push(message), getState: () => undefined, setState: () => undefined };

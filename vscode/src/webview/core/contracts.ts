@@ -89,7 +89,25 @@ export interface CalculationDataset {
 export type AnalysisMethod = "getDataset" | "getStep";
 export type AnalysisResult = CalculationDataset | IonicStep;
 
+export interface LayoutPreferences {
+  readonly structurePercent: number;
+  readonly inspectorWidth: number;
+  readonly inspectorCollapsed: boolean;
+  readonly paletteX: number;
+  readonly paletteY: number;
+  readonly paletteCollapsed: boolean;
+}
+
 export interface PersistedAnalysisState {
+  readonly version: 2;
+  readonly selectedStep: number;
+  readonly selectedSite: number | null;
+  readonly forceMode: "free" | "raw";
+  readonly forceScale: number;
+  readonly layout: LayoutPreferences;
+}
+
+export interface LegacyPersistedAnalysisState {
   readonly selectedStep: number;
   readonly selectedSite: number | null;
 }
@@ -97,5 +115,5 @@ export interface PersistedAnalysisState {
 export interface AnalysisHost {
   request(method: AnalysisMethod, params: Readonly<Record<string, unknown>>): Promise<AnalysisResult>;
   getState(): PersistedAnalysisState | undefined;
-  setState(state: PersistedAnalysisState): void;
+  setState(state: PersistedAnalysisState | LegacyPersistedAnalysisState): void;
 }

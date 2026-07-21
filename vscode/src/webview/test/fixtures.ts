@@ -1,4 +1,10 @@
-import type { AnalysisHost, CalculationDataset, IonicStep, PersistedAnalysisState } from "../core/contracts.js";
+import type {
+  AnalysisHost,
+  CalculationDataset,
+  IonicStep,
+  LegacyPersistedAnalysisState,
+  PersistedAnalysisState,
+} from "../core/contracts.js";
 
 const step = (index: number): IonicStep => ({
   index,
@@ -39,11 +45,11 @@ export const twoStepDataset: CalculationDataset = {
 };
 
 export class MemoryHost implements AnalysisHost {
-  state: PersistedAnalysisState | undefined;
+  state: PersistedAnalysisState | LegacyPersistedAnalysisState | undefined;
 
   constructor(
     readonly dataset: CalculationDataset = twoStepDataset,
-    state?: PersistedAnalysisState,
+    state?: PersistedAnalysisState | LegacyPersistedAnalysisState,
   ) {
     this.state = state;
   }
@@ -54,10 +60,10 @@ export class MemoryHost implements AnalysisHost {
   }
 
   getState(): PersistedAnalysisState | undefined {
-    return this.state;
+    return this.state as PersistedAnalysisState | undefined;
   }
 
-  setState(state: PersistedAnalysisState): void {
+  setState(state: PersistedAnalysisState | LegacyPersistedAnalysisState): void {
     this.state = state;
   }
 }

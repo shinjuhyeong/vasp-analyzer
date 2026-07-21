@@ -4,6 +4,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import { HttpHost, VsCodeHost } from "./host.js";
 import { createRuntimeHost } from "./runtimeHost.js";
+import { DEFAULT_LAYOUT } from "./store.js";
+
+const migratedState = (selectedStep: number, selectedSite: number | null) => ({
+  version: 2,
+  selectedStep,
+  selectedSite,
+  forceMode: "free",
+  forceScale: 10,
+  layout: DEFAULT_LAYOUT,
+});
 
 describe("runtime host selection", () => {
   it("uses the VS Code transport only when its API is present", () => {
@@ -38,7 +48,7 @@ describe("runtime host selection", () => {
 
     const reloaded = createRuntimeHost({ fetch: fetcher, window });
 
-    expect(reloaded.getState()).toEqual({ selectedStep: 4, selectedSite: 2 });
+    expect(reloaded.getState()).toEqual(migratedState(4, 2));
   });
 
   it("falls back to memory when accessing sessionStorage itself throws", () => {
@@ -50,6 +60,6 @@ describe("runtime host selection", () => {
     const host = createRuntimeHost({ fetch: vi.fn(), window: throwingWindow });
     host.setState({ selectedStep: 2, selectedSite: null });
 
-    expect(host.getState()).toEqual({ selectedStep: 2, selectedSite: null });
+    expect(host.getState()).toEqual(migratedState(2, null));
   });
 });
