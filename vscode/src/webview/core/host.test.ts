@@ -10,10 +10,16 @@ const step = twoStepDataset.ionicSteps[0]!;
 
 function detailedDatasetResult(): any {
   const result: any = structuredClone(twoStepDataset);
+  result.sourceFiles = [{ path: "/calculation/OUTCAR", size: 1024, mtimeNs: 42, fingerprint: "sha256:test" }];
   result.parameters = [{
     key: "encut", rawKey: "ENCUT", rawValue: "520", value: [520],
-    unit: null, category: null, description: null, ordinal: 0, lineNumber: null,
+    unit: "eV", category: "electronic", description: "Plane-wave cutoff", ordinal: 0, lineNumber: 4,
   }];
+  result.warnings = [{ category: "IncompleteTail", message: "trailing partial block", byteOffset: null, lineNumber: null }];
+  result.provenance = {
+    adapter: "ase", adapterVersion: "1", dialect: "stock", profileId: null,
+    normalizationRules: [], compatibilityMetadata: [],
+  };
   result.ionicSteps = result.ionicSteps.map((item: any) => ({
     ...item,
     energyTerms: [{ key: "ewald", rawLabel: "Ewald energy", value: -4.2, unit: "eV", kind: "contribution" }],
@@ -27,6 +33,11 @@ function detailedDatasetResult(): any {
 
 function sparse(length: number): unknown[] {
   return new Array(length);
+}
+
+function withJsonOwnExtra(result: unknown, key: string): any {
+  const json = JSON.stringify(result);
+  return JSON.parse(`${json.slice(0, -1)},${JSON.stringify(key)}:true}`);
 }
 
 function vscodeHarness() {
@@ -258,6 +269,21 @@ describe("analysis hosts", () => {
     await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).resolves.toEqual(result);
   });
 
+  it("accepts exact JSON-parsed and null-prototype records with declared nullable fields", async () => {
+    const jsonResult = JSON.parse(JSON.stringify(detailedDatasetResult()));
+    jsonResult.parameters[0] = Object.assign(Object.create(null), jsonResult.parameters[0], {
+      unit: null, category: null, description: null, lineNumber: null,
+    });
+    const nullPrototypeResult = Object.assign(Object.create(null), jsonResult);
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 1, result: jsonResult }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 2, result: nullPrototypeResult }) });
+    const host = new HttpHost("http://local", fetcher);
+
+    await expect(host.request("getDataset", {})).resolves.toEqual(jsonResult);
+    await expect(host.request("getDataset", {})).resolves.toEqual(nullPrototypeResult);
+  });
+
   it.each([
     ["non-finite nested stress", (dataset: any) => { dataset.ionicSteps[0].stressTensorKb[1][1] = Number.NaN; }],
     ["malformed stress shape", (dataset: any) => { dataset.ionicSteps[0].stressTensorKb = [[1, 0, 0]]; }],
@@ -303,6 +329,37 @@ describe("analysis hosts", () => {
 
     await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).rejects.toMatchObject({ code: "invalid_response" });
   });
+
+  it.each([
+    ["dataset", (dataset: any) => { dataset.futureSchemaField = true; }],
+    ["source file", (dataset: any) => { dataset.sourceFiles[0].futureField = true; }],
+    ["site", (dataset: any) => { dataset.sites[0].futureField = true; }],
+    ["selective mask", (dataset: any) => { dataset.sites[0].selectiveDynamics.futureField = true; }],
+    ["ionic step", (dataset: any) => { dataset.ionicSteps[0].futureField = true; }],
+    ["force component", (dataset: any) => { dataset.ionicSteps[0].strongestFreeComponent.futureField = true; }],
+    ["energy term", (dataset: any) => { dataset.ionicSteps[0].energyTerms[0].futureField = true; }],
+    ["parameter occurrence", (dataset: any) => { dataset.parameters[0].futureField = true; }],
+    ["capability", (dataset: any) => { dataset.capabilities[0].futureField = true; }],
+    ["warning", (dataset: any) => { dataset.warnings[0].futureField = true; }],
+    ["provenance", (dataset: any) => { dataset.provenance.futureField = true; }],
+  ])("rejects an unknown own key on a %s record", async (_name, mutate) => {
+    const result = detailedDatasetResult();
+    mutate(result);
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 1, result }) });
+
+    await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it.each(["__proto__", "constructor", "prototype"])(
+    "rejects a JSON-parsed own %s field",
+    async (key) => {
+      const result = withJsonOwnExtra(detailedDatasetResult(), key);
+      expect(Object.prototype.hasOwnProperty.call(result, key)).toBe(true);
+      const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 1, result }) });
+
+      await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).rejects.toMatchObject({ code: "invalid_response" });
+    },
+  );
 
   it.each([
     ["malformed error", { type: "response", error: { code: 4, message: "bad" } }],

@@ -50,12 +50,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
-function hasOwnProperties(value: Record<string, unknown>, properties: readonly string[]): boolean {
-  return properties.every((property) => Object.prototype.hasOwnProperty.call(value, property));
+function hasExactOwnProperties(value: Record<string, unknown>, properties: readonly string[]): boolean {
+  const allowed = new Set(properties);
+  const ownKeys = Reflect.ownKeys(value);
+  return ownKeys.length === allowed.size
+    && ownKeys.every((key) => typeof key === "string" && allowed.has(key));
 }
 
 function isRecordWith(value: unknown, properties: readonly string[]): value is Record<string, unknown> {
-  return isRecord(value) && hasOwnProperties(value, properties);
+  return isRecord(value) && hasExactOwnProperties(value, properties);
 }
 
 function isDenseArray(value: unknown): value is readonly unknown[] {
