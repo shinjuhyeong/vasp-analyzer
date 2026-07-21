@@ -12,6 +12,7 @@ const DEFAULT_TIMEOUT_MS = 2000;
 export interface ControlRequest {
   readonly token: string;
   readonly path: string;
+  readonly profile?: string;
 }
 
 export type ControlResponse =
@@ -21,7 +22,10 @@ export type ControlResponse =
 export interface ControlEndpointOptions {
   readonly token?: string;
   readonly address?: string;
-  readonly onOpen: (canonicalRoot: string, signal: AbortSignal) => void | Promise<void>;
+  readonly onOpen: (
+    calculation: { readonly root: string; readonly profilePath: string | null },
+    signal: AbortSignal,
+  ) => void | Promise<void>;
   readonly resolvePath?: (candidate: string) => Promise<string>;
   readonly maxRequestBytes?: number;
   readonly maxResponseBytes?: number;
@@ -57,6 +61,17 @@ export async function resolveCalculationRoot(candidate: string): Promise<string>
   const handle = await open(outcar, "r");
   await handle.close();
   return canonicalRoot;
+}
+
+async function resolveProfilePath(candidate: string): Promise<string> {
+  if (!candidate || candidate.includes("\0")) throw new Error("invalid profile path");
+  const resolved = await realpath(candidate);
+  const metadata = await stat(resolved);
+  if (!metadata.isFile()) throw new Error("profile path is not a regular file");
+  await access(resolved, fsConstants.R_OK);
+  const handle = await open(resolved, "r");
+  await handle.close();
+  return resolved;
 }
 
 function defaultAddress(): string {
@@ -148,10 +163,15 @@ export async function createControlEndpoint(options: ControlEndpointOptions): Pr
           respond({ ok: false, error: "invalid_path" });
           return;
         }
+        if (request.profile !== undefined && (typeof request.profile !== "string" || request.profile.length > 32767)) {
+          respond({ ok: false, error: "invalid_path" });
+          return;
+        }
         try {
           const canonicalRoot = await resolvePath(request.path);
+          const profilePath = request.profile === undefined ? null : await resolveProfilePath(request.profile);
           if (responded || lifecycle.signal.aborted) return;
-          await options.onOpen(canonicalRoot, lifecycle.signal);
+          await options.onOpen({ root: canonicalRoot, profilePath }, lifecycle.signal);
           if (responded || lifecycle.signal.aborted) return;
           respond({ ok: true });
         } catch {

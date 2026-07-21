@@ -28,7 +28,7 @@
       "explorer/context": [
         {
           "command": "vaspAnalyzer.open",
-          "when": "resourceFilename == OUTCAR",
+          "when": "resourceFilename =~ /^outcar$/i",
           "group": "navigation@50"
         }
       ]

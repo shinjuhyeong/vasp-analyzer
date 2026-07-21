@@ -7,6 +7,7 @@ import {
   AnalyzerProtocolError,
   spawnAnalyzer,
   type AnalyzerProcess,
+  type AnalyzerLaunchConfiguration,
   type Method,
 } from "./analyzerProcess.js";
 import {
@@ -14,6 +15,7 @@ import {
   resolveCalculationRoot,
   type ControlEndpoint,
 } from "./controlEndpoint.js";
+import { CALCULATION_OPEN_DIALOG_OPTIONS, calculationPanelKey } from "./openCalculation.js";
 import { webviewHtml } from "./webviewHtml.js";
 
 interface WebviewRequest {
@@ -38,11 +40,14 @@ function requireActive(...signals: readonly AbortSignal[]): void {
   if (signals.some((signal) => signal.aborted)) throw new Error("VASP Analyzer is closing");
 }
 
-function configuredLaunch(): { executablePath?: string; pythonPath?: string } {
+function configuredLaunch(profilePath: string | null): AnalyzerLaunchConfiguration {
   const configuration = vscode.workspace.getConfiguration("vaspAnalyzer");
   const pythonPath = configuration.get<string>("pythonPath")?.trim();
   const executablePath = configuration.get<string>("executablePath", "analyzer")?.trim();
-  return pythonPath ? { pythonPath } : { executablePath: executablePath || "analyzer" };
+  const profile = profilePath === null ? {} : { profilePath };
+  return pythonPath
+    ? { pythonPath, ...profile }
+    : { executablePath: executablePath || "analyzer", ...profile };
 }
 
 function configuredTimeout(): number {
@@ -73,12 +78,14 @@ function activationPlan(context: vscode.ExtensionContext): {
   const processes = new Map<vscode.WebviewPanel, AnalyzerProcess>();
 
   const openCanonicalCalculation = async (
-    root: string,
+    calculation: { readonly root: string; readonly profilePath: string | null },
     activationSignal: AbortSignal,
     requestSignal: AbortSignal = activationSignal,
   ): Promise<void> => {
+    const { root, profilePath } = calculation;
+    const panelKey = calculationPanelKey(root, profilePath);
     requireActive(activationSignal, requestSignal);
-    const existing = panels.get(root);
+    const existing = panels.get(panelKey);
     if (existing) {
       requireActive(activationSignal, requestSignal);
       existing.reveal();
@@ -96,14 +103,14 @@ function activationPlan(context: vscode.ExtensionContext): {
     let analyzer: AnalyzerProcess;
     try {
       requireActive(activationSignal, requestSignal);
-      analyzer = spawnAnalyzer(root, configuredLaunch(), {
+      analyzer = spawnAnalyzer(root, configuredLaunch(profilePath), {
         requestTimeoutMs: configuredTimeout(),
       });
     } catch (error) {
       panel.dispose();
       throw error;
     }
-    panels.set(root, panel);
+    panels.set(panelKey, panel);
     processes.set(panel, analyzer);
     const bundle = vscode.Uri.joinPath(webviewRoot, "index.js");
     const stylesheet = vscode.Uri.joinPath(webviewRoot, "index.css");
@@ -146,7 +153,7 @@ function activationPlan(context: vscode.ExtensionContext): {
       () => {
         analyzer.dispose();
         processes.delete(panel);
-        panels.delete(root);
+        panels.delete(panelKey);
       },
       undefined,
       context.subscriptions,
@@ -157,14 +164,14 @@ function activationPlan(context: vscode.ExtensionContext): {
     requireActive(activationSignal);
     const root = await resolveCalculationRoot(candidate);
     requireActive(activationSignal);
-    await openCanonicalCalculation(root, activationSignal);
+    await openCanonicalCalculation({ root, profilePath: null }, activationSignal);
   };
 
   return {
     factory: async (activationSignal) =>
       await createControlEndpoint({
-        onOpen: async (root, requestSignal) =>
-          await openCanonicalCalculation(root, activationSignal, requestSignal),
+        onOpen: async (calculation, requestSignal) =>
+          await openCanonicalCalculation(calculation, activationSignal, requestSignal),
       }),
     install: (endpoint, activationSignal) => {
       requireActive(activationSignal);
@@ -191,12 +198,7 @@ function activationPlan(context: vscode.ExtensionContext): {
             try {
               let selected = resource;
               if (!selected) {
-                const choices = await vscode.window.showOpenDialog({
-                  canSelectFiles: true,
-                  canSelectFolders: false,
-                  canSelectMany: false,
-                  openLabel: "Open VASP Calculation",
-                });
+                const choices = await vscode.window.showOpenDialog(CALCULATION_OPEN_DIALOG_OPTIONS);
                 selected = choices?.[0];
               }
               if (selected) await openCalculation(selected.fsPath, activationSignal);

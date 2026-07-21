@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
+import { CALCULATION_OPEN_DIALOG_OPTIONS, calculationPanelKey } from "../openCalculation.js";
+
 describe("extension manifest", () => {
   it("runs in the workspace host and contributes command and OUTCAR menu", async () => {
     const manifest = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
@@ -10,8 +12,17 @@ describe("extension manifest", () => {
       expect.arrayContaining(["onStartupFinished", "onCommand:vaspAnalyzer.open"]),
     );
     expect(manifest.contributes.commands).toContainEqual(expect.objectContaining({ command: "vaspAnalyzer.open" }));
-    expect(manifest.contributes.menus["explorer/context"]).toContainEqual(
-      expect.objectContaining({ command: "vaspAnalyzer.open", when: "resourceFilename == OUTCAR" }),
+    const menu = manifest.contributes.menus["explorer/context"].find(
+      (entry: { command?: string }) => entry.command === "vaspAnalyzer.open",
+    );
+    expect(menu.when).toBe("resourceFilename =~ /^outcar$/i");
+    expect(CALCULATION_OPEN_DIALOG_OPTIONS).toMatchObject({
+      canSelectFiles: true,
+      canSelectFolders: true,
+      canSelectMany: false,
+    });
+    expect(calculationPanelKey("/work/calc", null)).not.toBe(
+      calculationPanelKey("/work/calc", "/profiles/home.toml"),
     );
   });
 

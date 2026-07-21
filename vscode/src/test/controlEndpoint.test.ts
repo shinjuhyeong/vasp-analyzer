@@ -17,6 +17,13 @@ async function calculationFixture(): Promise<string> {
   return root;
 }
 
+async function profileFixture(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "vasp-profile-test-"));
+  const profile = join(root, "profile.toml");
+  await writeFile(profile, "[analysis]\n");
+  return profile;
+}
+
 describe("control endpoint", () => {
   it("rejects an invalid token before opening a panel", async () => {
     const onOpen = vi.fn();
@@ -32,16 +39,48 @@ describe("control endpoint", () => {
 
   it("opens only a canonical readable calculation root", async () => {
     const root = await calculationFixture();
-    const onOpen = vi.fn(async (_canonicalRoot: string, _signal: AbortSignal) => undefined);
+    const onOpen = vi.fn(async (
+      _calculation: { readonly root: string; readonly profilePath: string | null },
+      _signal: AbortSignal,
+    ) => undefined);
     const endpoint = await createControlEndpoint({ token: "t".repeat(32), onOpen });
     endpoints.push(endpoint);
 
     await expect(endpoint.request({ token: endpoint.token, path: join(root, "OUTCAR") })).resolves.toEqual({ ok: true });
-    expect(onOpen).toHaveBeenCalledWith(
-      await import("node:fs/promises").then((fs) => fs.realpath(root)),
-      expect.anything(),
-    );
+    expect(onOpen).toHaveBeenCalledWith({
+      root: await import("node:fs/promises").then((fs) => fs.realpath(root)),
+      profilePath: null,
+    }, expect.anything());
     expect((onOpen.mock.calls[0]?.[1] as AbortSignal).aborted).toBe(false);
+  });
+
+  it("forwards a canonical readable profile file with the calculation", async () => {
+    const root = await calculationFixture();
+    const profile = await profileFixture();
+    const onOpen = vi.fn();
+    const endpoint = await createControlEndpoint({ token: "p".repeat(32), onOpen });
+    endpoints.push(endpoint);
+
+    await expect(endpoint.request({ token: endpoint.token, path: root, profile })).resolves.toEqual({ ok: true });
+    expect(onOpen).toHaveBeenCalledWith({
+      root: await import("node:fs/promises").then((fs) => fs.realpath(root)),
+      profilePath: await import("node:fs/promises").then((fs) => fs.realpath(profile)),
+    }, expect.anything());
+  });
+
+  it.each(["missing", "directory"])("rejects a %s profile without opening", async (kind) => {
+    const root = await calculationFixture();
+    const profileRoot = await mkdtemp(join(tmpdir(), "vasp-invalid-profile-test-"));
+    const profile = kind === "directory" ? profileRoot : join(profileRoot, "missing.toml");
+    const onOpen = vi.fn();
+    const endpoint = await createControlEndpoint({ token: "q".repeat(32), onOpen });
+    endpoints.push(endpoint);
+
+    await expect(endpoint.request({ token: endpoint.token, path: root, profile })).resolves.toEqual({
+      ok: false,
+      error: "invalid_path",
+    });
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("rejects unreadable or oversized requests and responds once", async () => {
@@ -115,7 +154,7 @@ describe("control endpoint", () => {
     const endpoint = await createControlEndpoint({
       token: "c".repeat(32),
       resolvePath: async () => "canonical",
-      onOpen: async (_root, signal) => {
+      onOpen: async (_calculation, signal) => {
         openStarted();
         await barrier;
         if (!signal.aborted) sideEffects += 1;

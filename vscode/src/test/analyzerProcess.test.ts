@@ -58,6 +58,36 @@ describe("AnalyzerProcess", () => {
     expect(invocation.args.at(-1)).toBe(calculation);
   });
 
+  it("keeps a profile path as one literal non-shell argument", () => {
+    const profilePath = "/profiles/home profile; unsafe.toml";
+    const invocation = analyzerInvocation("/work/calc", { profilePath });
+    expect(invocation.args).toEqual([
+      "serve",
+      "--stdio",
+      "/work/calc",
+      "--profile",
+      profilePath,
+    ]);
+    expect(invocation.shell).toBe(false);
+  });
+
+  it("appends a profile after the calculation path for Python module launches", () => {
+    const invocation = analyzerInvocation("/work/calc", {
+      pythonPath: "python-custom",
+      profilePath: "/profiles/home.toml",
+    });
+    expect(invocation.args).toEqual([
+      "-m",
+      "vasp_analyzer.cli",
+      "serve",
+      "--stdio",
+      "/work/calc",
+      "--profile",
+      "/profiles/home.toml",
+    ]);
+    expect(invocation.shell).toBe(false);
+  });
+
   it("correlates newline-delimited responses by JSON id", async () => {
     const child = fakeChild();
     const analyzer = new AnalyzerProcess(child);

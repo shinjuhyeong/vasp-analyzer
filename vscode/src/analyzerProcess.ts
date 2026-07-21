@@ -38,6 +38,7 @@ export interface AnalyzerProcessOptions {
 export interface AnalyzerLaunchConfiguration {
   readonly executablePath?: string;
   readonly pythonPath?: string;
+  readonly profilePath?: string;
 }
 
 export function analyzerInvocation(calculationPath: string, configuration: AnalyzerLaunchConfiguration = {}): {
@@ -47,11 +48,14 @@ export function analyzerInvocation(calculationPath: string, configuration: Analy
 } {
   const pythonPath = configuration.pythonPath?.trim();
   const command = pythonPath || configuration.executablePath?.trim() || "analyzer";
+  const profileArgs = configuration.profilePath === undefined
+    ? []
+    : ["--profile", configuration.profilePath];
   return {
     command,
     args: pythonPath
-      ? ["-m", "vasp_analyzer.cli", "serve", "--stdio", calculationPath]
-      : ["serve", "--stdio", calculationPath],
+      ? ["-m", "vasp_analyzer.cli", "serve", "--stdio", calculationPath, ...profileArgs]
+      : ["serve", "--stdio", calculationPath, ...profileArgs],
     shell: false,
   };
 }
