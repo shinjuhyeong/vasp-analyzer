@@ -41,6 +41,26 @@ it("keeps force scale unchanged for an empty draft", async () => {
   expect(change).not.toHaveBeenCalled();
 });
 
+it.each(["blur", "Enter"] as const)(
+  "restores the controlled force scale without dispatch when an empty draft commits on %s",
+  async (commit) => {
+    const change = vi.fn();
+    render(<ForceScaleControl value={250} onChange={change} />);
+
+    const user = userEvent.setup();
+    const number = screen.getByLabelText("Force vector scale number");
+    await user.clear(number);
+    if (commit === "blur") {
+      await user.tab();
+    } else {
+      await user.keyboard("{Enter}");
+    }
+
+    expect(number).toHaveValue(250);
+    expect(change).not.toHaveBeenCalled();
+  },
+);
+
 it("clamps a submitted force scale to the maximum", async () => {
   const change = vi.fn();
   render(<ForceScaleControl value={250} onChange={change} />);

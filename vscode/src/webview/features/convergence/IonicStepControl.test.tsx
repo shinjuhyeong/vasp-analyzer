@@ -34,6 +34,26 @@ it("keeps selection unchanged for an empty ionic step draft", async () => {
   expect(select).not.toHaveBeenCalled();
 });
 
+it.each(["blur", "Enter"] as const)(
+  "restores the controlled ionic step without dispatch when an empty draft commits on %s",
+  async (commit) => {
+    const select = vi.fn();
+    render(<IonicStepControl total={120} selectedIndex={1} onSelect={select} />);
+
+    const user = userEvent.setup();
+    const number = screen.getByLabelText("Ionic step number");
+    await user.clear(number);
+    if (commit === "blur") {
+      await user.tab();
+    } else {
+      await user.keyboard("{Enter}");
+    }
+
+    expect(number).toHaveValue(2);
+    expect(select).not.toHaveBeenCalled();
+  },
+);
+
 it("clamps a submitted ionic step to the final index", async () => {
   const select = vi.fn();
   render(<IonicStepControl total={120} selectedIndex={1} onSelect={select} />);

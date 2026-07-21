@@ -29,6 +29,11 @@ export function IonicStepControl({ total: totalProp, steps, selectedIndex, onSel
   };
 
   const normalizeDraft = (): void => {
+    if (draft.trim() === "") {
+      setDraft(String(selectedStep));
+      return;
+    }
+
     const parsed = Number(draft);
     const step = Number.isFinite(parsed) ? clamp(Math.round(parsed), 1, total) : selectedStep;
     setDraft(String(step));

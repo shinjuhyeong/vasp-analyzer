@@ -32,6 +32,11 @@ export function ForceScaleControl({ value, onChange }: ForceScaleControlProps): 
   };
 
   const normalizeDraft = (): void => {
+    if (draft.trim() === "") {
+      setDraft(String(value));
+      return;
+    }
+
     const parsed = Number(draft);
     const nextValue = Number.isFinite(parsed) ? clamp(parsed, MIN_SCALE, MAX_SCALE) : value;
     setDraft(String(nextValue));
