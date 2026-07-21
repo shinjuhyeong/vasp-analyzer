@@ -168,6 +168,7 @@ def test_new_detail_models_reject_invalid_contract_values(model, kwargs) -> None
         Decimal("0.1"),
         b"abc",
         (2**53 + 1,),
+        (Decimal("0.1"),),
     ],
 )
 def test_parameter_occurrence_rejects_lossy_typed_value_coercion(value) -> None:
@@ -204,6 +205,49 @@ def test_parameter_occurrence_preserves_strict_supported_value_types(
 
     assert type(parameter.value) is expected_type
     assert parameter.value == value
+
+
+@pytest.mark.parametrize("value", [(1.0, 2.0), ()])
+def test_parameter_occurrence_float_tuple_round_trips_through_json(value) -> None:
+    parameter = ParameterOccurrence(
+        key="custom",
+        raw_key="CUSTOM",
+        raw_value=str(value),
+        value=value,
+        ordinal=0,
+    )
+
+    restored = ParameterOccurrence.model_validate_json(parameter.model_dump_json())
+
+    assert restored == parameter
+    assert restored.value == value
+    assert type(restored.value) is tuple
+
+
+def test_parameter_occurrence_losslessly_normalizes_float_list() -> None:
+    parameter = ParameterOccurrence(
+        key="custom",
+        raw_key="CUSTOM",
+        raw_value="1.0 2.0",
+        value=[1.0, 2.0],
+        ordinal=0,
+    )
+
+    assert parameter.value == (1.0, 2.0)
+    assert type(parameter.value) is tuple
+
+
+@pytest.mark.parametrize("encoded_value", ["[1,2.0]", "[true]", '["1.0"]'])
+def test_parameter_occurrence_json_rejects_non_float_array_members(
+    encoded_value: str,
+) -> None:
+    payload = (
+        '{"key":"custom","rawKey":"CUSTOM","rawValue":"raw",'
+        f'"value":{encoded_value},"ordinal":0}}'
+    )
+
+    with pytest.raises(ValidationError):
+        ParameterOccurrence.model_validate_json(payload)
 
 
 @pytest.mark.parametrize(

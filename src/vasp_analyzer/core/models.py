@@ -109,8 +109,8 @@ class ParameterOccurrence(FrozenModel):
     def require_strict_value_type(cls, value: object) -> object:
         if type(value) in (bool, int, float, str):
             return value
-        if type(value) is tuple and all(type(item) is float for item in value):
-            return value
+        if type(value) in (list, tuple) and all(type(item) is float for item in value):
+            return tuple(value)
         raise ValueError("parameter value must use an exact supported type")
 
     @field_validator("value")
