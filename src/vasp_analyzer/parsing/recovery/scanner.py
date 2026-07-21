@@ -33,9 +33,8 @@ _IONS_PER_TYPE = re.compile(rb"\bions\s+per\s+type\s*=\s*(.+)$", re.IGNORECASE)
 _ENERGY = re.compile(rb"=\s*([^\s]+)")
 _LATTICE_MARKER = b"direct lattice vectors"
 _NORMAL_FINISH_MARKER = b"general timing and accounting"
-_PARAMETER_ASSIGNMENT_LINE = re.compile(
-    rb"^\s*[A-Za-z][A-Za-z0-9_.-]{0,63}\s*="
-)
+_PARAMETER_ASSIGNMENT_LINE = re.compile(rb"^\s*[A-Za-z][A-Za-z0-9_.-]{0,63}\s*=")
+_ENERGY_ASSIGNMENT_LINE = re.compile(rb"^\s*(?=[^=\r\n]*[A-Za-z0-9])[^=\r\n]+?=")
 _COMBINED_ENERGY_AGGREGATES = re.compile(
     rb"^\s*energy\s+without\s+entropy\s*=\s*([^\s]+)(?:\s+eV)?\s+"
     rb"energy\(sigma->0\)\s*=\s*([^\s]+)(?:\s+eV)?\s*$",
@@ -92,9 +91,7 @@ def _contains_any(line: bytes, markers: tuple[str, ...]) -> bool:
     return any(marker.encode("utf-8").lower() in lowered for marker in markers)
 
 
-def _combined_energy_terms(
-    line: bytes, dialect: Dialect
-) -> tuple[EnergyTerm, EnergyTerm] | None:
+def _combined_energy_terms(line: bytes, dialect: Dialect) -> tuple[EnergyTerm, EnergyTerm] | None:
     """Tokenize VASP's two assignments on its combined entropy/sigma line."""
 
     match = _COMBINED_ENERGY_AGGREGATES.fullmatch(line.rstrip(b"\r\n"))
@@ -123,9 +120,7 @@ def _finite_numbers(line: bytes, *, context: str, offset: int) -> tuple[float, .
                 f"{context} at byte {offset} contains a non-numeric value"
             ) from error
         if not math.isfinite(value):
-            raise _NonFiniteRow(
-                f"{context} at byte {offset} contains a non-finite value"
-            )
+            raise _NonFiniteRow(f"{context} at byte {offset} contains a non-finite value")
         values.append(value)
     return tuple(values)
 
@@ -182,6 +177,16 @@ def _mat3(rows: list[tuple[float, ...]], offset: int) -> Mat3:
     if not math.isfinite(determinant) or determinant == 0.0:
         raise OutcarFormatError(f"lattice at byte {offset} is singular")
     return lattice
+
+
+def _empty_details() -> dict[str, object]:
+    return {
+        "energy_terms": [],
+        "external_pressure_kb": None,
+        "pulay_stress_kb": None,
+        "stress_tensor_kb": None,
+        "cell_volume": None,
+    }
 
 
 def _step(
@@ -242,10 +247,15 @@ def scan_outcar(
     normally_finished = checkpoint.normally_finished if restore_parser_state else False
     last_verified_offset = resumed_from
     pending: dict[str, object] | None = None
+    next_details = _empty_details()
+    next_detail_start: int | None = None
     force_rows_just_finished = False
     parameter_section_active = False
     energy_section_active = False
     stress_block_start: int | None = None
+    stress_target: str | None = None
+    stress_rows: list[bytes] | None = None
+    stress_3x3_complete = False
     line_number = 0
 
     with path.open("rb") as stream:
@@ -269,10 +279,10 @@ def scan_outcar(
 
         def finalize_pending(*, stable: bool) -> None:
             nonlocal pending, next_step_id, last_verified_offset
-            nonlocal energy_section_active, stress_block_start
+            nonlocal energy_section_active
             if pending is None:
                 return
-            if stable and stress_block_start is not None:
+            if stable and stress_target == "pending":
                 raise OutcarFormatError(
                     f"stress block at byte {stress_block_start} ended before a complete tensor"
                 )
@@ -284,7 +294,30 @@ def scan_outcar(
                 last_verified_offset = record.block_end
             pending = None
             energy_section_active = False
+
+        def mark_next_detail(line_start: int) -> None:
+            nonlocal next_detail_start
+            if next_detail_start is None:
+                next_detail_start = line_start
+
+        def detail_target(line_start: int) -> dict[str, object]:
+            if pending is not None:
+                return pending
+            mark_next_detail(line_start)
+            return next_details
+
+        def active_stress_target() -> dict[str, object]:
+            if stress_target == "pending" and pending is not None:
+                return pending
+            if stress_target == "next":
+                return next_details
+            raise OutcarFormatError("stress block lost its record association")
+
+        def clear_stress_state() -> None:
+            nonlocal stress_block_start, stress_target, stress_rows
             stress_block_start = None
+            stress_target = None
+            stress_rows = None
 
         def handle_incomplete_tail(message: str, block_offset: int) -> None:
             if not dialect.profile.validation.allow_incomplete_tail:
@@ -301,9 +334,7 @@ def scan_outcar(
         while (item := read_line()) is not None:
             line_start, raw = item
             lowered = raw.lower()
-            force_marker_now = _contains_all(
-                raw, dialect.profile.outcar.markers.position_force
-            )
+            force_marker_now = _contains_all(raw, dialect.profile.outcar.markers.position_force)
 
             if _contains_any(raw, dialect.profile.outcar.details.parameter_sections):
                 parameter_section_active = True
@@ -335,9 +366,7 @@ def scan_outcar(
                     raise OutcarFormatError(
                         f"ions per type at byte {line_start} must contain positive counts"
                     )
-                collapsed_elements = _collapse_repeated_elements(
-                    element_types, len(parsed_counts)
-                )
+                collapsed_elements = _collapse_repeated_elements(element_types, len(parsed_counts))
                 if collapsed_elements is None:
                     raise OutcarFormatError(
                         f"ions per type at byte {line_start} names {len(parsed_counts)} types "
@@ -366,24 +395,36 @@ def scan_outcar(
 
             if _NORMAL_FINISH_MARKER in lowered:
                 normally_finished = True
+                if stress_target is not None:
+                    raise OutcarFormatError(
+                        f"stress block at byte {stress_block_start} ended before a complete tensor"
+                    )
+                if next_detail_start is not None:
+                    raise OutcarFormatError(
+                        f"details at byte {next_detail_start} were not followed by a force record"
+                    )
                 finalize_pending(stable=True)
                 last_verified_offset = offset
 
-            if pending is not None and _contains_all(
-                raw, dialect.profile.outcar.markers.converged
-            ):
+            if pending is not None and _contains_all(raw, dialect.profile.outcar.markers.converged):
                 pending["ionic_converged"] = True
 
             if _LATTICE_MARKER in lowered:
+                if pending is None and stress_target is not None:
+                    raise OutcarFormatError(
+                        f"stress block at byte {stress_block_start} ended before a complete tensor"
+                    )
+                if pending is None and next_detail_start is not None:
+                    raise OutcarFormatError(
+                        f"details at byte {next_detail_start} crossed a lattice boundary"
+                    )
                 finalize_pending(stable=True)
                 lattice_rows: list[tuple[float, ...]] = []
                 incomplete_lattice = False
                 for _ in range(3):
                     lattice_item = read_line()
                     if lattice_item is None:
-                        handle_incomplete_tail(
-                            "incomplete lattice block", line_start
-                        )
+                        handle_incomplete_tail("incomplete lattice block", line_start)
                         incomplete_lattice = True
                         break
                     lattice_offset, lattice_raw = lattice_item
@@ -397,9 +438,7 @@ def scan_outcar(
                         handle_incomplete_tail("incomplete lattice row", lattice_offset)
                         incomplete_lattice = True
                         break
-                    if len(lattice_values) != 6 and not lattice_raw.endswith(
-                        (b"\n", b"\r")
-                    ):
+                    if len(lattice_values) != 6 and not lattice_raw.endswith((b"\n", b"\r")):
                         handle_incomplete_tail("incomplete lattice row", lattice_offset)
                         incomplete_lattice = True
                         break
@@ -411,6 +450,10 @@ def scan_outcar(
                 continue
 
             if _contains_all(raw, dialect.profile.outcar.markers.position_force):
+                if stress_target is not None:
+                    raise OutcarFormatError(
+                        f"stress block at byte {stress_block_start} ended before a complete tensor"
+                    )
                 finalize_pending(stable=True)
                 if expected_atom_count <= 0:
                     raise OutcarFormatError(
@@ -422,9 +465,7 @@ def scan_outcar(
                     )
                 separator = read_line()
                 if separator is None:
-                    handle_incomplete_tail(
-                        "force block ended before its atom rows", line_start
-                    )
+                    handle_incomplete_tail("force block ended before its atom rows", line_start)
                     break
                 separator_offset, separator_raw = separator
                 if separator_raw.strip(b" \t\r\n-"):
@@ -439,8 +480,7 @@ def scan_outcar(
                     atom_item = read_line()
                     if atom_item is None:
                         handle_incomplete_tail(
-                            f"force block has {atom_index} of "
-                            f"{expected_atom_count} atom rows",
+                            f"force block has {atom_index} of {expected_atom_count} atom rows",
                             line_start,
                         )
                         incomplete = True
@@ -452,8 +492,7 @@ def scan_outcar(
                         if atom_raw.endswith((b"\n", b"\r")):
                             raise
                         handle_incomplete_tail(
-                            f"incomplete atom row {atom_index + 1} of "
-                            f"{expected_atom_count}",
+                            f"incomplete atom row {atom_index + 1} of {expected_atom_count}",
                             atom_offset,
                         )
                         incomplete = True
@@ -461,8 +500,7 @@ def scan_outcar(
                     if len(values) != dialect.profile.validation.expected_force_columns:
                         if not atom_raw.endswith((b"\n", b"\r")):
                             handle_incomplete_tail(
-                                f"incomplete atom row {atom_index + 1} of "
-                                f"{expected_atom_count}",
+                                f"incomplete atom row {atom_index + 1} of {expected_atom_count}",
                                 atom_offset,
                             )
                             incomplete = True
@@ -482,20 +520,16 @@ def scan_outcar(
                     "positions": tuple(positions),
                     "forces": tuple(forces),
                     "energy": None,
-                    "energy_terms": [],
-                    "external_pressure_kb": None,
-                    "pulay_stress_kb": None,
-                    "stress_tensor_kb": None,
-                    "cell_volume": None,
+                    **next_details,
                     "ionic_converged": None,
                 }
+                next_details = _empty_details()
+                next_detail_start = None
                 force_rows_just_finished = True
                 continue
 
             if force_rows_just_finished:
-                if (
-                    _looks_like_force_row(raw, dialect, offset=line_start)
-                ):
+                if _looks_like_force_row(raw, dialect, offset=line_start):
                     raise OutcarFormatError(
                         f"force block at byte {line_start} contains more than "
                         f"{expected_atom_count} atom rows"
@@ -508,64 +542,124 @@ def scan_outcar(
                 energy_section_active = True
                 continue
 
-            if pending is not None and _contains_any(
-                raw, dialect.profile.outcar.details.stress_section
-            ):
+            if _contains_any(raw, dialect.profile.outcar.details.stress_section):
+                if stress_target is not None:
+                    raise OutcarFormatError(
+                        f"stress block at byte {stress_block_start} contains a nested marker"
+                    )
                 energy_section_active = False
                 stress_block_start = line_start
+                stress_target = "pending" if pending is not None else "next"
+                if pending is None:
+                    mark_next_detail(line_start)
+                stress_rows = None
+                stress_3x3_complete = False
                 continue
 
-            if pending is not None:
-                if _contains_any(
-                    raw, dialect.profile.outcar.details.external_pressure
-                ) and not raw.endswith((b"\n", b"\r")):
-                    handle_incomplete_tail("incomplete external pressure line", line_start)
+            if stress_3x3_complete:
+                try:
+                    trailing_stress_values = _finite_numbers(
+                        raw, context="stress tensor row", offset=line_start
+                    )
+                except _NonNumericRow:
+                    stress_3x3_complete = False
+                else:
+                    if trailing_stress_values:
+                        raise OutcarFormatError(
+                            f"stress tensor at byte {line_start} contains more than three rows"
+                        )
+                    stress_3x3_complete = False
+
+            if stress_target is not None and stress_rows is not None:
+                if not raw.endswith((b"\n", b"\r")):
+                    handle_incomplete_tail(
+                        "incomplete stress tensor", stress_block_start or line_start
+                    )
+                    clear_stress_state()
                     break
-                pressure = parse_pressure_line(raw, dialect.profile.outcar)
-                if pressure is not None:
-                    pending["external_pressure_kb"], pending["pulay_stress_kb"] = pressure
-                    pending["block_end"] = offset
-                    continue
+                values = _finite_numbers(raw, context="stress tensor row", offset=line_start)
+                if len(values) != 3:
+                    raise OutcarFormatError(
+                        f"stress tensor row at byte {line_start} must contain three components"
+                    )
+                stress_rows.append(raw)
+                if len(stress_rows) == 3:
+                    target = active_stress_target()
+                    target["stress_tensor_kb"] = parse_stress_rows(tuple(stress_rows), unit="kB")
+                    if pending is not None:
+                        pending["block_end"] = offset
+                    clear_stress_state()
+                    stress_3x3_complete = True
+                continue
 
-                if _contains_any(
-                    raw, dialect.profile.outcar.details.cell_volume
-                ) and not raw.endswith((b"\n", b"\r")):
-                    handle_incomplete_tail("incomplete cell volume line", line_start)
+            if _contains_any(
+                raw, dialect.profile.outcar.details.external_pressure
+            ) and not raw.endswith((b"\n", b"\r")):
+                handle_incomplete_tail("incomplete external pressure line", line_start)
+                break
+            pressure = parse_pressure_line(raw, dialect.profile.outcar)
+            if pressure is not None:
+                target = detail_target(line_start)
+                target["external_pressure_kb"], target["pulay_stress_kb"] = pressure
+                if pending is not None:
+                    pending["block_end"] = offset
+                continue
+
+            if _contains_any(raw, dialect.profile.outcar.details.cell_volume) and not raw.endswith(
+                (b"\n", b"\r")
+            ):
+                handle_incomplete_tail("incomplete cell volume line", line_start)
+                break
+            volume = parse_volume_line(raw, dialect.profile.outcar)
+            if volume is not None:
+                target = detail_target(line_start)
+                target["cell_volume"] = volume
+                if pending is not None:
+                    pending["block_end"] = offset
+                continue
+
+            if stress_target is not None and raw.lstrip().lower().startswith(b"in "):
+                if not raw.endswith((b"\n", b"\r")):
+                    handle_incomplete_tail(
+                        "incomplete stress tensor", stress_block_start or line_start
+                    )
+                    clear_stress_state()
                     break
-                volume = parse_volume_line(raw, dialect.profile.outcar)
-                if volume is not None:
-                    pending["cell_volume"] = volume
+                tokens = raw.split()
+                if len(tokens) == 2 and tuple(token.lower() for token in tokens) == (
+                    b"in",
+                    b"kb",
+                ):
+                    stress_rows = []
+                else:
+                    target = active_stress_target()
+                    target["stress_tensor_kb"] = parse_stress_rows((raw,))
+                    if pending is not None:
+                        pending["block_end"] = offset
+                    clear_stress_state()
+                continue
+
+            if pending is not None and energy_section_active:
+                if not raw.strip():
+                    continue
+                if not raw.endswith((b"\n", b"\r")):
+                    handle_incomplete_tail("incomplete energy detail line", line_start)
+                    break
+                combined = _combined_energy_terms(raw, dialect)
+                if combined is not None:
+                    pending["energy_terms"].extend(combined)  # type: ignore[union-attr]
                     pending["block_end"] = offset
                     continue
-
-                if stress_block_start is not None and raw.lstrip().lower().startswith(b"in "):
-                    if not raw.endswith((b"\n", b"\r")):
-                        handle_incomplete_tail("incomplete stress tensor", stress_block_start)
-                        stress_block_start = None
-                        break
-                    pending["stress_tensor_kb"] = parse_stress_rows((raw,))
-                    pending["block_end"] = offset
-                    stress_block_start = None
+                if _ENERGY_ASSIGNMENT_LINE.match(raw) is None:
                     continue
-
-                if energy_section_active:
-                    if not raw.strip():
-                        continue
-                    if not raw.endswith((b"\n", b"\r")):
-                        handle_incomplete_tail("incomplete energy detail line", line_start)
-                        break
-                    combined = _combined_energy_terms(raw, dialect)
-                    if combined is not None:
-                        pending["energy_terms"].extend(combined)  # type: ignore[union-attr]
-                        pending["block_end"] = offset
-                        continue
-                    energy_term = parse_energy_line(raw, dialect.profile.outcar)
-                    if energy_term is not None:
-                        pending["energy_terms"].append(energy_term)  # type: ignore[union-attr]
-                        if energy_term.key == "toten":
-                            pending["energy"] = energy_term.value
-                        pending["block_end"] = offset
-                        continue
+                energy_term = parse_energy_line(raw, dialect.profile.outcar)
+                if energy_term is not None:
+                    pending["energy_terms"].append(energy_term)  # type: ignore[union-attr]
+                    if energy_term.key == "toten":
+                        pending["energy"] = energy_term.value
+                    pending["block_end"] = offset
+                    continue
+                raise OutcarFormatError(f"energy assignment at byte {line_start} is malformed")
 
             if pending is not None and _contains_all(
                 raw, dialect.profile.outcar.markers.total_energy
@@ -576,19 +670,29 @@ def scan_outcar(
                 match = _ENERGY.search(raw)
                 if match is None:
                     raise OutcarFormatError(f"energy line at byte {line_start} has no value")
-                energy_values = _finite_numbers(
-                    match.group(1), context="energy", offset=line_start
-                )
+                energy_values = _finite_numbers(match.group(1), context="energy", offset=line_start)
                 if len(energy_values) != 1:
                     raise OutcarFormatError(f"energy line at byte {line_start} is malformed")
                 pending["energy"] = energy_values[0]
                 pending["block_end"] = offset
 
-        if pending is not None and stress_block_start is not None:
-            handle_incomplete_tail("incomplete stress tensor", stress_block_start)
+        stress_tail_reported = False
+        if stress_target is not None:
+            handle_incomplete_tail(
+                "incomplete stress tensor",
+                stress_block_start if stress_block_start is not None else offset,
+            )
+            clear_stress_state()
+            stress_tail_reported = True
+        unverified_next_record = next_detail_start is not None
+        if unverified_next_record and not stress_tail_reported:
+            handle_incomplete_tail(
+                "details ended before their force record", next_detail_start or offset
+            )
 
-        replay_provisional = pending is not None
         provisional_start = int(pending["block_start"]) if pending is not None else None
+        replay_start = provisional_start if provisional_start is not None else last_verified_offset
+        replay_provisional = (pending is not None or unverified_next_record) and replay_start > 0
         finalize_pending(stable=False)
     current_stat = path.stat()
     new_checkpoint = ParserCheckpoint(
@@ -596,10 +700,7 @@ def scan_outcar(
         size=offset,
         mtime_ns=current_stat.st_mtime_ns,
         prefix_fingerprint=digest.hexdigest(),
-        last_verified_offset=(
-            provisional_start if replay_provisional and provisional_start is not None
-            else last_verified_offset
-        ),
+        last_verified_offset=(replay_start if replay_provisional else last_verified_offset),
         next_step_id=next_step_id,
         expected_atom_count=expected_atom_count,
         last_lattice=lattice,

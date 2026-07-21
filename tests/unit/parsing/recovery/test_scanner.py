@@ -26,9 +26,7 @@ def strict_tail_dialect():  # type: ignore[no-untyped-def]
     strict_validation = HOME_BARRIER.profile.validation.model_copy(
         update={"allow_incomplete_tail": False}
     )
-    strict_profile = HOME_BARRIER.profile.model_copy(
-        update={"validation": strict_validation}
-    )
+    strict_profile = HOME_BARRIER.profile.model_copy(update={"validation": strict_validation})
     return replace(HOME_BARRIER, profile=strict_profile)
 
 
@@ -55,9 +53,7 @@ def test_details_attach_to_the_force_record_that_precedes_them() -> None:
         "energy_without_entropy",
         "sigma_to_zero",
     ]
-    assert [term.value for term in scan.steps[0].energy_terms[-2:]] == pytest.approx(
-        [-9.9, -9.8]
-    )
+    assert [term.value for term in scan.steps[0].energy_terms[-2:]] == pytest.approx([-9.9, -9.8])
     assert scan.steps[0].external_pressure_kb == pytest.approx(5.0)
     assert scan.steps[0].pulay_stress_kb == pytest.approx(0.5)
     assert scan.steps[0].stress_tensor_kb == (
@@ -67,6 +63,44 @@ def test_details_attach_to_the_force_record_that_precedes_them() -> None:
     )
     assert scan.steps[1].cell_volume == pytest.approx(180.0)
     assert [item.raw_key for item in scan.parameters].count("ENCUT") == 2
+
+
+def test_pre_force_details_attach_to_the_next_force_record() -> None:
+    scan = scan_outcar(FIXTURES / "detail-pre-force-two-step.OUTCAR", HOME_BARRIER)
+
+    assert [step.energy for step in scan.steps] == [-20.0, -21.0]
+    assert [step.cell_volume for step in scan.steps] == pytest.approx([125.0, 216.0])
+    assert [step.external_pressure_kb for step in scan.steps] == pytest.approx([8.0, -3.0])
+    assert [step.stress_tensor_kb for step in scan.steps] == [
+        ((1.0, 0.1, 0.3), (0.1, 2.0, 0.2), (0.3, 0.2, 3.0)),
+        ((4.0, 0.4, 0.6), (0.4, 5.0, 0.5), (0.6, 0.5, 6.0)),
+    ]
+
+
+def test_append_resume_replays_pre_force_details_once(tmp_path: Path) -> None:
+    truncated = (FIXTURES / "detail-pre-force-truncated.OUTCAR").read_bytes()
+    complete = (FIXTURES / "detail-pre-force-two-step.OUTCAR").read_bytes()
+    assert complete.startswith(truncated)
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(truncated)
+
+    first = scan_outcar(path, HOME_BARRIER)
+    path.write_bytes(complete)
+    second = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+
+    assert [step.step_id for step in first.steps] == [0]
+    assert [warning.category for warning in first.warnings] == ["IncompleteTail"]
+    assert first.checkpoint.replay_provisional is True
+    assert second.resumed_from == first.checkpoint.last_verified_offset
+    assert [step.step_id for step in second.steps] == [1]
+    assert second.steps[0].cell_volume == pytest.approx(216.0)
+    assert second.steps[0].external_pressure_kb == pytest.approx(-3.0)
+    assert second.steps[0].stress_tensor_kb == (
+        (4.0, 0.4, 0.6),
+        (0.4, 5.0, 0.5),
+        (0.6, 0.5, 6.0),
+    )
+    assert second.parameters == ()
 
 
 def test_vasp_blank_before_combined_aggregates_does_not_end_energy_section() -> None:
@@ -95,9 +129,7 @@ def test_parameter_section_spans_header_separators_without_hiding_nions(
 
     assert scan.steps[0].atom_count == 1
     selected = [
-        (item.raw_key, item.value)
-        for item in scan.parameters
-        if item.raw_key in {"ENCUT", "NELM"}
+        (item.raw_key, item.value) for item in scan.parameters if item.raw_key in {"ENCUT", "NELM"}
     ]
     assert selected == [
         ("ENCUT", 400),
@@ -201,6 +233,138 @@ def test_physically_truncated_stress_row_emits_one_warning(tmp_path: Path) -> No
     assert scan.steps[-1].stress_tensor_kb is None
 
 
+@pytest.mark.parametrize("assignment", [b" home correction =\n", b" free energy TOTEN =\n"])
+def test_complete_empty_energy_assignment_fails_closed(tmp_path: Path, assignment: bytes) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+        + b" harmless diagnostic prose\n"
+        + assignment
+        + b" General timing and accounting informations for this job:\n"
+    )
+
+    with pytest.raises(OutcarFormatError, match="energy"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_non_assignment_equals_separator_is_ignored_in_energy_section(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+        + b" ================================================\n"
+        + b" General timing and accounting informations for this job:\n"
+    )
+
+    scan = scan_outcar(path, HOME_BARRIER)
+
+    assert scan.steps[0].energy_terms == ()
+
+
+def test_unknown_punctuated_energy_label_is_preserved(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+        + b" home correction* = 2.5 eV\n"
+        + b" General timing and accounting informations for this job:\n"
+    )
+
+    scan = scan_outcar(path, HOME_BARRIER)
+
+    assert [(term.key, term.value) for term in scan.steps[0].energy_terms] == [
+        ("home_correction", 2.5)
+    ]
+
+
+def test_truncated_energy_assignment_warns_then_replays(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    prefix = (
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+        + b" home correction ="
+    )
+    path.write_bytes(prefix)
+
+    first = scan_outcar(path, HOME_BARRIER)
+    path.write_bytes(
+        prefix + b" 1.5 eV\n General timing and accounting informations for this job:\n"
+    )
+    second = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+
+    assert [warning.category for warning in first.warnings] == ["IncompleteTail"]
+    assert first.steps[0].energy_terms == ()
+    assert [term.key for term in second.steps[0].energy_terms] == ["home_correction"]
+    assert second.steps[0].energy_terms[0].value == pytest.approx(1.5)
+
+
+def test_exact_three_by_three_kb_stress_attaches_to_step(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FORCE on cell =-STRESS in cart. coord. units (eV):\n"
+        + b" in kB\n1 2 3\n4 5 6\n7 8 9\n"
+        + b" General timing and accounting informations for this job:\n"
+    )
+
+    scan = scan_outcar(path, HOME_BARRIER)
+
+    assert scan.steps[0].stress_tensor_kb == (
+        (1.0, 2.0, 3.0),
+        (4.0, 5.0, 6.0),
+        (7.0, 8.0, 9.0),
+    )
+
+
+def test_complete_malformed_three_by_three_stress_fails_closed(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FORCE on cell =-STRESS in cart. coord. units (eV):\n"
+        + b" in kB\n1 2 3\n4 nope 6\n7 8 9\n"
+    )
+
+    with pytest.raises(OutcarFormatError, match="stress"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_fourth_three_by_three_stress_row_fails_closed(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FORCE on cell =-STRESS in cart. coord. units (eV):\n"
+        + b" in kB\n1 2 3\n4 5 6\n7 8 9\n10 11 12\n"
+    )
+
+    with pytest.raises(OutcarFormatError, match="stress"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_truncated_three_by_three_stress_warns_then_replays(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    prefix = (
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FORCE on cell =-STRESS in cart. coord. units (eV):\n"
+        + b" in kB\n1 2 3\n4 5 6\n"
+    )
+    path.write_bytes(prefix)
+
+    first = scan_outcar(path, HOME_BARRIER)
+    path.write_bytes(prefix + b"7 8 9\n General timing and accounting informations for this job:\n")
+    second = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+
+    assert [warning.category for warning in first.warnings] == ["IncompleteTail"]
+    assert first.steps[0].stress_tensor_kb is None
+    assert second.steps[0].stress_tensor_kb == (
+        (1.0, 2.0, 3.0),
+        (4.0, 5.0, 6.0),
+        (7.0, 8.0, 9.0),
+    )
+
+
 def test_home_dialect_accepts_element_and_index_prefixed_force_rows(tmp_path: Path) -> None:
     path = tmp_path / "OUTCAR"
     path.write_text(
@@ -223,9 +387,7 @@ def test_standard_vrhfin_species_expand_by_ions_per_type(tmp_path: Path) -> None
     path = tmp_path / "OUTCAR"
     fixture = (FIXTURES / "complete-two-step.OUTCAR").read_bytes()
     body = b" NIONS" + fixture.split(b" NIONS", maxsplit=1)[1]
-    path.write_bytes(
-        b" VRHFIN =H: s1\n VRHFIN =O: s2p4\n ions per type = 1 1\n" + body
-    )
+    path.write_bytes(b" VRHFIN =H: s1\n VRHFIN =O: s2p4\n ions per type = 1 1\n" + body)
 
     result = scan_outcar(path, HOME_BARRIER)
 
@@ -532,9 +694,7 @@ def test_normally_finished_survives_unchanged_resume() -> None:
         "0.0 0.0 0.0 0.1 0.0 0.0 7.0",
     ],
 )
-def test_nonfinite_or_inconsistent_atom_rows_are_rejected(
-    tmp_path: Path, atom_row: str
-) -> None:
+def test_nonfinite_or_inconsistent_atom_rows_are_rejected(tmp_path: Path, atom_row: str) -> None:
     path = tmp_path / "OUTCAR"
     path.write_text(
         "NIONS = 1 ions\n"
