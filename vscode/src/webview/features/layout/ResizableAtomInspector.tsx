@@ -152,7 +152,7 @@ export function ResizableAtomInspector({
               aria-orientation="vertical"
               aria-valuemin={MIN_INSPECTOR_WIDTH}
               aria-valuemax={Math.round(maximumWidth)}
-              aria-valuenow={Math.round(width)}
+              aria-valuenow={Math.round(effectiveWidth)}
               tabIndex={0}
               onPointerDown={(event) => {
                 event.currentTarget.setPointerCapture?.(event.pointerId);
