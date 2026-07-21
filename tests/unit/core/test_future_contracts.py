@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from vasp_analyzer.core import VolumetricAlignmentError
+from vasp_analyzer.core import ParameterOccurrence, VolumetricAlignmentError
 from vasp_analyzer.core.models import VolumetricDescriptor, VolumetricRequest
 
 IDENTITY = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
@@ -37,3 +37,16 @@ def test_volumetric_request_rejects_invalid_contract_values(kwargs) -> None:
     values.update(kwargs)
     with pytest.raises(ValidationError):
         VolumetricRequest(**values)
+
+
+def test_parameter_occurrence_is_a_public_immutable_contract() -> None:
+    parameter = ParameterOccurrence(
+        key="encut",
+        raw_key="ENCUT",
+        raw_value="520",
+        value=520,
+        ordinal=0,
+    )
+
+    with pytest.raises(ValidationError):
+        parameter.value = 400

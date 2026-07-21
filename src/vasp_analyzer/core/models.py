@@ -65,9 +65,62 @@ class ParserProvenance(FrozenModel):
 
 
 class EnergyTerm(FrozenModel):
-    name: str
+    key: str
+    raw_label: str
     value: float
     unit: Literal["eV"] = "eV"
+    kind: Literal["contribution", "aggregate"]
+
+    @field_validator("key", "raw_label")
+    @classmethod
+    def require_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("energy term text must not be empty")
+        return value
+
+    @field_validator("value")
+    @classmethod
+    def require_finite_value(cls, value: float) -> float:
+        if not np.isfinite(value):
+            raise ValueError("energy term value must be finite")
+        return value
+
+
+class ParameterOccurrence(FrozenModel):
+    key: str
+    raw_key: str
+    raw_value: str
+    value: bool | int | float | str | tuple[float, ...]
+    unit: str | None = None
+    category: str | None = None
+    description: str | None = None
+    ordinal: int
+    line_number: int | None = None
+
+    @field_validator("key", "raw_key", "raw_value")
+    @classmethod
+    def require_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("parameter text must not be empty")
+        return value
+
+    @field_validator("value")
+    @classmethod
+    def require_finite_value(
+        cls, value: bool | int | float | str | tuple[float, ...]
+    ) -> bool | int | float | str | tuple[float, ...]:
+        if isinstance(value, float) and not np.isfinite(value):
+            raise ValueError("parameter value must be finite")
+        if isinstance(value, tuple) and not all(np.isfinite(item) for item in value):
+            raise ValueError("parameter tuple values must be finite")
+        return value
+
+    @field_validator("ordinal")
+    @classmethod
+    def require_nonnegative_ordinal(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("parameter ordinal must be nonnegative")
+        return value
 
 
 class IonicStep(FrozenModel):
@@ -80,12 +133,37 @@ class IonicStep(FrozenModel):
     free_force_norms: tuple[float, ...] | None
     total_energy: float | None
     energy_terms: tuple[EnergyTerm, ...] = ()
+    external_pressure_kb: float | None = None
+    pulay_stress_kb: float | None = None
+    stress_tensor_kb: Mat3 | None = None
+    cell_volume: float | None = None
     delta_energy: float | None
     scf_iterations: int | None
     electronic_converged: bool | None
     ionic_converged: bool | None
     strongest_free_component: ForceComponent | None
     rms_free_force: float | None
+
+    @field_validator("external_pressure_kb", "pulay_stress_kb")
+    @classmethod
+    def require_finite_cell_scalar(cls, value: float | None) -> float | None:
+        if value is not None and not np.isfinite(value):
+            raise ValueError("cell scalar must be finite")
+        return value
+
+    @field_validator("stress_tensor_kb")
+    @classmethod
+    def require_finite_stress_tensor(cls, value: Mat3 | None) -> Mat3 | None:
+        if value is not None and not all(np.isfinite(item) for row in value for item in row):
+            raise ValueError("stress tensor values must be finite")
+        return value
+
+    @field_validator("cell_volume")
+    @classmethod
+    def require_positive_finite_cell_volume(cls, value: float | None) -> float | None:
+        if value is not None and (not np.isfinite(value) or value <= 0):
+            raise ValueError("cell volume must be positive and finite")
+        return value
 
 
 class Capability(FrozenModel):
@@ -95,11 +173,12 @@ class Capability(FrozenModel):
 
 
 class CalculationDataset(FrozenModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     root: str
     source_files: tuple[SourceFile, ...]
     sites: tuple[Site, ...]
     ionic_steps: tuple[IonicStep, ...]
+    parameters: tuple[ParameterOccurrence, ...] = ()
     capabilities: tuple[Capability, ...]
     warnings: tuple[ParserWarning, ...] = ()
     provenance: ParserProvenance | None = None
