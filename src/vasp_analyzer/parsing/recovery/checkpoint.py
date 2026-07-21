@@ -85,7 +85,10 @@ def checkpoint_is_append_only(path: Path, checkpoint: ParserCheckpoint) -> bool:
             checkpoint.last_verified_offset == 0
             or _valid_lattice(checkpoint.last_lattice)
         )
-        and (not checkpoint.replay_provisional or checkpoint.last_verified_offset > 0)
+        and (
+            not checkpoint.replay_provisional
+            or 0 < checkpoint.last_verified_offset < checkpoint.size
+        )
         and (not checkpoint.normally_finished or not checkpoint.replay_provisional)
         and _is_line_boundary(path, checkpoint.last_verified_offset)
         and fingerprint_prefix(path, checkpoint.size) == checkpoint.prefix_fingerprint

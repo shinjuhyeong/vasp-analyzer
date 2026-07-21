@@ -46,6 +46,161 @@ def test_complete_records_capture_offsets_lattice_forces_and_energy() -> None:
     assert result.normally_finished is True
 
 
+def test_details_attach_to_the_force_record_that_precedes_them() -> None:
+    scan = scan_outcar(FIXTURES / "detail-complete-two-step.OUTCAR", HOME_BARRIER)
+
+    assert [step.energy for step in scan.steps] == [-10.0, -11.0]
+    assert [step.energy_terms[0].key for step in scan.steps] == ["ewald", "ewald"]
+    assert [term.key for term in scan.steps[0].energy_terms[-2:]] == [
+        "energy_without_entropy",
+        "sigma_to_zero",
+    ]
+    assert [term.value for term in scan.steps[0].energy_terms[-2:]] == pytest.approx(
+        [-9.9, -9.8]
+    )
+    assert scan.steps[0].external_pressure_kb == pytest.approx(5.0)
+    assert scan.steps[0].pulay_stress_kb == pytest.approx(0.5)
+    assert scan.steps[0].stress_tensor_kb == (
+        (1.0, 0.1, 0.3),
+        (0.1, 2.0, 0.2),
+        (0.3, 0.2, 3.0),
+    )
+    assert scan.steps[1].cell_volume == pytest.approx(180.0)
+    assert [item.raw_key for item in scan.parameters].count("ENCUT") == 2
+
+
+def test_vasp_blank_before_combined_aggregates_does_not_end_energy_section() -> None:
+    scan = scan_outcar(FIXTURES / "ase-complete-one-step.OUTCAR", HOME_BARRIER)
+
+    assert [term.key for term in scan.steps[0].energy_terms] == [
+        "toten",
+        "energy_without_entropy",
+        "sigma_to_zero",
+    ]
+
+
+def test_parameter_section_spans_header_separators_without_hiding_nions(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "OUTCAR"
+    content = (FIXTURES / "detail-complete-two-step.OUTCAR").read_bytes()
+    path.write_bytes(
+        content.replace(
+            b" INCAR:\n ENCUT = 400\n ENCUT = 520\n\n",
+            b" INCAR:\n ENCUT = 400\n header prose\n\n NELM = 60\n ENCUT = 520\n",
+        )
+    )
+
+    scan = scan_outcar(path, HOME_BARRIER)
+
+    assert scan.steps[0].atom_count == 1
+    selected = [
+        (item.raw_key, item.value)
+        for item in scan.parameters
+        if item.raw_key in {"ENCUT", "NELM"}
+    ]
+    assert selected == [
+        ("ENCUT", 400),
+        ("NELM", 60),
+        ("ENCUT", 520),
+    ]
+
+
+def test_append_resume_replays_only_the_unverified_detailed_tail(tmp_path: Path) -> None:
+    truncated = (FIXTURES / "detail-truncated-tail.OUTCAR").read_bytes()
+    complete = (FIXTURES / "detail-complete-two-step.OUTCAR").read_bytes()
+    assert complete.startswith(truncated)
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(truncated)
+
+    first = scan_outcar(path, HOME_BARRIER)
+    path.write_bytes(complete)
+    second = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+
+    assert first.warnings[-1].category == "IncompleteTail"
+    assert first.steps[-1].stress_tensor_kb is None
+    assert second.resumed_from == first.checkpoint.last_verified_offset
+    assert [step.step_id for step in second.steps] == [1]
+    assert second.steps[0].stress_tensor_kb is not None
+    assert second.parameters == ()
+
+
+def test_complete_malformed_detailed_tensor_fails_closed(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    content = (FIXTURES / "detail-complete-two-step.OUTCAR").read_bytes()
+    path.write_bytes(
+        content.replace(
+            b" in kB  2 3 4 0.2 0.3 0.4\n",
+            b" in kB  2 nope 4 0.2 0.3 0.4\n",
+        )
+    )
+
+    with pytest.raises(OutcarFormatError, match="stress"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_complete_wrong_stress_unit_at_eof_fails_closed(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FORCE on cell =-STRESS in cart. coord. units (eV):\n"
+        + b" in GPa 1 2 3 0.1 0.2 0.3\n"
+    )
+
+    with pytest.raises(OutcarFormatError, match="stress|in kB"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_parameter_marker_ends_an_active_energy_section(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+        + b" home correction = 1.0 eV\n"
+        + b" INCAR:\n"
+        + b" HOME_TAG = alpha\n"
+        + b" General timing and accounting informations for this job:\n"
+    )
+
+    scan = scan_outcar(path, HOME_BARRIER)
+
+    assert [term.key for term in scan.steps[-1].energy_terms] == ["home_correction"]
+    assert scan.parameters[-1].raw_key == "HOME_TAG"
+
+
+@pytest.mark.parametrize(
+    ("partial_line", "field"),
+    [
+        (b" external pressure = 1.0 k", "external_pressure_kb"),
+        (b" volume of cell : 18", "cell_volume"),
+    ],
+)
+def test_physically_truncated_detail_line_warns_without_fabricating_a_value(
+    tmp_path: Path, partial_line: bytes, field: str
+) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes((FIXTURES / "trailing-no-energy.OUTCAR").read_bytes() + partial_line)
+
+    scan = scan_outcar(path, HOME_BARRIER)
+
+    assert scan.warnings[-1].category == "IncompleteTail"
+    assert getattr(scan.steps[-1], field) is None
+
+
+def test_physically_truncated_stress_row_emits_one_warning(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FORCE on cell =-STRESS in cart. coord. units (eV):\n"
+        + b" in kB 1 2"
+    )
+
+    scan = scan_outcar(path, HOME_BARRIER)
+
+    assert [warning.category for warning in scan.warnings] == ["IncompleteTail"]
+    assert scan.steps[-1].stress_tensor_kb is None
+
+
 def test_home_dialect_accepts_element_and_index_prefixed_force_rows(tmp_path: Path) -> None:
     path = tmp_path / "OUTCAR"
     path.write_text(
@@ -291,6 +446,7 @@ def test_inconsistent_checkpoint_state_forces_clean_reparse(tmp_path: Path) -> N
         {"last_lattice": ((float("nan"), 0.0, 0.0), (0.0, 3.0, 0.0), (0.0, 0.0, 3.0))},
         {"last_lattice": ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0))},
         {"last_verified_offset": 302},
+        {"last_verified_offset": len(PREFIX), "replay_provisional": True},
     ],
 )
 def test_invalid_checkpoint_values_force_clean_reparse(

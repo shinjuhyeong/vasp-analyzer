@@ -1,0 +1,37 @@
+ vasp.5.4.1-barrier
+ INCAR:
+ ENCUT = 400
+ ENCUT = 520
+
+ VRHFIN =H: s1
+ ions per type = 1
+ NIONS = 1 ions
+ direct lattice vectors                 reciprocal lattice vectors
+   3.000000 0.000000 0.000000  0.333333 0.000000 0.000000
+   0.000000 3.000000 0.000000  0.000000 0.333333 0.000000
+   0.000000 0.000000 3.000000  0.000000 0.000000 0.333333
+ POSITION                                       TOTAL-FORCE (eV/Angst)
+ -----------------------------------------------------------------------------------
+   0.000000 0.000000 0.000000  0.100000 0.000000 0.000000
+ FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)
+ ---------------------------------------------------
+ alpha Z PSCENC = 1.250000 eV
+ free energy TOTEN = -10.000000 eV
+ energy without entropy = -9.900000  energy(sigma->0) = -9.800000
+ FORCE on cell =-STRESS in cart. coord. units (eV):
+ in kB  1 2 3 0.1 0.2 0.3
+ external pressure = 5.0 kB Pullay stress = 0.5 kB
+ volume of cell : 100.0
+ direct lattice vectors                 reciprocal lattice vectors
+   3.100000 0.000000 0.000000  0.322581 0.000000 0.000000
+   0.000000 3.100000 0.000000  0.000000 0.322581 0.000000
+   0.000000 0.000000 3.100000  0.000000 0.000000 0.322581
+ POSITION                                       TOTAL-FORCE (eV/Angst)
+ -----------------------------------------------------------------------------------
+   0.010000 0.000000 0.000000  0.050000 0.000000 0.000000
+ FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)
+ ---------------------------------------------------
+ Ewald energy TEWEN = 2.500000 eV
+ free energy TOTEN = -11.000000 eV
+ energy without entropy = -10.900000  energy(sigma->0) = -10.800000
+ FORCE on cell =-STRESS in cart. coord. units (eV):
