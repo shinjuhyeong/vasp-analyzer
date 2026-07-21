@@ -49,6 +49,7 @@ describe("forceDetailRows", () => {
     expect(rows[1]).toMatchObject({
       siteIndex: 1, siteLabel: "O 2", position: [1.5, 1.5, 1.5],
       rawForce: [0, -0.2, 0], selective: { a: true, b: false, c: true },
+      rawForceNorm: 0.2,
       freeForce: [0.2, 99, -0.6], freeForceNorm: Math.sqrt(0.4),
       componentRanks: [null, null, 1],
     });

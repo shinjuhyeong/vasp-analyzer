@@ -16,6 +16,7 @@ export interface ForceDetailRow {
   readonly siteLabel: string;
   readonly position: Vec3;
   readonly rawForce: Vec3;
+  readonly rawForceNorm: number;
   readonly selective: SelectiveMask;
   readonly freeForce: Vec3 | null;
   readonly freeForceNorm: number | null;
@@ -78,6 +79,7 @@ export function forceDetailRows(
     siteLabel: `${site.element} ${site.siteIndex + 1}`,
     position: step.cartesianPositions[row]!,
     rawForce: step.rawForces[row]!,
+    rawForceNorm: Math.hypot(...step.rawForces[row]!),
     selective: site.selectiveDynamics,
     freeForce: step.freeForces?.[row] ?? null,
     freeForceNorm: step.freeForceNorms?.[row] ?? null,

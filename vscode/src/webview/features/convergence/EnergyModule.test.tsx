@@ -21,9 +21,25 @@ it("shows every selected-step term with distinct contribution ranks", () => {
     }, twoStepDataset.ionicSteps[1]!],
   };
   render(<EnergyModule dataset={dataset} selectedIndex={0} metric="totalEnergy" mode="table" {...callbacks} />);
-  expect(screen.getByRole("row", { name: /TOTEN.*aggregate.*-500/ })).toBeVisible();
+  const aggregate = screen.getByRole("row", { name: /toten.*TOTEN.*aggregate.*-500/ });
+  expect(aggregate).toBeVisible();
+  expect(aggregate).toHaveAttribute("data-kind", "aggregate");
+  expect(aggregate).toHaveClass("energy-term-aggregate");
   expect(screen.getByRole("row", { name: /Ewald.*contribution.*-120.*Rank 1/ })).toBeVisible();
   expect(screen.getByRole("row", { name: /-TS.*contribution.*-60.*Rank 2/ })).toBeVisible();
+});
+
+it.each([
+  ["totalEnergy", 0, "Ionic step 1: -10 eV"],
+  ["deltaEnergy", 1, "Ionic step 2: -1 eV"],
+] as const)("shows the selected %s value outside the graph", (metric, selectedIndex, value) => {
+  render(<EnergyModule dataset={twoStepDataset} selectedIndex={selectedIndex} metric={metric} mode="graph" {...callbacks} />);
+  expect(screen.getByRole("status", { name: "Energy selected metric" })).toHaveTextContent(value);
+});
+
+it("marks a null selected energy metric unavailable outside the graph", () => {
+  render(<EnergyModule dataset={twoStepDataset} selectedIndex={0} metric="deltaEnergy" mode="graph" {...callbacks} />);
+  expect(screen.getByRole("status", { name: "Energy selected metric" })).toHaveTextContent("Ionic step 1: Unavailable");
 });
 
 it("renders only the chosen metric with its own axis and keeps null gaps", () => {
