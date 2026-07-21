@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import { App, type AnalysisRegionProps } from "./App.js";
 import { VsCodeHost } from "./core/host.js";
 import { DEFAULT_LAYOUT } from "./core/store.js";
+import type { PersistedAnalysisState } from "./core/contracts.js";
 import { MemoryHost, twoStepDataset } from "./test/fixtures.js";
 import type { CrystalRendererFactory } from "./renderers/CrystalRenderer.js";
 
@@ -31,6 +32,20 @@ const FakeConvergence: ComponentType<AnalysisRegionProps> = ({ selectedStep }) =
   <span data-testid="convergence-step">{selectedStep.index}</span>
 );
 
+const PreferenceControls: ComponentType<AnalysisRegionProps> = ({
+  onInspectorCollapsedChange,
+  onPaletteCollapsedChange,
+}) => (
+  <div>
+    <button type="button" onClick={() => onInspectorCollapsedChange(false)}>
+      expand test inspector
+    </button>
+    <button type="button" onClick={() => onPaletteCollapsedChange(false)}>
+      expand test palette
+    </button>
+  </div>
+);
+
 class DeferredHost extends MemoryHost {
   readonly setStateCalls: Array<unknown> = [];
   private resolveDataset!: (dataset: typeof twoStepDataset) => void;
@@ -47,7 +62,7 @@ class DeferredHost extends MemoryHost {
 
   resolve(dataset = twoStepDataset): void { this.resolveDataset(dataset); }
   reject(error = new Error("load failed")): void { this.rejectDataset(error); }
-  override setState(state: { readonly selectedStep: number; readonly selectedSite: number | null }): void {
+  override setState(state: PersistedAnalysisState): void {
     this.setStateCalls.push(state);
     super.setState(state);
   }
@@ -64,7 +79,18 @@ describe("analysis workspace", () => {
   it("keeps parsed data and the ionic-step control usable after WebGL construction fails", async () => {
     render(<App host={new MemoryHost()} rendererFactory={() => { throw new Error("WebGL unavailable"); }} />);
     expect(await screen.findByRole("table", { name: "Atomic positions and forces" })).toBeVisible();
+    expect(screen.getByLabelText("Ionic step slider")).toBeEnabled();
     expect(screen.getByLabelText("Ionic step number")).toBeEnabled();
+    expect(screen.getByLabelText("Force vector scale slider")).toBeEnabled();
+    expect(screen.getByLabelText("Force vector scale number")).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("Ionic step number"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByLabelText("Force vector scale number"), {
+      target: { value: "250" },
+    });
+    expect(screen.getByLabelText("Ionic step number")).toHaveValue(2);
+    expect(screen.getByLabelText("Force vector scale number")).toHaveValue(250);
     expect(screen.getByText(/WebGL unavailable/)).toBeVisible();
     expect(screen.queryByRole("button", { name: "Expand crystal tools" })).not.toBeInTheDocument();
   });
@@ -164,6 +190,60 @@ describe("analysis workspace", () => {
       version: 2, selectedStep: 1, selectedSite: 1, forceMode: "free", forceScale: 10,
       layout: { ...DEFAULT_LAYOUT, inspectorCollapsed: false },
     });
+  });
+
+  it("normalizes legacy selection and all workspace changes into one version-2 state", async () => {
+    const user = userEvent.setup();
+    const host = new MemoryHost(twoStepDataset, {
+      selectedStep: 0,
+      selectedSite: null,
+    });
+    render(
+      <App
+        host={host}
+        structure={PreferenceControls}
+        convergence={FakeConvergence}
+      />,
+    );
+    await screen.findByTestId("convergence-step");
+
+    fireEvent.change(screen.getByLabelText("Ionic step number"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByLabelText("Force vector scale number"), {
+      target: { value: "250" },
+    });
+    fireEvent.keyDown(
+      screen.getByRole("separator", {
+        name: "Resize structure and analysis regions",
+      }),
+      { key: "End" },
+    );
+    await user.click(
+      screen.getByRole("button", { name: "expand test inspector" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "expand test palette" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Enter structure full-screen" }),
+    );
+
+    await waitFor(() =>
+      expect(host.state).toMatchObject({
+        version: 2,
+        selectedStep: 1,
+        selectedSite: null,
+        forceMode: "free",
+        forceScale: 250,
+        layout: {
+          structurePercent: 95,
+          inspectorCollapsed: false,
+          paletteCollapsed: false,
+        },
+      }),
+    );
+    expect(host.state).not.toHaveProperty("fullScreen");
   });
 
   it("auto-expands only for the first fresh atom selection", async () => {

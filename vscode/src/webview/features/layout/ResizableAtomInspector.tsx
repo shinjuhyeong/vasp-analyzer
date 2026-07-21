@@ -151,7 +151,7 @@ export function ResizableAtomInspector({
               aria-label="Resize atom inspector"
               aria-orientation="vertical"
               aria-valuemin={MIN_INSPECTOR_WIDTH}
-              aria-valuemax={MAX_INSPECTOR_WIDTH}
+              aria-valuemax={Math.round(maximumWidth)}
               aria-valuenow={Math.round(width)}
               tabIndex={0}
               onPointerDown={(event) => {

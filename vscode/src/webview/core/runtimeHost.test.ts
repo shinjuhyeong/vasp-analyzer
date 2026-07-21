@@ -3,10 +3,14 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { HttpHost, VsCodeHost } from "./host.js";
+import type { PersistedAnalysisState } from "./contracts.js";
 import { createRuntimeHost } from "./runtimeHost.js";
 import { DEFAULT_LAYOUT } from "./store.js";
 
-const migratedState = (selectedStep: number, selectedSite: number | null) => ({
+const migratedState = (
+  selectedStep: number,
+  selectedSite: number | null,
+): PersistedAnalysisState => ({
   version: 2,
   selectedStep,
   selectedSite,
@@ -44,7 +48,7 @@ describe("runtime host selection", () => {
     sessionStorage.clear();
     const fetcher = vi.fn();
     const first = createRuntimeHost({ fetch: fetcher, window });
-    first.setState({ selectedStep: 4, selectedSite: 2 });
+    first.setState(migratedState(4, 2));
 
     const reloaded = createRuntimeHost({ fetch: fetcher, window });
 
@@ -58,7 +62,7 @@ describe("runtime host selection", () => {
     });
 
     const host = createRuntimeHost({ fetch: vi.fn(), window: throwingWindow });
-    host.setState({ selectedStep: 2, selectedSite: null });
+    host.setState(migratedState(2, null));
 
     expect(host.getState()).toEqual(migratedState(2, null));
   });

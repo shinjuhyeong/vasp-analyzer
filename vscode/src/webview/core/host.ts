@@ -4,7 +4,6 @@ import type {
   AnalysisResult,
   CalculationDataset,
   IonicStep,
-  LegacyPersistedAnalysisState,
   LayoutPreferences,
   PersistedAnalysisState,
 } from "./contracts.js";
@@ -18,7 +17,7 @@ import {
 interface VsCodeApi {
   postMessage(message: unknown): void;
   getState(): unknown;
-  setState(state: PersistedAnalysisState | LegacyPersistedAnalysisState): void;
+  setState(state: PersistedAnalysisState): void;
 }
 
 interface EventTargetLike {
@@ -277,7 +276,7 @@ export class VsCodeHost implements AnalysisHost {
     return persistedState(this.api.getState());
   }
 
-  setState(state: PersistedAnalysisState | LegacyPersistedAnalysisState): void {
+  setState(state: PersistedAnalysisState): void {
     const normalized = persistedState(state);
     if (normalized) this.api.setState(normalized);
   }
@@ -351,7 +350,7 @@ export class HttpHost implements AnalysisHost {
     return this.state;
   }
 
-  setState(state: PersistedAnalysisState | LegacyPersistedAnalysisState): void {
+  setState(state: PersistedAnalysisState): void {
     const normalized = persistedState(state);
     if (!normalized) return;
     this.state = normalized;

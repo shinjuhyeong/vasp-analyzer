@@ -8,6 +8,9 @@ import { DataTableFallback } from "./DataTableFallback.js";
 
 it("shows positions, raw/free forces, and exact directional constraint states", () => {
   render(<DataTableFallback sites={twoStepDataset.sites} step={twoStepDataset.ionicSteps[0]!} reason="WebGL unavailable" />);
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "3D view unavailable: WebGL unavailable",
+  );
   expect(screen.getByRole("table", { name: "Atomic positions and forces" })).toBeVisible();
   expect(screen.getByRole("cell", { name: "T F T" })).toBeVisible();
   expect(screen.getByRole("cell", { name: "0.500000 0.500000 0.500000" })).toBeVisible();

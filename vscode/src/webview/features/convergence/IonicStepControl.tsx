@@ -1,21 +1,15 @@
 import { useEffect, useState, type KeyboardEvent, type ReactElement } from "react";
 
-interface IonicStepControlBaseProps {
+export interface IonicStepControlProps {
+  readonly total: number;
   readonly selectedIndex: number;
   readonly onSelect: (index: number) => void;
 }
 
-export type IonicStepControlProps = IonicStepControlBaseProps &
-  (
-    | { readonly total: number; readonly steps?: never }
-    | { readonly total?: never; readonly steps: readonly unknown[] }
-  );
-
 const clamp = (value: number, minimum: number, maximum: number): number =>
   Math.min(maximum, Math.max(minimum, value));
 
-export function IonicStepControl({ total: totalProp, steps, selectedIndex, onSelect }: IonicStepControlProps): ReactElement {
-  const total = totalProp ?? steps.length;
+export function IonicStepControl({ total, selectedIndex, onSelect }: IonicStepControlProps): ReactElement {
   const selectedStep = selectedIndex + 1;
   const [draft, setDraft] = useState(String(selectedStep));
 

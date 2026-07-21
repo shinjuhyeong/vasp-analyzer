@@ -133,6 +133,9 @@ describe("ResizableAtomInspector", () => {
     act(() => callback([], {} as ResizeObserver));
     expect(onWidthChange).toHaveBeenLastCalledWith(352);
     expect(layout.style.getPropertyValue("--inspector-width")).toBe("352px");
+    expect(
+      screen.getByRole("separator", { name: "Resize atom inspector" }),
+    ).toHaveAttribute("aria-valuemax", "352");
     const callsAfterFirstClamp = onWidthChange.mock.calls.length;
     act(() => callback([], {} as ResizeObserver));
     expect(onWidthChange).toHaveBeenCalledTimes(callsAfterFirstClamp);
@@ -141,6 +144,9 @@ describe("ResizableAtomInspector", () => {
     act(() => callback([], {} as ResizeObserver));
     expect(onWidthChange).toHaveBeenLastCalledWith(272);
     expect(layout.style.getPropertyValue("--inspector-width")).toBe("272px");
+    expect(
+      screen.getByRole("separator", { name: "Resize atom inspector" }),
+    ).toHaveAttribute("aria-valuemax", "272");
     expect(observe).toHaveBeenCalledWith(layout);
 
     view.unmount();

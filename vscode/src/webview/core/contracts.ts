@@ -115,5 +115,5 @@ export interface LegacyPersistedAnalysisState {
 export interface AnalysisHost {
   request(method: AnalysisMethod, params: Readonly<Record<string, unknown>>): Promise<AnalysisResult>;
   getState(): PersistedAnalysisState | undefined;
-  setState(state: PersistedAnalysisState | LegacyPersistedAnalysisState): void;
+  setState(state: PersistedAnalysisState): void;
 }

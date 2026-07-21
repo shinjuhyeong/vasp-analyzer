@@ -11,11 +11,22 @@ Use Python 3.11 or newer on the machine that holds the calculation:
 ```text
 pipx install vasp-analyzer
 analyzer
-analyzer OUTCAR
-analyzer /path/to/calculation
+analyzer OUTCAR                              # VS Code editor handoff only
+analyzer /path/to/calculation                # VS Code editor handoff only
+analyzer OUTCAR --profile ~/profiles/home.toml
 ```
 
-The default command first attempts an authenticated VS Code extension handoff. In a Remote SSH window, install the VSIX on the remote extension host, reload VS Code, and **open a new integrated terminal** so it receives the handoff endpoint. The Explorer `OUTCAR` context menu and `VASP Analyzer: Open Calculation` Command Palette entry use the same stdio protocol and do not open a network port.
+The default command requires an authenticated VS Code extension handoff; it does not silently start a browser server. In a Remote SSH window, perform this sequence on the remote side:
+
+```text
+python3 -m pip install --user --force-reinstall ./vasp_analyzer-0.1.0-py3-none-any.whl
+code --install-extension ./vasp-analyzer-0.1.0.vsix --force
+# Reload the Remote SSH window, then open a new integrated terminal.
+command -v analyzer
+analyzer OUTCAR
+```
+
+`command -v analyzer` must print the remote executable path. Opening a **new integrated terminal** after reload is required so it receives the handoff endpoint. The Explorer `OUTCAR` context menu and `VASP Analyzer: Open Calculation` Command Palette entry use the same stdio protocol and do not open a network port.
 
 Explicit browser fallback forms are:
 

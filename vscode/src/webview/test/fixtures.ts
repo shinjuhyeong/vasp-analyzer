@@ -5,6 +5,7 @@ import type {
   LegacyPersistedAnalysisState,
   PersistedAnalysisState,
 } from "../core/contracts.js";
+import { DEFAULT_LAYOUT } from "../core/store.js";
 
 const step = (index: number): IonicStep => ({
   index,
@@ -45,13 +46,24 @@ export const twoStepDataset: CalculationDataset = {
 };
 
 export class MemoryHost implements AnalysisHost {
-  state: PersistedAnalysisState | LegacyPersistedAnalysisState | undefined;
+  state: PersistedAnalysisState | undefined;
 
   constructor(
     readonly dataset: CalculationDataset = twoStepDataset,
     state?: PersistedAnalysisState | LegacyPersistedAnalysisState,
   ) {
-    this.state = state;
+    this.state = state === undefined
+      ? undefined
+      : "version" in state
+        ? state
+        : {
+            version: 2,
+            selectedStep: state.selectedStep,
+            selectedSite: state.selectedSite,
+            forceMode: "free",
+            forceScale: 10,
+            layout: DEFAULT_LAYOUT,
+          };
   }
 
   async request(method: "getDataset" | "getStep", params: Readonly<Record<string, unknown>>): Promise<CalculationDataset | IonicStep> {
@@ -60,10 +72,10 @@ export class MemoryHost implements AnalysisHost {
   }
 
   getState(): PersistedAnalysisState | undefined {
-    return this.state as PersistedAnalysisState | undefined;
+    return this.state;
   }
 
-  setState(state: PersistedAnalysisState | LegacyPersistedAnalysisState): void {
+  setState(state: PersistedAnalysisState): void {
     this.state = state;
   }
 }
