@@ -28,6 +28,7 @@
 
 - `tests/unit/transport/test_handoff.py` — optional profile-path serialization and bounds tests.
 - `vscode/scripts/verify-vsix-entrypoint.mjs` — inspect and load the entrypoint declared by a packaged VSIX.
+- `vscode/src/openCalculation.ts` — pure open-dialog options and calculation/profile panel identity helpers.
 - `vscode/src/webview/core/store.test.ts` — reducer defaults, migration, and preference clamping tests.
 - `vscode/src/webview/features/controls/ForceScaleControl.tsx` — logarithmic mapping and numeric draft behavior.
 - `vscode/src/webview/features/controls/ForceScaleControl.test.tsx` — boundary and synchronization tests.
@@ -233,6 +234,7 @@ git commit -m "fix: require explicit browser mode for analyzer"
 - Modify: `vscode/src/controlEndpoint.ts`
 - Modify: `vscode/src/analyzerProcess.ts`
 - Modify: `vscode/src/extension.ts`
+- Create: `vscode/src/openCalculation.ts`
 - Modify: `vscode/package.json`
 - Test: `vscode/src/test/controlEndpoint.test.ts`
 - Test: `vscode/src/test/analyzerProcess.test.ts`
@@ -240,7 +242,7 @@ git commit -m "fix: require explicit browser mode for analyzer"
 
 **Interfaces:**
 - Consumes: authenticated request `{ token, path, profile?: string }` from Task 2.
-- Produces: `AnalyzerLaunchConfiguration.profilePath?: string`; panel identity `${root}\0${profilePath ?? "auto"}`; case-insensitive OUTCAR context menu and file/folder dialog.
+- Produces: `AnalyzerLaunchConfiguration.profilePath?: string`; `calculationPanelKey(root, profilePath)`; exported `CALCULATION_OPEN_DIALOG_OPTIONS`; case-insensitive OUTCAR context menu and file/folder dialog.
 
 - [ ] **Step 1: Write failing protocol, invocation, and manifest tests**
 
@@ -254,11 +256,18 @@ expect(invocation.args).toEqual([
 expect(invocation.shell).toBe(false);
 ```
 
-Require the context predicate and dialog behavior:
+Require the context predicate and test the actual dialog-options value used by the command:
 
 ```ts
 expect(menu.when).toBe("resourceFilename =~ /^outcar$/i");
-expect(source).toContain("canSelectFolders: true");
+expect(CALCULATION_OPEN_DIALOG_OPTIONS).toMatchObject({
+  canSelectFiles: true,
+  canSelectFolders: true,
+  canSelectMany: false,
+});
+expect(calculationPanelKey("/work/calc", null)).not.toBe(
+  calculationPanelKey("/work/calc", "/profiles/home.toml"),
+);
 ```
 
 Add endpoint tests that accept a canonical readable profile file, reject a missing/directory profile, and ensure `onOpen` receives `{ root, profilePath }` without following an invalid profile selection.
@@ -293,7 +302,7 @@ readonly onOpen: (
 ) => void | Promise<void>;
 ```
 
-Key `panels` by root plus profile path, and pass `profilePath` to `spawnAnalyzer` through configuration. In the open dialog set both `canSelectFiles: true` and `canSelectFolders: true`.
+Implement `CALCULATION_OPEN_DIALOG_OPTIONS` and `calculationPanelKey` in the pure `openCalculation.ts` module. Key `panels` by the helper result, pass `profilePath` to `spawnAnalyzer` through configuration, and pass the exported options object directly to `showOpenDialog`.
 
 - [ ] **Step 4: Verify extension-focused tests GREEN**
 
@@ -308,7 +317,7 @@ Expected: tests, typecheck, and build pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add vscode/src/controlEndpoint.ts vscode/src/analyzerProcess.ts vscode/src/extension.ts vscode/package.json vscode/src/test/controlEndpoint.test.ts vscode/src/test/analyzerProcess.test.ts vscode/src/test/manifest.test.ts
+git add vscode/src/controlEndpoint.ts vscode/src/analyzerProcess.ts vscode/src/extension.ts vscode/src/openCalculation.ts vscode/package.json vscode/src/test/controlEndpoint.test.ts vscode/src/test/analyzerProcess.test.ts vscode/src/test/manifest.test.ts
 git diff --check
 git commit -m "feat: open profiled calculations in Remote VS Code"
 ```
