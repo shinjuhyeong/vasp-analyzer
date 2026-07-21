@@ -315,6 +315,22 @@ def test_append_resume_replays_only_the_unverified_detailed_tail(tmp_path: Path)
     assert second.parameters == ()
 
 
+def test_resume_keeps_parameter_source_line_identity_absolute(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    fixture = (FIXTURES / "ase-complete-one-step.OUTCAR").read_bytes()
+    finish = b" General timing and accounting informations for this job:\n"
+    assert fixture.endswith(finish)
+    path.write_bytes(fixture[: -len(finish)] + b" INCAR:\n ENCUT = 520\n")
+
+    first = scan_outcar(path, HOME_BARRIER)
+    with path.open("ab") as stream:
+        stream.write(finish)
+    resumed = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+
+    assert len(first.parameters) == len(resumed.parameters) == 1
+    assert resumed.parameters[0].line_number == first.parameters[0].line_number
+
+
 def test_complete_malformed_detailed_tensor_fails_closed(tmp_path: Path) -> None:
     path = tmp_path / "OUTCAR"
     content = (FIXTURES / "detail-complete-two-step.OUTCAR").read_bytes()

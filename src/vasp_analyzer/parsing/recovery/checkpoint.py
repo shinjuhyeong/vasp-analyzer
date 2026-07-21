@@ -29,17 +29,23 @@ class ParserCheckpoint(FrozenModel):
 
 
 def _hash_prefix(stream: BinaryIO, size: int):  # type: ignore[no-untyped-def]
+    return _hash_prefix_and_count_lines(stream, size)[0]
+
+
+def _hash_prefix_and_count_lines(stream: BinaryIO, size: int):  # type: ignore[no-untyped-def]
     digest = sha256()
     remaining = size
+    line_count = 0
     while remaining:
         chunk = stream.read(min(remaining, _HASH_CHUNK_SIZE))
         if not chunk:
             break
         digest.update(chunk)
+        line_count += chunk.count(b"\n")
         remaining -= len(chunk)
     if remaining:
         raise OSError(f"file ended {remaining} bytes before the requested fingerprint boundary")
-    return digest
+    return digest, line_count
 
 
 def fingerprint_prefix(path: Path, size: int) -> str:

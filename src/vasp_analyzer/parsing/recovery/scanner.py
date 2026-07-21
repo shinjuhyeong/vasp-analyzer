@@ -18,7 +18,11 @@ from vasp_analyzer.core import (
 )
 from vasp_analyzer.parsing.dialects import Dialect
 
-from .checkpoint import ParserCheckpoint, _hash_prefix, checkpoint_is_append_only
+from .checkpoint import (
+    ParserCheckpoint,
+    _hash_prefix_and_count_lines,
+    checkpoint_is_append_only,
+)
 from .details import (
     parse_energy_line,
     parse_parameter_assignments,
@@ -262,7 +266,7 @@ def scan_outcar(
 
     with path.open("rb") as stream:
         if resumed_from:
-            digest = _hash_prefix(stream, resumed_from)
+            digest, line_number = _hash_prefix_and_count_lines(stream, resumed_from)
         else:
             digest = sha256()
         stream.seek(resumed_from)

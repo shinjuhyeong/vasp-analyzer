@@ -149,6 +149,54 @@ def test_append_resume_preserves_existing_parameter_occurrences_once(
     assert refreshed.ionic_steps[1].stress_tensor_kb is not None
 
 
+def test_provisional_replay_deduplicates_the_same_physical_parameter_occurrence(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "provisional"
+    root.mkdir()
+    fixture = (FIXTURES / "outcar" / "ase-complete-one-step.OUTCAR").read_bytes()
+    finish = b" General timing and accounting informations for this job:\n"
+    assert fixture.endswith(finish)
+    outcar = root / "OUTCAR"
+    outcar.write_bytes(fixture[: -len(finish)] + b" INCAR:\n ENCUT = 520\n")
+    session = CalculationSession(root, cache=CacheStore(tmp_path / "provisional-cache"))
+
+    first = session.load()
+    with outcar.open("ab") as stream:
+        stream.write(finish)
+    refreshed = session.refresh_if_changed()
+
+    assert len(first.parameters) == len(refreshed.parameters) == 1
+    assert refreshed.parameters[0] == first.parameters[0]
+    assert refreshed.parameters[0].ordinal == 0
+
+
+def test_stable_append_assigns_monotonic_order_to_legitimate_repeated_parameters(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "stable"
+    root.mkdir()
+    fixture = (FIXTURES / "outcar" / "ase-complete-one-step.OUTCAR").read_bytes()
+    fixture = fixture.replace(
+        b" vasp.6.5.0 synthetic ASE fixture\n",
+        b" vasp.6.5.0 synthetic ASE fixture\n INCAR:\n ENCUT = 400\n\n",
+    )
+    outcar = root / "OUTCAR"
+    outcar.write_bytes(fixture)
+    session = CalculationSession(root, cache=CacheStore(tmp_path / "stable-cache"))
+
+    first = session.load()
+    with outcar.open("ab") as stream:
+        stream.write(b" INCAR:\n ENCUT = 400; ENCUT = 400\n")
+    refreshed = session.refresh_if_changed()
+
+    assert [item.ordinal for item in first.parameters] == [0, 1, 2]
+    assert [item.ordinal for item in refreshed.parameters] == [0, 1, 2, 3, 4]
+    assert [item.raw_value for item in refreshed.parameters[-2:]] == ["400", "400"]
+    assert refreshed.parameters[-2] != refreshed.parameters[-1]
+    assert refreshed.parameters[-2].line_number == refreshed.parameters[-1].line_number
+
+
 def test_outcar_only_dataset_constructs_unknown_constraint_sites(tmp_path: Path) -> None:
     root = make_calculation(tmp_path)
 

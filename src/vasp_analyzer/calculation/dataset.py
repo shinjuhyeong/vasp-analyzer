@@ -33,15 +33,45 @@ def _merge_parameter_occurrences(
     existing: tuple[ParameterOccurrence, ...],
     scanned: tuple[ParameterOccurrence, ...],
 ) -> tuple[ParameterOccurrence, ...]:
-    """Preserve source order while removing only exact replayed occurrences."""
+    """Preserve source order while removing only the same replayed source occurrence."""
 
     merged: list[ParameterOccurrence] = []
-    seen: set[ParameterOccurrence] = set()
-    for occurrence in existing + scanned:
-        if occurrence not in seen:
-            merged.append(occurrence)
-            seen.add(occurrence)
-    return tuple(merged)
+    seen: set[tuple[object, ...]] = set()
+
+    def append_new(occurrences: tuple[ParameterOccurrence, ...]) -> None:
+        first_ordinal_by_line: dict[int, int] = {}
+        for occurrence in occurrences:
+            if occurrence.line_number is None:
+                identity: tuple[object, ...] = ("unknown-source", occurrence)
+            else:
+                first_ordinal = first_ordinal_by_line.setdefault(
+                    occurrence.line_number, occurrence.ordinal
+                )
+                within_line = occurrence.ordinal - first_ordinal
+                identity = (
+                    "source",
+                    occurrence.line_number,
+                    within_line,
+                    occurrence.key,
+                    occurrence.raw_key,
+                    occurrence.raw_value,
+                    occurrence.value,
+                    occurrence.unit,
+                    occurrence.category,
+                    occurrence.description,
+                )
+            if identity not in seen:
+                merged.append(occurrence)
+                seen.add(identity)
+
+    append_new(existing)
+    append_new(scanned)
+    return tuple(
+        occurrence
+        if occurrence.ordinal == ordinal
+        else occurrence.model_copy(update={"ordinal": ordinal})
+        for ordinal, occurrence in enumerate(merged)
+    )
 
 
 def inspect_source(path: Path) -> SourceFile:
