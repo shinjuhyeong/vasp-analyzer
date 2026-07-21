@@ -17,7 +17,8 @@ import type {
 } from "./core/contracts.js";
 import { analysisReducer, initialAnalysisState } from "./core/store.js";
 import { ConvergencePanel } from "./features/convergence/ConvergencePanel.js";
-import { IonicStepControl } from "./features/convergence/IonicStepControl.js";
+import { CompactToolbar } from "./features/layout/CompactToolbar.js";
+import type { PalettePosition } from "./features/layout/DraggableCrystalPalette.js";
 import { CrystalPanel } from "./features/structure/CrystalPanel.js";
 import type { CrystalRendererFactory } from "./renderers/CrystalRenderer.js";
 
@@ -31,6 +32,11 @@ export interface AnalysisRegionProps {
   readonly forceScale: number;
   readonly onSelectSite: (siteIndex: number | null) => void;
   readonly onSelectStep: (arrayIndex: number) => void;
+  readonly palettePosition: Readonly<PalettePosition>;
+  readonly paletteCollapsed: boolean;
+  readonly onPalettePositionChange: (position: Readonly<PalettePosition>) => void;
+  readonly onPaletteCollapsedChange: (collapsed: boolean) => void;
+  readonly onResetLayout: () => void;
 }
 
 export interface AppProps {
@@ -120,10 +126,14 @@ export function App({
   useEffect(() => {
     if (!state.dataset || load.host !== host || load.error !== null) return;
     host.setState({
+      version: 2,
       selectedStep: state.selectedStep,
       selectedSite: state.selectedSite,
+      forceMode: state.forceMode,
+      forceScale: state.forceScale,
+      layout: state.layout,
     });
-  }, [host, load, state.dataset, state.selectedSite, state.selectedStep]);
+  }, [host, load, state]);
 
   const selectedStep = state.dataset?.ionicSteps[state.selectedStep];
   const selectedSite = useMemo(
@@ -163,6 +173,16 @@ export function App({
     forceScale: state.forceScale,
     onSelectSite: (site) => dispatch({ type: "selectSite", site }),
     onSelectStep: (step) => dispatch({ type: "selectStep", step }),
+    palettePosition: { x: state.layout.paletteX, y: state.layout.paletteY },
+    paletteCollapsed: state.layout.paletteCollapsed,
+    onPalettePositionChange: (position) =>
+      dispatch({
+        type: "setLayout",
+        layout: { paletteX: position.x, paletteY: position.y },
+      }),
+    onPaletteCollapsedChange: (collapsed) =>
+      dispatch({ type: "setLayout", layout: { paletteCollapsed: collapsed } }),
+    onResetLayout: () => dispatch({ type: "resetLayout" }),
   };
   const Structure = structure;
   const capabilityReason = (name: "dos" | "band" | "charge"): string =>
@@ -190,51 +210,24 @@ export function App({
       }}
     >
       <section className="structure-region" aria-label="Crystal structure">
-        <header className="workspace-toolbar">
-          <div className="title-group">
-            <span className="eyebrow">Structure</span>
-            <strong>
-              {state.dataset.root.split(/[\\/]/).filter(Boolean).at(-1) ??
-                "Calculation"}
-            </strong>
-          </div>
-          <IonicStepControl
-            steps={state.dataset.ionicSteps}
-            selectedIndex={state.selectedStep}
-            onSelect={(step) => dispatch({ type: "selectStep", step })}
-          />
-          <label>
-            Force components
-            <select
-              value={state.forceMode}
-              onChange={(event) =>
-                dispatch({
-                  type: "setForceMode",
-                  mode: event.target.value as "free" | "raw",
-                })
-              }
-            >
-              <option value="free">Movable only</option>
-              <option value="raw">All components</option>
-            </select>
-          </label>
-          <label>
-            Force vector scale
-            <input
-              type="range"
-              min="0.1"
-              max="10"
-              step="0.1"
-              value={state.forceScale}
-              onChange={(event) =>
-                dispatch({
-                  type: "setForceScale",
-                  scale: Number(event.target.value),
-                })
-              }
-            />
-          </label>
-        </header>
+        <CompactToolbar
+          title={
+            <div className="title-group">
+              <span className="eyebrow">Structure</span>
+              <strong>
+                {state.dataset.root.split(/[\\/]/).filter(Boolean).at(-1) ??
+                  "Calculation"}
+              </strong>
+            </div>
+          }
+          totalSteps={state.dataset.ionicSteps.length}
+          selectedStepIndex={state.selectedStep}
+          onSelectStep={(step) => dispatch({ type: "selectStep", step })}
+          forceMode={state.forceMode}
+          onForceModeChange={(mode) => dispatch({ type: "setForceMode", mode })}
+          forceScale={state.forceScale}
+          onForceScaleChange={(scale) => dispatch({ type: "setForceScale", scale })}
+        />
         <div className="structure-canvas">
           {Structure ? (
             <Structure {...regionProps} />

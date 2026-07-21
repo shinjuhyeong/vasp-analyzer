@@ -13,6 +13,10 @@ import type {
 import { AtomDetail } from "./AtomDetail.js";
 import { buildCrystalFrame, elementLegend, parseIntegerDirection } from "./scene.js";
 import { DataTableFallback } from "../fallback/DataTableFallback.js";
+import {
+  DraggableCrystalPalette,
+  type PalettePosition,
+} from "../layout/DraggableCrystalPalette.js";
 
 export interface CrystalPanelProps {
   readonly sites: readonly Site[];
@@ -23,7 +27,17 @@ export interface CrystalPanelProps {
   readonly onSelectSite: (siteIndex: number | null) => void;
   readonly rendererFactory: CrystalRendererFactory;
   readonly volumetricLayer?: VolumetricLayer | null;
+  readonly palettePosition?: Readonly<PalettePosition>;
+  readonly paletteCollapsed?: boolean;
+  readonly onPalettePositionChange?: (position: Readonly<PalettePosition>) => void;
+  readonly onPaletteCollapsedChange?: (collapsed: boolean) => void;
+  readonly onResetLayout?: () => void;
 }
+
+const DEFAULT_PALETTE_POSITION = Object.freeze({ x: 10, y: 10 });
+const ignorePosition = (): void => undefined;
+const ignoreCollapsed = (): void => undefined;
+const ignoreReset = (): void => undefined;
 
 const LAYERS: readonly {
   readonly name: LayerName;
@@ -49,7 +63,13 @@ export function CrystalPanel({
   onSelectSite,
   rendererFactory,
   volumetricLayer = null,
+  palettePosition = DEFAULT_PALETTE_POSITION,
+  paletteCollapsed = true,
+  onPalettePositionChange = ignorePosition,
+  onPaletteCollapsedChange = ignoreCollapsed,
+  onResetLayout = ignoreReset,
 }: CrystalPanelProps) {
+  const panel = useRef<HTMLDivElement>(null);
   const container = useRef<HTMLDivElement>(null);
   const renderer = useRef<ReturnType<CrystalRendererFactory> | null>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
@@ -267,8 +287,16 @@ export function CrystalPanel({
       setRepeat(Object.freeze(next.map(Number)) as SupercellRepeat);
   };
   return (
-    <div className="crystal-panel">
-      <div className="crystal-controls" aria-label="Crystal controls">
+    <div className="crystal-panel" ref={panel}>
+      {!renderError && (
+        <DraggableCrystalPalette
+          viewportRef={panel}
+          position={palettePosition}
+          collapsed={paletteCollapsed}
+          onPositionChange={onPalettePositionChange}
+          onCollapsedChange={onPaletteCollapsedChange}
+          onReset={onResetLayout}
+        >
         <fieldset>
           <legend>Supercell</legend>
           {(["a", "b", "c"] as const).map((label, axis) => (
@@ -390,7 +418,8 @@ export function CrystalPanel({
             {selectedStep.strongestFreeComponent.axis}
           </button>
         )}
-      </div>
+        </DraggableCrystalPalette>
+      )}
       {renderError ? (
         <DataTableFallback
           sites={sites}

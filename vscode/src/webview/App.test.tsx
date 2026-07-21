@@ -7,7 +7,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import { App, type AnalysisRegionProps } from "./App.js";
 import { VsCodeHost } from "./core/host.js";
+import { DEFAULT_LAYOUT } from "./core/store.js";
 import { MemoryHost, twoStepDataset } from "./test/fixtures.js";
+import type { CrystalRendererFactory } from "./renderers/CrystalRenderer.js";
+
+const inertRendererFactory: CrystalRendererFactory = () => ({
+  setStructure: vi.fn(), setForces: vi.fn(), setForceScale: vi.fn(),
+  setConstraints: vi.fn(), setSupercell: vi.fn(), setViewDirection: vi.fn(),
+  setOrthographic: vi.fn(), setLayerVisible: vi.fn(), setVolumetricLayer: vi.fn(),
+  setSelectedSite: vi.fn(), onSelectSite: vi.fn(), onHoverSite: vi.fn(),
+  resetView: vi.fn(), resize: vi.fn(), dispose: vi.fn(),
+});
 
 const FakeStructure: ComponentType<AnalysisRegionProps> = ({ selectedStep, selectedSite, onSelectSite }) => (
   <div>
@@ -44,17 +54,25 @@ class DeferredHost extends MemoryHost {
 }
 
 describe("analysis workspace", () => {
+  it("uses a compact toolbar and starts crystal tools collapsed", async () => {
+    render(<App host={new MemoryHost()} rendererFactory={inertRendererFactory} />);
+    expect(await screen.findByLabelText("Ionic step number")).toBeVisible();
+    expect(screen.getByLabelText("Force vector scale number")).toHaveValue(10);
+    expect(screen.getByRole("button", { name: "Expand crystal tools" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("group", { name: "Crystal tools" })).not.toBeInTheDocument();
+  });
   it("keeps parsed data and the ionic-step control usable after WebGL construction fails", async () => {
     render(<App host={new MemoryHost()} rendererFactory={() => { throw new Error("WebGL unavailable"); }} />);
     expect(await screen.findByRole("table", { name: "Atomic positions and forces" })).toBeVisible();
-    expect(screen.getByLabelText("Ionic step")).toBeEnabled();
+    expect(screen.getByLabelText("Ionic step number")).toBeEnabled();
     expect(screen.getByText(/WebGL unavailable/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Expand crystal tools" })).not.toBeInTheDocument();
   });
 
   it("synchronizes a convergence point with the single control and structure region", async () => {
     render(<App host={new MemoryHost()} structure={FakeStructure} />);
     await userEvent.setup().click(await screen.findByLabelText("Force at ionic step 2: 0.1 eV per angstrom"));
-    expect(screen.getByLabelText("Ionic step")).toHaveValue("1");
+    expect(screen.getByLabelText("Ionic step number")).toHaveValue(2);
     expect(screen.getByTestId("structure-step")).toHaveTextContent("1");
     expect(screen.getByText("-11.000000 eV")).toBeVisible();
   });
@@ -69,8 +87,7 @@ describe("analysis workspace", () => {
     };
     render(<App host={new MemoryHost(dataset)} structure={FakeStructure} />);
     await userEvent.setup().click(await screen.findByRole("button", { name: /Force at ionic step 21/ }));
-    expect(screen.getByLabelText("Ionic step")).toHaveValue("1");
-    expect(screen.getByRole("option", { name: "21 / 2" })).toHaveValue("1");
+    expect(screen.getByLabelText("Ionic step number")).toHaveValue(2);
     expect(screen.getByTestId("structure-step")).toHaveTextContent("20");
     expect(screen.getByRole("heading", { name: "Step 21" })).toBeVisible();
   });
@@ -105,9 +122,9 @@ describe("analysis workspace", () => {
     render(<App host={new MemoryHost()} structure={FakeStructure} convergence={FakeConvergence} />);
     await screen.findByTestId("structure-step");
 
-    await user.selectOptions(screen.getByLabelText("Ionic step"), "1");
+    fireEvent.change(screen.getByLabelText("Ionic step number"), { target: { value: "2" } });
 
-    expect(screen.getByLabelText("Ionic step")).toHaveValue("1");
+    expect(screen.getByLabelText("Ionic step number")).toHaveValue(2);
     expect(screen.getByTestId("structure-step")).toHaveTextContent("1");
     expect(screen.getByTestId("convergence-step")).toHaveTextContent("1");
   });
@@ -116,10 +133,12 @@ describe("analysis workspace", () => {
     const host = new MemoryHost(twoStepDataset, { selectedStep: 99, selectedSite: 1 });
     render(<App host={host} structure={FakeStructure} convergence={FakeConvergence} />);
 
-    expect(await screen.findByLabelText("Ionic step")).toHaveValue("1");
+    expect(await screen.findByLabelText("Ionic step number")).toHaveValue(2);
     expect(screen.getByTestId("structure-step")).toHaveTextContent("1");
     expect(screen.getByText("O 2")).toBeVisible();
-    await waitFor(() => expect(host.state).toEqual({ selectedStep: 1, selectedSite: 1 }));
+    await waitFor(() => expect(host.state).toEqual({
+      version: 2, selectedStep: 1, selectedSite: 1, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+    }));
   });
 
   it("clears a persisted site that is not present in the loaded dataset", async () => {
@@ -127,19 +146,23 @@ describe("analysis workspace", () => {
     render(<App host={host} structure={FakeStructure} convergence={FakeConvergence} />);
 
     expect(await screen.findByText("No atom selected")).toBeVisible();
-    await waitFor(() => expect(host.state).toEqual({ selectedStep: 0, selectedSite: null }));
+    await waitFor(() => expect(host.state).toEqual({
+      version: 2, selectedStep: 0, selectedSite: null, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+    }));
   });
 
-  it("persists only the selected step and site", async () => {
+  it("persists the versioned workspace preferences", async () => {
     const user = userEvent.setup();
     const host = new MemoryHost();
     render(<App host={host} structure={FakeStructure} convergence={FakeConvergence} />);
     await screen.findByTestId("structure-step");
 
-    await user.selectOptions(screen.getByLabelText("Ionic step"), "1");
+    fireEvent.change(screen.getByLabelText("Ionic step number"), { target: { value: "2" } });
     await user.click(screen.getByRole("button", { name: "select O" }));
 
-    expect(host.state).toEqual({ selectedStep: 1, selectedSite: 1 });
+    expect(host.state).toEqual({
+      version: 2, selectedStep: 1, selectedSite: 1, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+    });
   });
 
   it("shows one active analysis tab and capability-aware disabled future tabs", async () => {
@@ -171,10 +194,10 @@ describe("analysis workspace", () => {
     await screen.findByTestId("structure-step");
 
     await user.selectOptions(screen.getByLabelText("Force components"), "raw");
-    fireEvent.change(screen.getByLabelText("Force vector scale"), { target: { value: "2.5" } });
+    fireEvent.change(screen.getByLabelText("Force vector scale number"), { target: { value: "2.5" } });
 
     expect(screen.getByLabelText("Force components")).toHaveValue("raw");
-    expect(screen.getByLabelText("Force vector scale")).toHaveValue("2.5");
+    expect(screen.getByLabelText("Force vector scale number")).toHaveValue(2.5);
   });
 
   it("propagates force mode and scale to both analysis regions", async () => {
@@ -183,7 +206,7 @@ describe("analysis workspace", () => {
     await screen.findAllByText("free:10");
 
     fireEvent.change(screen.getByLabelText("Force components"), { target: { value: "raw" } });
-    fireEvent.change(screen.getByLabelText("Force vector scale"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Force vector scale number"), { target: { value: "3" } });
 
     expect(screen.getAllByText("raw:3")).toHaveLength(2);
   });
@@ -216,7 +239,7 @@ describe("analysis workspace", () => {
     const hostB = new DeferredHost(twoStepDataset, { selectedStep: 0, selectedSite: 1 });
     const view = render(<App host={hostA} structure={FakeStructure} convergence={FakeConvergence} />);
     await screen.findByTestId("structure-step");
-    await user.selectOptions(screen.getByLabelText("Ionic step"), "1");
+    fireEvent.change(screen.getByLabelText("Ionic step number"), { target: { value: "2" } });
 
     view.rerender(<App host={hostB} structure={FakeStructure} convergence={FakeConvergence} />);
     expect(screen.getByText("Loading VASP calculation…")).toBeVisible();
@@ -224,8 +247,10 @@ describe("analysis workspace", () => {
     hostB.resolve();
 
     expect(await screen.findByText("O 2")).toBeVisible();
-    expect(screen.getByLabelText("Ionic step")).toHaveValue("0");
-    await waitFor(() => expect(hostB.setStateCalls).toEqual([{ selectedStep: 0, selectedSite: 1 }]));
+    expect(screen.getByLabelText("Ionic step number")).toHaveValue(1);
+    await waitFor(() => expect(hostB.setStateCalls).toEqual([{
+      version: 2, selectedStep: 0, selectedSite: 1, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+    }]));
   });
 
   it("ignores a late prior-host response after replacement", async () => {

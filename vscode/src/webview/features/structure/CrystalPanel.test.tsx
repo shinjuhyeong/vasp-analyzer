@@ -55,6 +55,7 @@ const setup = () => {
     forceScale: 1,
     onSelectSite,
     rendererFactory: factory,
+    paletteCollapsed: false,
   };
   return {
     renderer,
@@ -65,6 +66,13 @@ const setup = () => {
 };
 
 describe("CrystalPanel", () => {
+  it("places renderer controls inside the crystal tools palette", () => {
+    setup();
+    expect(screen.getByRole("group", { name: "Crystal tools" })).toContainElement(
+      screen.getByLabelText("Supercell a"),
+    );
+    expect(screen.queryByLabelText("Crystal controls")).not.toBeInTheDocument();
+  });
   it("clicking an atom shows exact positions, forces, and directional constraints", async () => {
     const { renderer, props, view } = setup();
     act(() => renderer.selectSite(1));
