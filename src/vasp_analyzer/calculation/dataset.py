@@ -12,6 +12,7 @@ from vasp_analyzer.core import (
     Capability,
     DatasetConsistencyError,
     IonicStep,
+    ParameterOccurrence,
     ParserProvenance,
     SelectiveMask,
     Site,
@@ -26,6 +27,21 @@ from vasp_analyzer.parsing.recovery import ParserCheckpoint, scan_outcar
 from .discovery import DiscoveredCalculation, discover_calculation
 
 _DIALECT_HEAD_BYTES = 65_536
+
+
+def _merge_parameter_occurrences(
+    existing: tuple[ParameterOccurrence, ...],
+    scanned: tuple[ParameterOccurrence, ...],
+) -> tuple[ParameterOccurrence, ...]:
+    """Preserve source order while removing only exact replayed occurrences."""
+
+    merged: list[ParameterOccurrence] = []
+    seen: set[ParameterOccurrence] = set()
+    for occurrence in existing + scanned:
+        if occurrence not in seen:
+            merged.append(occurrence)
+            seen.add(occurrence)
+    return tuple(merged)
 
 
 def inspect_source(path: Path) -> SourceFile:
@@ -177,6 +193,11 @@ def _assemble(
             free_forces=metrics.free_forces,
             free_force_norms=metrics.free_force_norms,
             total_energy=frame.total_energy if frame.total_energy is not None else record.energy,
+            energy_terms=record.energy_terms,
+            external_pressure_kb=record.external_pressure_kb,
+            pulay_stress_kb=record.pulay_stress_kb,
+            stress_tensor_kb=record.stress_tensor_kb,
+            cell_volume=record.cell_volume,
             delta_energy=None,
             scf_iterations=record.scf_iterations,
             electronic_converged=record.electronic_converged,
@@ -218,6 +239,10 @@ def _assemble(
         source_files=_source_files(discovered),
         sites=sites,
         ionic_steps=ordered,
+        parameters=_merge_parameter_occurrences(
+            merge_existing.parameters if merge_existing is not None else (),
+            scan.parameters,
+        ),
         capabilities=_capabilities(),
         warnings=warnings,
         provenance=provenance,

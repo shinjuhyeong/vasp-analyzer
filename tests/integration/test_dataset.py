@@ -3,9 +3,11 @@ from pathlib import Path
 import pytest
 
 from vasp_analyzer.calculation.cache import CacheStore
+from vasp_analyzer.calculation import dataset as dataset_module
 from vasp_analyzer.calculation.dataset import inspect_source, load_dataset
 from vasp_analyzer.calculation.session import CalculationSession
-from vasp_analyzer.core import DatasetConsistencyError
+from vasp_analyzer.core import DatasetConsistencyError, ParameterOccurrence
+from vasp_analyzer.parsing.adapters.outcar_ase import ParsedTrajectoryStep
 from vasp_analyzer.parsing.profiles import CompatibilityProfile
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
@@ -35,6 +37,27 @@ def make_calculation(tmp_path: Path, outcar_name: str = "ase-complete-one-step.O
     return tmp_path
 
 
+def use_scanner_trajectory(monkeypatch: pytest.MonkeyPatch) -> None:
+    def recovered_steps(_path: Path, scan):
+        return tuple(
+            ParsedTrajectoryStep(
+                step_id=record.step_id,
+                lattice=record.lattice,
+                fractional_positions=tuple(
+                    tuple(position[index] / record.lattice[index][index] for index in range(3))
+                    for position in record.cartesian_positions
+                ),
+                cartesian_positions=record.cartesian_positions,
+                raw_forces=record.raw_forces,
+                total_energy=record.energy,
+                species=scan.species,
+            )
+            for record in scan.steps
+        )
+
+    monkeypatch.setattr(dataset_module, "iter_outcar_steps", recovered_steps)
+
+
 def test_species_mismatch_names_both_sources(tmp_path: Path) -> None:
     root = make_calculation(tmp_path)
     write_poscar(root / "POSCAR", ("O", "H"))
@@ -58,6 +81,72 @@ def test_dataset_is_immutable_and_preserves_provenance_capabilities(tmp_path: Pa
     assert "DOSCAR" in next(cap.reason for cap in dataset.capabilities if cap.name == "dos")
     with pytest.raises(Exception):
         dataset.root = "changed"
+
+
+def test_dataset_reconciles_detailed_scanner_values_by_step_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    use_scanner_trajectory(monkeypatch)
+    root = make_calculation(tmp_path / "detail", "detail-complete-two-step.OUTCAR")
+    dataset = load_dataset(root)
+
+    assert dataset.schema_version == 2
+    assert [term.key for term in dataset.ionic_steps[1].energy_terms] == [
+        "ewald",
+        "toten",
+        "energy_without_entropy",
+        "sigma_to_zero",
+    ]
+    assert dataset.ionic_steps[1].energy_terms[0].raw_label == "Ewald energy TEWEN"
+    assert dataset.ionic_steps[1].external_pressure_kb == pytest.approx(4.0)
+    assert dataset.ionic_steps[1].pulay_stress_kb == pytest.approx(0.4)
+    assert dataset.ionic_steps[1].stress_tensor_kb == (
+        (2.0, 0.2, 0.4),
+        (0.2, 3.0, 0.3),
+        (0.4, 0.3, 4.0),
+    )
+    assert dataset.ionic_steps[1].cell_volume == pytest.approx(180.0)
+    assert [parameter.raw_value for parameter in dataset.parameters[:2]] == ["400", "520"]
+    assert dataset.parameters[-1].key == "nions"
+
+
+def test_parameter_merge_deduplicates_only_complete_immutable_identity() -> None:
+    first = ParameterOccurrence(
+        key="encut", raw_key="ENCUT", raw_value="400", value=400, ordinal=0, line_number=3
+    )
+    same_key_new_occurrence = first.model_copy(
+        update={"raw_value": "520", "value": 520, "ordinal": 1, "line_number": 4}
+    )
+
+    merge = getattr(dataset_module, "_merge_parameter_occurrences", None)
+    assert callable(merge), "parameter occurrence merge is not implemented"
+    merged = merge(
+        (first,), (first, same_key_new_occurrence, same_key_new_occurrence)
+    )
+
+    assert merged == (first, same_key_new_occurrence)
+
+
+def test_append_resume_preserves_existing_parameter_occurrences_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    use_scanner_trajectory(monkeypatch)
+    root = tmp_path / "calc"
+    root.mkdir()
+    truncated = (FIXTURES / "outcar" / "detail-truncated-tail.OUTCAR").read_bytes()
+    complete = (FIXTURES / "outcar" / "detail-complete-two-step.OUTCAR").read_bytes()
+    assert complete.startswith(truncated)
+    outcar = root / "OUTCAR"
+    outcar.write_bytes(truncated)
+    session = CalculationSession(root, cache=CacheStore(tmp_path / "cache"))
+
+    first = session.load()
+    outcar.write_bytes(complete)
+    refreshed = session.refresh_if_changed()
+
+    assert refreshed.parameters == first.parameters
+    assert [item.ordinal for item in refreshed.parameters] == list(range(len(first.parameters)))
+    assert refreshed.ionic_steps[1].stress_tensor_kb is not None
 
 
 def test_outcar_only_dataset_constructs_unknown_constraint_sites(tmp_path: Path) -> None:

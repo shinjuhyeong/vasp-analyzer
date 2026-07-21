@@ -14,7 +14,7 @@ from vasp_analyzer.core import CalculationDataset, FrozenModel, SourceFile
 from vasp_analyzer.parsing.profiles import CompatibilityProfile
 from vasp_analyzer.parsing.recovery import ParserCheckpoint
 
-_CACHE_SCHEMA_VERSION = 2
+_CACHE_SCHEMA_VERSION = 3
 _WRITE_LOCK = threading.Lock()
 
 

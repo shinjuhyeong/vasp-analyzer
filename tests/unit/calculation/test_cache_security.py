@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from vasp_analyzer.calculation.cache import CacheStore
+from vasp_analyzer.calculation import cache as cache_module
+from vasp_analyzer.calculation.cache import CacheStore, cache_key
+from vasp_analyzer.core import SourceFile
+from vasp_analyzer.parsing.profiles import CompatibilityProfile
 
 
 def test_default_cache_uses_private_user_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -36,3 +39,15 @@ def test_cache_atomic_writers_do_not_share_tmp_name(tmp_path: Path) -> None:
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(lambda value: store.put_raw("same", f'{{"writer":{value}}}'), range(20)))
     assert not list(store.root.glob("*.tmp"))
+
+
+def test_cache_schema_3_uses_a_new_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = SourceFile(path="/calc", size=10, mtime_ns=20, fingerprint="abc")
+    profile = CompatibilityProfile(schema_version=1, id="standard", display_name="Standard")
+    assert cache_module._CACHE_SCHEMA_VERSION == 3
+    monkeypatch.setattr(cache_module, "_CACHE_SCHEMA_VERSION", 2)
+    legacy = cache_key(source, "standard", profile)
+    monkeypatch.setattr(cache_module, "_CACHE_SCHEMA_VERSION", 3)
+    current = cache_key(source, "standard", profile)
+
+    assert current != legacy

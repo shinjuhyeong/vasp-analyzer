@@ -35,8 +35,13 @@ def test_stdio_returns_camel_case_dataset(tmp_path: Path) -> None:
     )[0]
 
     assert response["id"] == 1
-    assert response["result"]["schemaVersion"] == 1
+    assert response["result"]["schemaVersion"] == 2
     assert response["result"]["ionicSteps"][0]["cartesianPositions"]
+    assert response["result"]["ionicSteps"][0]["energyTerms"][0]["rawLabel"] == (
+        "free energy TOTEN"
+    )
+    assert "stressTensorKb" in response["result"]["ionicSteps"][0]
+    assert response["result"]["parameters"] == []
 
 
 def test_stdio_recovers_after_invalid_json_and_mismatched_params(tmp_path: Path) -> None:

@@ -1,11 +1,13 @@
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 from pydantic import ValidationError
 
 from vasp_analyzer.calculation.cache import CacheStore
 from vasp_analyzer.calculation.session import CalculationSession
+from vasp_analyzer.core import CalculationDataset, EnergyTerm, ParameterOccurrence
 from vasp_analyzer.transport.protocol import Request, dispatch
 
 
@@ -80,8 +82,55 @@ def test_dispatch_returns_dataset_and_step_with_versioned_aliases(tmp_path: Path
         ),
     )
 
-    assert dataset_response.model_dump(by_alias=True)["result"]["schemaVersion"] == 1
+    assert dataset_response.model_dump(by_alias=True)["result"]["schemaVersion"] == 2
     assert step_response.model_dump(by_alias=True)["result"]["index"] == 0
+
+
+def test_dispatch_preserves_detailed_camel_case_step_contract(tmp_path: Path) -> None:
+    dataset = _session(tmp_path).load()
+    step = dataset.ionic_steps[0].model_copy(
+        update={
+            "energy_terms": (
+                EnergyTerm(
+                    key="ewald",
+                    raw_label="Ewald energy TEWEN",
+                    value=2.5,
+                    kind="contribution",
+                ),
+            ),
+            "external_pressure_kb": 4.0,
+            "stress_tensor_kb": ((2.0, 0.2, 0.4), (0.2, 3.0, 0.3), (0.4, 0.3, 4.0)),
+        }
+    )
+    dataset = dataset.model_copy(
+        update={
+            "ionic_steps": (step,),
+            "parameters": (
+                ParameterOccurrence(
+                    key="encut",
+                    raw_key="ENCUT",
+                    raw_value="520",
+                    value=520,
+                    ordinal=0,
+                    line_number=4,
+                ),
+            ),
+        }
+    )
+
+    class StaticSession:
+        def refresh_if_changed(self) -> CalculationDataset:
+            return dataset
+
+    response = dispatch(
+        cast(CalculationSession, StaticSession()),
+        Request.model_validate({"id": 1, "method": "getDataset", "params": {}}),
+    ).model_dump(mode="json", by_alias=True)["result"]
+
+    assert response["schemaVersion"] == 2
+    assert response["ionicSteps"][0]["energyTerms"][0]["rawLabel"] == "Ewald energy TEWEN"
+    assert response["ionicSteps"][0]["stressTensorKb"][1] == [0.2, 3.0, 0.3]
+    assert [item["rawKey"] for item in response["parameters"]] == ["ENCUT"]
 
 
 def test_get_volumetric_returns_typed_capability_error(tmp_path: Path) -> None:
