@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     dispose: ReturnType<typeof vi.fn>;
     reveal: ReturnType<typeof vi.fn>;
     receiveMessage: (message: unknown) => Promise<void>;
+    messages: unknown[];
   }>,
   showOpenDialog: vi.fn(),
   showErrorMessage: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("vscode", () => ({
       let onDispose: (() => void) | undefined;
       let onMessage: (message: unknown) => Promise<void> = async () => undefined;
       let disposed = false;
+      const messages: unknown[] = [];
       const panel = {
         reveal: vi.fn(),
         dispose: vi.fn(() => {
@@ -47,11 +49,15 @@ vi.mock("vscode", () => ({
           onDispose?.();
         }),
         receiveMessage: async (message: unknown) => await onMessage(message),
+        messages,
         webview: {
           cspSource: "test-csp",
           html: "",
           asWebviewUri: (uri: unknown) => uri,
-          postMessage: vi.fn(async () => true),
+          postMessage: vi.fn(async (message: unknown) => {
+            messages.push(message);
+            return true;
+          }),
           onDidReceiveMessage: vi.fn((callback: (message: unknown) => Promise<void>) => {
             onMessage = callback;
             return { dispose: vi.fn() };
@@ -195,15 +201,41 @@ describe("VASP Analyzer extension wiring", () => {
     expect(mocks.showErrorMessage.mock.calls[0]?.[0]).not.toMatch(/private|credential/i);
   });
 
-  it("shows safe Remote Extension Host guidance when the analyzer process fails after launch", async () => {
-    const request = vi.fn().mockRejectedValue(new Error("token=private /secret/process/path"));
+  it("sanitizes an unexpected failure on the production getDataset request path", async () => {
+    const sentinel = "token=private /secret/process/path";
+    const request = vi.fn().mockRejectedValue(new Error(sentinel));
     mocks.spawnAnalyzer.mockReturnValue({ request, dispose: vi.fn() });
     await activate(extensionContext() as never);
     await mocks.command?.({ fsPath: "/work/calc" });
 
-    await mocks.panels[0]?.receiveMessage({ type: "ready" });
+    await mocks.panels[0]?.receiveMessage({ type: "request", requestId: 41, method: "getDataset", params: {} });
 
+    expect(mocks.panels[0]?.messages).toContainEqual({
+      type: "response",
+      requestId: 41,
+      error: { code: "extension_error", message: "Analyzer process request failed." },
+    });
+    expect(JSON.stringify(mocks.panels[0]?.messages)).not.toContain(sentinel);
     expect(mocks.showErrorMessage).toHaveBeenCalledWith(expect.stringMatching(/analyzer process.*Remote Extension Host log/i));
     expect(mocks.showErrorMessage.mock.calls[0]?.[0]).not.toMatch(/private|secret|token/i);
+  });
+
+  it("sanitizes analyzer protocol messages while preserving a known safe code", async () => {
+    const { AnalyzerProtocolError } = await import("../analyzerProcess.js");
+    const sentinel = "profile failed at /secret/profile.toml token=private";
+    const request = vi.fn().mockRejectedValue(new AnalyzerProtocolError("capability_unavailable", sentinel));
+    mocks.spawnAnalyzer.mockReturnValue({ request, dispose: vi.fn() });
+    await activate(extensionContext() as never);
+    await mocks.command?.({ fsPath: "/work/calc" });
+
+    await mocks.panels[0]?.receiveMessage({ type: "request", requestId: 42, method: "getDataset", params: {} });
+
+    expect(mocks.panels[0]?.messages).toContainEqual({
+      type: "response",
+      requestId: 42,
+      error: { code: "capability_unavailable", message: "Requested analysis capability is unavailable." },
+    });
+    expect(JSON.stringify(mocks.panels[0]?.messages)).not.toContain(sentinel);
+    expect(mocks.showErrorMessage).not.toHaveBeenCalled();
   });
 });

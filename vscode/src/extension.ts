@@ -47,6 +47,33 @@ function calculationOpenMessage(error: unknown): string {
   return "VASP Analyzer could not open the calculation. Reload the Remote SSH window, then inspect the Remote Extension Host log.";
 }
 
+interface SafeRequestFailure {
+  readonly protocol: { readonly code: string; readonly message: string };
+  readonly showProcessGuidance: boolean;
+}
+
+const SAFE_PROTOCOL_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
+  capability_unavailable: "Requested analysis capability is unavailable.",
+  step_not_found: "The requested ionic step is unavailable.",
+  invalid_request: "The analyzer rejected the request.",
+});
+
+function safeAnalyzerRequestFailure(error: unknown): SafeRequestFailure {
+  if (error instanceof AnalyzerProtocolError) {
+    const message = SAFE_PROTOCOL_MESSAGES[error.code];
+    return message === undefined
+      ? {
+          protocol: { code: "analyzer_error", message: "The analyzer rejected the request." },
+          showProcessGuidance: false,
+        }
+      : { protocol: { code: error.code, message }, showProcessGuidance: false };
+  }
+  return {
+    protocol: { code: "extension_error", message: "Analyzer process request failed." },
+    showProcessGuidance: true,
+  };
+}
+
 const activationCoordinator = new ActivationCoordinator<ControlEndpoint>();
 const registeredContexts = new WeakSet<vscode.ExtensionContext>();
 
@@ -140,33 +167,20 @@ function activationPlan(context: vscode.ExtensionContext): {
 
     panel.webview.onDidReceiveMessage(
       async (message: unknown) => {
-        if (message && typeof message === "object" && (message as { type?: unknown }).type === "ready") {
-          try {
-            const result = await analyzer.request("getDataset", {});
-            await panel.webview.postMessage({ type: "dataset", result });
-          } catch {
-            await panel.webview.postMessage({ type: "error", error: "Unable to load the calculation." });
-            void vscode.window.showErrorMessage(calculationOpenMessage(new CalculationOpenError("process")));
-          }
-          return;
-        }
         if (!isWebviewRequest(message)) return;
         try {
           const result = await analyzer.request(message.method, message.params);
           await panel.webview.postMessage({ type: "response", requestId: message.requestId, result });
         } catch (error) {
-          const protocolError =
-            error instanceof AnalyzerProtocolError
-              ? { code: error.code, message: error.message }
-              : {
-                  code: "extension_error",
-                  message: error instanceof Error ? error.message : "Analyzer request failed",
-                };
+          const failure = safeAnalyzerRequestFailure(error);
           await panel.webview.postMessage({
             type: "response",
             requestId: message.requestId,
-            error: protocolError,
+            error: failure.protocol,
           });
+          if (failure.showProcessGuidance) {
+            void vscode.window.showErrorMessage(calculationOpenMessage(new CalculationOpenError("process")));
+          }
         }
       },
       undefined,
