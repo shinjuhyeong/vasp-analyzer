@@ -17,7 +17,9 @@ import type {
 } from "./core/contracts.js";
 import { analysisReducer, initialAnalysisState } from "./core/store.js";
 import { ConvergencePanel } from "./features/convergence/ConvergencePanel.js";
+import { AnalysisTabs } from "./features/analysis/AnalysisTabs.js";
 import { CompactToolbar } from "./features/layout/CompactToolbar.js";
+import { ParametersPanel } from "./features/parameters/ParametersPanel.js";
 import type { PalettePosition } from "./features/layout/DraggableCrystalPalette.js";
 import { ResizableWorkspace } from "./features/layout/ResizableWorkspace.js";
 import { CrystalPanel } from "./features/structure/CrystalPanel.js";
@@ -278,45 +280,15 @@ export function App({
         </div>
       </section>}
       analysis={<section className="analysis-region" aria-label="Calculation analysis">
-        <div className="tab-list" role="tablist" aria-label="Analysis type">
-          <button type="button" role="tab" aria-selected="true">
-            Convergence
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected="false"
-            disabled
-            title={capabilityReason("dos")}
-          >
-            DOS/PDOS
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected="false"
-            disabled
-            title={capabilityReason("band")}
-          >
-            Band
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected="false"
-            disabled
-            title={capabilityReason("charge")}
-          >
-            Charge
-          </button>
-        </div>
-        <p className="capability-hint">
-          Future analyses: DOS/PDOS — {capabilityReason("dos")} · Band —{" "}
-          {capabilityReason("band")} · Charge — {capabilityReason("charge")}
-        </p>
-        <div className="analysis-content" role="tabpanel">
-          <Convergence {...regionProps} />
-        </div>
+        <AnalysisTabs
+          capabilityReasons={{
+            dos: capabilityReason("dos"),
+            band: capabilityReason("band"),
+            charge: capabilityReason("charge"),
+          }}
+          convergence={<Convergence {...regionProps} />}
+          parameters={<ParametersPanel parameters={state.dataset.parameters} />}
+        />
       </section>}
     />
   );

@@ -312,6 +312,24 @@ describe("analysis workspace", () => {
     expect(screen.getByRole("tab", { name: "Charge" })).toBeDisabled();
   });
 
+  it("opens Parameters without persisting the local tab choice", async () => {
+    const host = new MemoryHost({
+      ...twoStepDataset,
+      parameters: [{
+        key: "encut", rawKey: "ENCUT", rawValue: "520", value: 520,
+        unit: "eV", category: "electronic", description: "Plane-wave cutoff",
+        ordinal: 0, lineNumber: 18,
+      }],
+    });
+    render(<App host={host} structure={FakeStructure} convergence={FakeConvergence} />);
+    await screen.findByTestId("convergence-step");
+    const before = host.state;
+
+    await userEvent.setup().click(screen.getByRole("tab", { name: "Parameters" }));
+    expect(screen.getByRole("tabpanel", { name: "Parameters" })).toHaveTextContent("ENCUT");
+    expect(host.state).toEqual(before);
+  });
+
   it("resizes the vertical split by keyboard to the supported near-full bound", async () => {
     render(<App host={new MemoryHost()} structure={FakeStructure} convergence={FakeConvergence} />);
     const separator = await screen.findByRole("separator", { name: "Resize structure and analysis regions" });

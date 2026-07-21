@@ -457,6 +457,19 @@ export function CrystalPanel({
           }
           splitterHidden={structureFullScreen}
         >
+          {(selectedStep.externalPressureKb !== null
+            || selectedStep.pulayStressKb !== null
+            || selectedStep.cellVolume !== null) && (
+            <div
+              className="cell-status atom-overlay"
+              role="status"
+              aria-label="Cell and stress status"
+            >
+              <span>External pressure {selectedStep.externalPressureKb === null ? "Unavailable" : `${selectedStep.externalPressureKb} kB`}</span>
+              <span>Pulay stress {selectedStep.pulayStressKb === null ? "Unavailable" : `${selectedStep.pulayStressKb} kB`}</span>
+              <span>Volume {selectedStep.cellVolume === null ? "Unavailable" : `${selectedStep.cellVolume} Å³`}</span>
+            </div>
+          )}
           <ul className="element-legend atom-overlay" aria-label="Elements in structure">
             {legend.map((item) => (
               <li key={item.element} aria-label={`${item.element}, atom color ${item.color}, display radius ${item.radius.toFixed(2)} angstrom`}>

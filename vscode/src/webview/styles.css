@@ -158,6 +158,18 @@ select {
   top: 0;
   left: 8px;
 }
+.cell-status {
+  z-index: 1;
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  display: flex;
+  gap: 4px 12px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 16px);
+  font-size: 11px;
+  pointer-events: none;
+}
 
 .element-legend { display: flex; gap: 0.75rem; list-style: none; margin: 0.35rem 0; padding: 0; flex-wrap: wrap; }
 .element-legend li { display: inline-flex; align-items: center; gap: 0.3rem; }
@@ -455,6 +467,50 @@ select {
   min-height: 0;
   overflow: auto;
   padding: 14px;
+}
+.parameters-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.parameters-toolbar,
+.parameters-view-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.parameters-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.parameters-view-picker button[aria-pressed="true"] {
+  border-color: var(--vscode-focusBorder, #4ca6ea);
+  color: var(--vscode-foreground, #fff);
+}
+.parameters-origin-note {
+  margin: 0;
+  color: var(--vscode-descriptionForeground, #9ca3af);
+  font-size: 11px;
+}
+.parameter-groups {
+  display: grid;
+  gap: 14px;
+}
+.parameter-group {
+  min-width: 0;
+  overflow-x: auto;
+}
+.parameter-group h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.parameters-table {
+  width: 100%;
+}
+.empty-detail {
+  color: var(--vscode-descriptionForeground, #9ca3af);
 }
 .convergence-workspace {
   display: grid;

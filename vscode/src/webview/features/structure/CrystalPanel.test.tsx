@@ -66,6 +66,37 @@ const setup = () => {
 };
 
 describe("CrystalPanel", () => {
+  it("omits unavailable cell status and updates pressure, Pulay stress, and volume with the selected step", () => {
+    const { props, view } = setup();
+    view.rerender(<CrystalPanel {...props} selectedStep={{
+      ...props.selectedStep,
+      externalPressureKb: null,
+      pulayStressKb: null,
+      cellVolume: null,
+    }} />);
+    expect(screen.queryByRole("status", { name: "Cell and stress status" })).not.toBeInTheDocument();
+
+    view.rerender(<CrystalPanel {...props} selectedStep={{
+      ...props.selectedStep,
+      externalPressureKb: -2.5,
+      pulayStressKb: 1.25,
+      cellVolume: 31.5,
+    }} />);
+    const status = screen.getByRole("status", { name: "Cell and stress status" });
+    expect(status).toHaveTextContent("External pressure -2.5 kB");
+    expect(status).toHaveTextContent("Pulay stress 1.25 kB");
+    expect(status).toHaveTextContent("Volume 31.5 Å³");
+
+    view.rerender(<CrystalPanel {...props} selectedStep={{
+      ...props.selectedStep,
+      externalPressureKb: 8,
+      pulayStressKb: null,
+      cellVolume: null,
+    }} />);
+    expect(screen.getByRole("status", { name: "Cell and stress status" })).toHaveTextContent("External pressure 8 kB");
+    expect(screen.getByRole("status", { name: "Cell and stress status" })).toHaveTextContent("Pulay stress Unavailable");
+    expect(screen.getByRole("status", { name: "Cell and stress status" })).toHaveTextContent("Volume Unavailable");
+  });
   it("classifies the element legend as a high-contrast atom overlay", () => {
     setup();
     expect(screen.getByRole("list", { name: "Elements in structure" })).toHaveClass(
