@@ -400,6 +400,19 @@ def scan_outcar(
             return next_details
 
         def volume_target(line_start: int) -> dict[str, object]:
+            nonlocal header_volume, next_details, next_detail_start
+            nonlocal upcoming_volume_crossed_lattice
+            if (
+                current_ionic_iteration is None
+                and pending is None
+                and next_detail_start is not None
+                and upcoming_volume_crossed_lattice
+                and next_details_are_only_volume()
+            ):
+                header_volume = float(next_details["cell_volume"])  # type: ignore[arg-type]
+                next_details = _empty_details()
+                next_detail_start = None
+                upcoming_volume_crossed_lattice = False
             if next_details["cell_volume"] is not None:
                 raise OutcarFormatError(
                     f"cell volume at byte {line_start} is ambiguous with an unconsumed volume"

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from vasp_analyzer.core import OutcarFormatError
-from vasp_analyzer.parsing.dialects import HOME_BARRIER
+from vasp_analyzer.parsing.dialects import HOME_BARRIER, STANDARD
 from vasp_analyzer.parsing.recovery import scan_outcar
 
 
@@ -43,6 +43,96 @@ def write_energy_fixture(tmp_path: Path, *, body: bytes, close: bool = True) -> 
 
 def _iteration_prefix(ionic: int, electronic: int) -> bytes:
     return f"Iteration {ionic}({electronic})\n".encode()
+
+
+SECOND_HEADER_LATTICE = ((4.0, 0.0, 0.0), (0.0, 4.0, 0.0), (0.0, 0.0, 4.0))
+
+
+def _lattice(scale: int) -> bytes:
+    return (
+        b"direct lattice vectors reciprocal lattice vectors\n"
+        + f"{scale} 0 0 1 0 0\n0 {scale} 0 0 1 0\n0 0 {scale} 0 0 1\n".encode()
+    )
+
+
+def write_two_header_fixture(
+    tmp_path: Path, *, first_volume: float, second_volume: float, ionic_volume: float | None
+) -> Path:
+    ionic_volume_line = (
+        f"volume of cell : {ionic_volume}\n".encode() if ionic_volume is not None else b""
+    )
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        b"NIONS = 1\n"
+        + f"volume of cell : {first_volume}\n".encode()
+        + _lattice(3)
+        + f"volume of cell : {second_volume}\n".encode()
+        + _lattice(4)
+        + b"Iteration 1(1)\nVOLUME and BASIS-vectors are now\n"
+        + ionic_volume_line
+        + b"POSITION TOTAL-FORCE\n--------------------\n0 0 0 0 0 0\n"
+    )
+    return path
+
+
+def test_two_complete_header_geometries_select_latest_lattice_without_step_volume(
+    tmp_path: Path,
+) -> None:
+    path = write_two_header_fixture(
+        tmp_path, first_volume=280.6311, second_volume=280.63, ionic_volume=125.0
+    )
+    scan = scan_outcar(path, STANDARD)
+    assert scan.steps[0].lattice == SECOND_HEADER_LATTICE
+    assert scan.steps[0].cell_volume == pytest.approx(125.0)
+
+
+def test_two_complete_headers_do_not_emit_header_volume_without_ionic_volume(
+    tmp_path: Path,
+) -> None:
+    path = write_two_header_fixture(
+        tmp_path, first_volume=280.6311, second_volume=280.63, ionic_volume=None
+    )
+    scan = scan_outcar(path, STANDARD)
+    assert scan.steps[0].cell_volume is None
+    assert scan.steps[0].lattice == SECOND_HEADER_LATTICE
+
+
+def test_incomplete_second_header_lattice_raises(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        b"NIONS = 1\nvolume of cell : 27\n"
+        + _lattice(3)
+        + b"volume of cell : 64\ndirect lattice vectors reciprocal lattice vectors\n"
+        + b"4 0 0 1 0 0\nnot-a-lattice-row\n"
+    )
+    with pytest.raises(OutcarFormatError, match="lattice row"):
+        scan_outcar(path, STANDARD)
+
+
+def test_duplicate_pre_iteration_volume_without_complete_lattice_raises(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(b"NIONS = 1\nvolume of cell : 27\nvolume of cell : 64\n")
+    with pytest.raises(OutcarFormatError, match="unconsumed volume"):
+        scan_outcar(path, STANDARD)
+
+
+@pytest.mark.parametrize("header_scale", [3, 4])
+def test_append_resume_after_complete_header_lattice_matches_fresh_scan(
+    tmp_path: Path, header_scale: int
+) -> None:
+    path = write_two_header_fixture(
+        tmp_path, first_volume=280.6311, second_volume=280.63, ionic_volume=125.0
+    )
+    complete = path.read_bytes()
+    marker = _lattice(header_scale)
+    cut = complete.index(marker) + len(marker)
+    path.write_bytes(complete[:cut])
+    partial = scan_outcar(path, STANDARD)
+    path.write_bytes(complete)
+    resumed = scan_outcar(path, STANDARD, partial.checkpoint)
+    fresh = scan_outcar(path, STANDARD)
+    assert resumed.steps == fresh.steps
+    assert resumed.checkpoint.last_lattice == fresh.checkpoint.last_lattice
 
 
 def test_iteration_owns_stress_volume_lattice_and_force_without_header_conflict(
