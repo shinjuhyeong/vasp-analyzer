@@ -48,6 +48,11 @@ _IONIC_CONVERGENCE_DIAGNOSTIC = re.compile(
     rb"^\s*forcemax\s*=\s*(\S+)\s+EDIFFG\s*=\s*(\S+)\s*$",
     re.IGNORECASE,
 )
+_FORCE_ENERGY_CONVERGENCE_DIAGNOSTIC = re.compile(
+    rb"^\s*d\s+Force\s*=\s*([^\s\[]+)\[\s*([^\s,]+),\s*([^\s\]]+)\]"
+    rb"\s+d\s+Energy\s*=\s*(\S+)\s+(\S+)\s*$",
+    re.IGNORECASE,
+)
 
 
 class _NonNumericRow(OutcarFormatError):
@@ -127,11 +132,20 @@ def _combined_energy_terms(line: bytes, dialect: Dialect) -> tuple[EnergyTerm, E
 def _is_ionic_convergence_diagnostic(line: bytes, *, offset: int) -> bool:
     """Recognize the home-version force threshold summary inside an energy section."""
 
-    match = _IONIC_CONVERGENCE_DIAGNOSTIC.fullmatch(line.rstrip(b"\r\n"))
-    if match is None:
-        return False
-    _finite_numbers(b" ".join(match.groups()), context="ionic convergence diagnostic", offset=offset)
-    return True
+    stripped = line.rstrip(b"\r\n")
+    for pattern in (
+        _IONIC_CONVERGENCE_DIAGNOSTIC,
+        _FORCE_ENERGY_CONVERGENCE_DIAGNOSTIC,
+    ):
+        match = pattern.fullmatch(stripped)
+        if match is not None:
+            _finite_numbers(
+                b" ".join(match.groups()),
+                context="ionic convergence diagnostic",
+                offset=offset,
+            )
+            return True
+    return False
 
 
 def _finite_numbers(line: bytes, *, context: str, offset: int) -> tuple[float, ...]:

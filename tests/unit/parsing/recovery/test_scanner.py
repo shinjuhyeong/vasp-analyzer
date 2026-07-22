@@ -669,6 +669,23 @@ def test_multiple_convergence_assignments_are_ignored_in_energy_section(
     assert scan.steps[0].energy_terms == ()
 
 
+def test_force_energy_convergence_summary_is_ignored_in_energy_section(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+        + b" d Force = 0.3595222E-03[ 0.351E-03, 0.368E-03]"
+        + b"  d Energy = 0.3585828E-03 0.939E-06\n"
+        + b" General timing and accounting informations for this job:\n"
+    )
+
+    scan = scan_outcar(path, HOME_BARRIER)
+
+    assert scan.steps[0].energy_terms == ()
+
+
 def test_unknown_punctuated_energy_label_is_preserved(tmp_path: Path) -> None:
     path = tmp_path / "OUTCAR"
     path.write_bytes(
