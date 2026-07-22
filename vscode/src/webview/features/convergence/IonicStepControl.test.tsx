@@ -6,6 +6,15 @@ import { expect, it, vi } from "vitest";
 
 import { IonicStepControl } from "./IonicStepControl.js";
 
+it("represents Initial as frame zero and synchronizes both controls", async () => {
+  const select = vi.fn();
+  render(<IonicStepControl total={2} selectedIndex={-1} includeInitial onSelect={select} />);
+  expect(screen.getByLabelText("Ionic step slider")).toHaveValue("0");
+  expect(screen.getByLabelText("Ionic step number")).toHaveValue(0);
+  expect(screen.getByText("Initial / 2")).toBeVisible();
+  await userEvent.setup().click(screen.getByLabelText("Ionic step slider"));
+});
+
 it("shows the selected ionic step as a one-based slider and number", () => {
   render(<IonicStepControl total={120} selectedIndex={1} onSelect={vi.fn()} />);
 

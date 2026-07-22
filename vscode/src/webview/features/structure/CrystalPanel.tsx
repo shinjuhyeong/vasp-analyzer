@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { IonicStep, Site } from "../../core/contracts.js";
+import type { InitialStructure, IonicStep, Site } from "../../core/contracts.js";
 import type {
   CrystalRendererFactory,
   DirectionSemantics,
@@ -11,7 +11,9 @@ import type {
   VolumetricLayer,
 } from "../../renderers/CrystalRenderer.js";
 import { AtomDetail } from "./AtomDetail.js";
-import { buildCrystalFrame, elementLegend, parseIntegerDirection } from "./scene.js";
+import { buildComparisonScene, buildCrystalFrame, elementLegend, parseIntegerDirection } from "./scene.js";
+import { compareStructures, type StructureComparison } from "./comparison.js";
+import { ComparisonInspector } from "./ComparisonInspector.js";
 import { DataTableFallback } from "../fallback/DataTableFallback.js";
 import {
   DraggableCrystalPalette,
@@ -38,6 +40,9 @@ export interface CrystalPanelProps {
   readonly onInspectorWidthChange?: (width: number) => void;
   readonly onInspectorCollapsedChange?: (collapsed: boolean) => void;
   readonly structureFullScreen?: boolean;
+  readonly initialStructure?: InitialStructure | null;
+  readonly comparisonTarget?: IonicStep | null;
+  readonly displacementScale?: number;
 }
 
 const DEFAULT_PALETTE_POSITION = Object.freeze({ x: 10, y: 10 });
@@ -80,6 +85,9 @@ export function CrystalPanel({
   onInspectorWidthChange = ignoreWidth,
   onInspectorCollapsedChange = ignoreCollapsed,
   structureFullScreen = false,
+  initialStructure = null,
+  comparisonTarget = null,
+  displacementScale = 10,
 }: CrystalPanelProps) {
   const panel = useRef<HTMLDivElement>(null);
   const container = useRef<HTMLDivElement>(null);
@@ -147,6 +155,19 @@ export function CrystalPanel({
     () => buildCrystalFrame(sceneInputs, selectedStep.lattice, repeat),
     [sceneInputs, selectedStep.lattice, repeat],
   );
+  const comparisonResult = useMemo<Readonly<{ value: StructureComparison | null; error: unknown }>>(() => {
+    if (!initialStructure || !comparisonTarget) return { value: null, error: null };
+    try { return { value: compareStructures(initialStructure, comparisonTarget), error: null }; }
+    catch (error) { return { value: null, error }; }
+  }, [comparisonTarget, failRenderer, initialStructure]);
+  const comparison = comparisonResult.value;
+  useEffect(() => { if (comparisonResult.error) failRenderer(comparisonResult.error); }, [comparisonResult, failRenderer]);
+  const comparisonScene = useMemo(() => comparison && initialStructure && comparisonTarget
+    ? buildComparisonScene(
+      sites.map((site, position) => ({ siteIndex: site.siteIndex, element: site.element, fractionalPosition: initialStructure.fractionalPositions[position]!, cartesianPosition: initialStructure.cartesianPositions[position]! })),
+      sites.map((site, position) => ({ siteIndex: site.siteIndex, element: site.element, fractionalPosition: comparisonTarget.fractionalPositions[position]!, cartesianPosition: comparisonTarget.cartesianPositions[position]! })),
+      initialStructure.lattice, comparisonTarget.lattice, comparison, repeat, displacementScale)
+    : null, [comparison, comparisonTarget, displacementScale, initialStructure, repeat, sites]);
   const legend = useMemo(() => elementLegend(sites), [sites]);
   const vectors = useMemo(
     () =>
@@ -250,7 +271,7 @@ export function CrystalPanel({
           forceScale,
           constraints,
           supercell: repeat,
-          comparison: null,
+          comparison: comparisonScene,
         });
       else {
         instance.setStructure(frame);
@@ -260,7 +281,7 @@ export function CrystalPanel({
         instance.setSupercell(repeat);
       }
     });
-  }, [constraints, forceScale, frame, invokeRenderer, repeat, vectors]);
+  }, [comparisonScene, constraints, forceScale, frame, invokeRenderer, repeat, vectors]);
   useEffect(() => {
     invokeRenderer((instance) =>
       instance.setSelectedSite(selectedSite?.siteIndex ?? null),
@@ -447,7 +468,7 @@ export function CrystalPanel({
           onCollapsedChange={onInspectorCollapsedChange}
           inspector={
             selectedSite ? (
-              <AtomDetail
+              comparison && initialStructure && comparisonTarget ? <ComparisonInspector site={selectedSite} sitePosition={sites.findIndex((site) => site.siteIndex === selectedSite.siteIndex)} initial={initialStructure} target={comparisonTarget} comparison={comparison} multiplier={displacementScale} /> : <AtomDetail
                 site={selectedSite}
                 sitePosition={sites.findIndex(
                   (site) => site.siteIndex === selectedSite.siteIndex,

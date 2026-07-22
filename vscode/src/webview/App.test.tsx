@@ -20,6 +20,27 @@ const inertRendererFactory: CrystalRendererFactory = () => ({
   resetView: vi.fn(), resize: vi.fn(), dispose: vi.fn(),
 });
 
+describe("Initial comparison flow", () => {
+  it("offers Initial, scopes Compare to it, and removes force controls during comparison", async () => {
+    const user = userEvent.setup();
+    const first = twoStepDataset.ionicSteps[0]!;
+    const dataset = { ...twoStepDataset, initialStructure: { source: "POSCAR" as const, lattice: first.lattice,
+      fractionalPositions: first.fractionalPositions, cartesianPositions: first.cartesianPositions } };
+    render(<App host={new MemoryHost(dataset)} structure={FakeStructure} convergence={FakeConvergence} />);
+    const frame = await screen.findByLabelText("Ionic step number");
+    await user.clear(frame); await user.type(frame, "0{Enter}");
+    expect(screen.getByText("Initial / 2")).toBeVisible();
+    const compare = screen.getByLabelText("Compare structures");
+    await user.click(compare);
+    expect(screen.getByLabelText("Comparison target number")).toHaveValue(1);
+    expect(screen.getByLabelText("Displacement arrow multiplier slider")).toBeVisible();
+    expect(screen.queryByLabelText("Force vector scale slider")).not.toBeInTheDocument();
+    await user.clear(frame); await user.type(frame, "1{Enter}");
+    expect(screen.queryByLabelText("Compare structures")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Force vector scale slider")).toBeVisible();
+  });
+});
+
 const FakeStructure: ComponentType<AnalysisRegionProps> = ({ selectedStep, selectedSite, onSelectSite }) => (
   <div>
     <span data-testid="structure-step">{selectedStep.index}</span>

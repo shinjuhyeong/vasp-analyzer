@@ -99,6 +99,7 @@ export function ConvergenceWorkspace(props: ConvergenceWorkspaceProps): ReactEle
           selectedIndex={props.selectedIndex}
           onSelect={props.onSelectStep}
           labelPrefix="Convergence "
+          includeInitial={props.dataset.initialStructure !== null}
         />
         <ModulePicker selected={selected} onChange={setSelected} />
       </div>

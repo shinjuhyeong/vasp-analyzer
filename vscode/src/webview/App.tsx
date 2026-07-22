@@ -30,6 +30,10 @@ export interface AnalysisRegionProps {
   readonly sites: readonly Site[];
   readonly selectedStep: IonicStep;
   readonly selectedStepIndex: number;
+  readonly selectedFrame: "initial" | "ionic";
+  readonly comparisonTarget: IonicStep | null;
+  readonly compareEnabled: boolean;
+  readonly displacementScale: number;
   readonly selectedSite: Site | null;
   readonly forceMode: "free" | "raw";
   readonly forceScale: number;
@@ -71,11 +75,12 @@ function DefaultConvergence({
   convergencePreferences,
   onConvergencePreferencesChange,
   onSelectSite,
+  selectedFrame,
 }: AnalysisRegionProps): ReactElement {
   return (
     <ConvergencePanel
       dataset={dataset}
-      selectedIndex={selectedStepIndex}
+      selectedIndex={selectedFrame === "initial" ? -1 : selectedStepIndex}
       preferences={convergencePreferences}
       onSelectStep={onSelectStep}
       onPreferencesChange={onConvergencePreferencesChange}
@@ -147,7 +152,19 @@ export function App({
     });
   }, [host, load, state]);
 
-  const selectedStep = state.dataset?.ionicSteps[state.selectedStep];
+  const ionicStep = state.dataset?.ionicSteps[state.selectedStep];
+  const selectedStep = useMemo(() => {
+    if (state.selectedFrame.kind !== "initial" || !state.dataset?.initialStructure) return ionicStep;
+    const initial = state.dataset.initialStructure;
+    const base: IonicStep = ionicStep ?? { index: -1, lattice: initial.lattice, fractionalPositions: initial.fractionalPositions,
+      cartesianPositions: initial.cartesianPositions, rawForces: initial.cartesianPositions.map(() => [0, 0, 0] as const),
+      freeForces: null, freeForceNorms: null, totalEnergy: null, energyTerms: [], externalPressureKb: null,
+      pulayStressKb: null, stressTensorKb: null, cellVolume: null, deltaEnergy: null, scfIterations: null,
+      electronicConverged: null, ionicConverged: null, strongestFreeComponent: null, rmsFreeForce: null };
+    return { ...base, index: -1, lattice: initial.lattice, fractionalPositions: initial.fractionalPositions,
+      cartesianPositions: initial.cartesianPositions, rawForces: initial.cartesianPositions.map(() => [0, 0, 0] as const),
+      freeForces: null, freeForceNorms: null, strongestFreeComponent: null };
+  }, [ionicStep, state.dataset, state.selectedFrame]);
   const selectedSite = useMemo(
     () =>
       state.dataset?.sites.find(
@@ -180,6 +197,10 @@ export function App({
     sites: state.dataset.sites,
     selectedStep,
     selectedStepIndex: state.selectedStep,
+    selectedFrame: state.selectedFrame.kind,
+    comparisonTarget: state.compareEnabled && state.selectedFrame.kind === "initial" ? state.dataset.ionicSteps[state.comparisonTarget] ?? null : null,
+    compareEnabled: state.compareEnabled,
+    displacementScale: state.displacementScale,
     selectedSite,
     forceMode: state.forceMode,
     forceScale: state.forceScale,
@@ -195,7 +216,7 @@ export function App({
         });
       dispatch({ type: "selectSite", site });
     },
-    onSelectStep: (step) => dispatch({ type: "selectStep", step }),
+    onSelectStep: (step) => dispatch({ type: "selectFrame", frame: step < 0 ? { kind: "initial" } : { kind: "ionic", index: step } }),
     convergencePreferences: state.convergence,
     onConvergencePreferencesChange: (next) => {
       dispatch({ type: "setModules", modules: next.selectedModules });
@@ -262,8 +283,13 @@ export function App({
             </div>
           }
           totalSteps={state.dataset.ionicSteps.length}
-          selectedStepIndex={state.selectedStep}
-          onSelectStep={(step) => dispatch({ type: "selectStep", step })}
+          selectedStepIndex={state.selectedFrame.kind === "initial" ? -1 : state.selectedFrame.index}
+          onSelectStep={(step) => dispatch({ type: "selectFrame", frame: step < 0 ? { kind: "initial" } : { kind: "ionic", index: step } })}
+          initialAvailable={state.dataset.initialStructure !== null}
+          comparison={{ enabled: state.compareEnabled, target: state.comparisonTarget, displacementScale: state.displacementScale,
+            onEnabledChange: (enabled) => dispatch({ type: "setCompareEnabled", enabled }),
+            onTargetChange: (target) => dispatch({ type: "setComparisonTarget", target }),
+            onDisplacementScaleChange: (scale) => dispatch({ type: "setDisplacementScale", scale }) }}
           forceMode={state.forceMode}
           onForceModeChange={(mode) => dispatch({ type: "setForceMode", mode })}
           forceScale={state.forceScale}
@@ -275,7 +301,7 @@ export function App({
           {Structure ? (
             <Structure {...regionProps} />
           ) : rendererFactory ? (
-            <CrystalPanel {...regionProps} rendererFactory={rendererFactory} />
+            <CrystalPanel {...regionProps} rendererFactory={rendererFactory} initialStructure={state.selectedFrame.kind === "initial" ? state.dataset.initialStructure : null} comparisonTarget={regionProps.comparisonTarget} displacementScale={state.displacementScale} />
           ) : (
             <EmptyStructure {...regionProps} />
           )}

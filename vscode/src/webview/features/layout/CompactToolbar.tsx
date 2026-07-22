@@ -14,6 +14,13 @@ export interface CompactToolbarProps {
   readonly onForceScaleChange: (scale: number) => void;
   readonly fullScreen: boolean;
   readonly onFullScreenChange: (fullScreen: boolean) => void;
+  readonly initialAvailable?: boolean;
+  readonly comparison?: Readonly<{
+    enabled: boolean; target: number; displacementScale: number;
+    onEnabledChange: (enabled: boolean) => void;
+    onTargetChange: (target: number) => void;
+    onDisplacementScaleChange: (scale: number) => void;
+  }>;
 }
 
 export function CompactToolbar({
@@ -27,6 +34,8 @@ export function CompactToolbar({
   onForceScaleChange,
   fullScreen,
   onFullScreenChange,
+  initialAvailable = false,
+  comparison,
 }: CompactToolbarProps): ReactElement {
   return (
     <header className="workspace-toolbar">
@@ -36,8 +45,17 @@ export function CompactToolbar({
           total={totalSteps}
           selectedIndex={selectedStepIndex}
           onSelect={onSelectStep}
+          includeInitial={initialAvailable}
         />
       </div>
+      {selectedStepIndex === -1 && totalSteps > 0 && comparison && <>
+        <label className="toolbar-control"><input aria-label="Compare structures" type="checkbox" checked={comparison.enabled} onChange={(event) => comparison.onEnabledChange(event.target.checked)} />Compare</label>
+        {comparison.enabled && <>
+          <label className="toolbar-control">Compare target<input aria-label="Comparison target number" type="number" min="1" max={totalSteps} value={comparison.target + 1} onChange={(event) => comparison.onTargetChange(Number(event.target.value) - 1)} /></label>
+          <ForceScaleControl value={comparison.displacementScale} onChange={comparison.onDisplacementScaleChange} label="Displacement arrow multiplier" />
+        </>}
+      </>}
+      {!comparison?.enabled && <>
       <label className="toolbar-control">
         Force components
         <select
@@ -53,6 +71,7 @@ export function CompactToolbar({
       <div className="toolbar-control toolbar-force-control">
         <ForceScaleControl value={forceScale} onChange={onForceScaleChange} />
       </div>
+      </>}
       <button
         className="fullscreen-toggle"
         type="button"

@@ -5,6 +5,7 @@ export interface IonicStepControlProps {
   readonly selectedIndex: number;
   readonly onSelect: (index: number) => void;
   readonly labelPrefix?: string;
+  readonly includeInitial?: boolean;
 }
 
 const clamp = (value: number, minimum: number, maximum: number): number =>
@@ -15,6 +16,7 @@ export function IonicStepControl({
   selectedIndex,
   onSelect,
   labelPrefix = "",
+  includeInitial = false,
 }: IonicStepControlProps): ReactElement {
   const selectedStep = selectedIndex + 1;
   const accessibleLabel = (suffix: "slider" | "number"): string =>
@@ -30,7 +32,7 @@ export function IonicStepControl({
       return;
     }
 
-    const step = clamp(parsed, 1, total);
+    const step = clamp(parsed, includeInitial ? 0 : 1, total);
     setDraft(String(step));
     onSelect(step - 1);
   };
@@ -48,7 +50,7 @@ export function IonicStepControl({
         <input
           type="range"
           aria-label={accessibleLabel("slider")}
-          min="1"
+          min={includeInitial ? "0" : "1"}
           max={Math.max(total, 1)}
           step="1"
           value={selectedStep}
@@ -65,7 +67,7 @@ export function IonicStepControl({
         <input
           type="number"
           aria-label={accessibleLabel("number")}
-          min="1"
+          min={includeInitial ? "0" : "1"}
           max={Math.max(total, 1)}
           step="1"
           value={draft}
@@ -77,7 +79,7 @@ export function IonicStepControl({
           onKeyDown={handleKeyDown}
         />
       </div>
-      <span>{selectedStep} / {total}</span>
+      <span>{selectedStep === 0 ? "Initial" : selectedStep} / {total}</span>
     </div>
   );
 }

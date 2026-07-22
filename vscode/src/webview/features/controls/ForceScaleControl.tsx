@@ -20,9 +20,10 @@ export const sliderPositionToScale = (position: number): number => stableScale(s
 export interface ForceScaleControlProps {
   readonly value: number;
   readonly onChange: (value: number) => void;
+  readonly label?: string;
 }
 
-export function ForceScaleControl({ value, onChange }: ForceScaleControlProps): ReactElement {
+export function ForceScaleControl({ value, onChange, label = "Force vector scale" }: ForceScaleControlProps): ReactElement {
   const [draft, setDraft] = useState(String(value));
 
   useEffect(() => setDraft(String(value)), [value]);
@@ -56,10 +57,10 @@ export function ForceScaleControl({ value, onChange }: ForceScaleControlProps): 
   return (
     <div>
       <label>
-        Force vector scale slider
+        {label} slider
         <input
           type="range"
-          aria-label="Force vector scale slider"
+          aria-label={`${label} slider`}
           min="0"
           max="1"
           step="0.001"
@@ -68,10 +69,10 @@ export function ForceScaleControl({ value, onChange }: ForceScaleControlProps): 
         />
       </label>
       <label>
-        Force vector scale number
+        {label} number
         <input
           type="number"
-          aria-label="Force vector scale number"
+          aria-label={`${label} number`}
           min={MIN_SCALE}
           max={MAX_SCALE}
           value={draft}
