@@ -9,6 +9,16 @@ _STANDARD_PROFILE = CompatibilityProfile(
     id="standard",
     display_name="Standard VASP",
     detection={"outcar_contains": ("vasp.",), "priority": 10},
+    outcar={
+        "details": {
+            "iteration": {
+                "prefix": "Iteration",
+                "ionic_group": r"\d+",
+                "electronic_group": r"\d+",
+            },
+            "volume_basis_section": (b"VOLUME and BASIS-vectors are now",),
+        }
+    },
 )
 
 STANDARD = Dialect(

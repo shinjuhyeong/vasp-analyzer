@@ -28,6 +28,45 @@ def _marker_tuple(value: tuple[str, ...], *, required: bool = False) -> tuple[st
     return value
 
 
+def _byte_marker_tuple(value: tuple[bytes, ...]) -> tuple[bytes, ...]:
+    if not value:
+        raise ValueError("marker group must not be empty")
+    for marker in value:
+        try:
+            text = marker.decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise ValueError("byte marker must be ASCII") from exc
+        _bounded_text(text)
+    folded = [marker.lower() for marker in value]
+    if len(folded) != len(set(folded)):
+        raise ValueError("marker group contains case-insensitive duplicates")
+    return value
+
+
+class IterationPattern(FrozenModel):
+    prefix: str
+    ionic_group: Literal[r"\d+"]
+    electronic_group: Literal[r"\d+"]
+
+    @field_validator("prefix")
+    @classmethod
+    def validate_prefix(cls, value: str) -> str:
+        return _bounded_text(value)
+
+    def parse(self, line: bytes) -> tuple[int, int] | None:
+        prefix = re.escape(self.prefix.encode("ascii"))
+        match = re.search(
+            rb"(?:^|\s)"
+            + prefix
+            + rb"\s+(?P<ionic>[1-9]\d*)\s*\(\s*(?P<electronic>[1-9]\d*)\s*\)"
+            + rb"(?=$|\s)(?!\s*(?:\d|\())",
+            line,
+        )
+        if match is None:
+            return None
+        return int(match.group("ionic")), int(match.group("electronic"))
+
+
 class DetectionRule(FrozenModel):
     outcar_contains: tuple[str, ...] = ()
     priority: StrictInt = 0
@@ -98,6 +137,10 @@ class EnergyTermRule(FrozenModel):
 
 
 class DetailMarkers(FrozenModel):
+    iteration: IterationPattern = IterationPattern(
+        prefix="Iteration", ionic_group=r"\d+", electronic_group=r"\d+"
+    )
+    volume_basis_section: tuple[bytes, ...] = (b"VOLUME and BASIS-vectors are now",)
     energy_section: tuple[str, ...] = ("FREE ENERGIE OF THE ION-ELECTRON SYSTEM",)
     stress_section: tuple[str, ...] = ("FORCE on cell =-STRESS",)
     external_pressure: tuple[str, ...] = ("external pressure",)
@@ -125,6 +168,11 @@ class DetailMarkers(FrozenModel):
     @classmethod
     def validate_markers(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return _marker_tuple(value, required=True)
+
+    @field_validator("volume_basis_section")
+    @classmethod
+    def validate_byte_markers(cls, value: tuple[bytes, ...]) -> tuple[bytes, ...]:
+        return _byte_marker_tuple(value)
 
 
 STANDARD_ENERGY_TERMS: tuple[EnergyTermRule, ...] = (

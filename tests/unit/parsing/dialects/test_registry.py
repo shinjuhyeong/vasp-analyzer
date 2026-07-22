@@ -4,7 +4,16 @@ import pytest
 
 from vasp_analyzer.core import UnsupportedDialect
 from vasp_analyzer.parsing.dialects import detect_dialect
+from vasp_analyzer.parsing.dialects.standard import STANDARD as STANDARD_DIALECT
 from vasp_analyzer.parsing.profiles import CompatibilityProfile
+
+
+def test_standard_profile_declares_iteration_and_volume_basis_markers() -> None:
+    rule = STANDARD_DIALECT.profile.outcar
+    assert rule.details.iteration.parse(
+        b"---------------- Iteration    2( 17) ----------------"
+    ) == (2, 17)
+    assert rule.details.volume_basis_section == (b"VOLUME and BASIS-vectors are now",)
 
 
 def test_home_barrier_marker_wins_over_standard() -> None:

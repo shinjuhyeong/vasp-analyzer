@@ -1,17 +1,43 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from vasp_analyzer.core import MalformedBlock, ProfileValidationError
 from vasp_analyzer.parsing.profiles import (
     CompatibilityProfile,
     DetailMarkers,
     EnergyTermRule,
+    IterationPattern,
     load_profile,
     normalize_poscar,
 )
 
 FIXTURES = Path(__file__).parents[3] / "fixtures"
+
+
+def test_iteration_pattern_requires_both_positive_decimal_groups() -> None:
+    with pytest.raises(ValidationError):
+        IterationPattern(prefix="Iteration", ionic_group=".*", electronic_group="\\d+")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        b"Iteration 0( 17)",
+        b"Iteration 2( 0)",
+        b"Iteration 2 17)",
+        b"Iteration 2(17",
+        b"Iteration 2(17)18",
+        b"Iteration 2(17) (18)",
+    ],
+)
+def test_iteration_pattern_rejects_malformed_or_nonpositive_counters(line: bytes) -> None:
+    pattern = IterationPattern(
+        prefix="Iteration", ionic_group="\\d+", electronic_group="\\d+"
+    )
+
+    assert pattern.parse(line) is None
 
 
 def test_profile_loads_only_supported_declarative_rules() -> None:

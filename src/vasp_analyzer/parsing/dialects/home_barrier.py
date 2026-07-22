@@ -14,6 +14,16 @@ _HOME_BARRIER_PROFILE = CompatibilityProfile(
         "drop_exact_line": "0",
     },
     validation={"force_prefix_columns": 2},
+    outcar={
+        "details": {
+            "iteration": {
+                "prefix": "Iteration",
+                "ionic_group": r"\d+",
+                "electronic_group": r"\d+",
+            },
+            "volume_basis_section": (b"VOLUME and BASIS-vectors are now",),
+        }
+    },
 )
 
 HOME_BARRIER = Dialect(
