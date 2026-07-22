@@ -105,6 +105,25 @@ describe("analysis preferences", () => {
     expect(analysisReducer(current, { type: "setDisplacementScale", scale: 1001 })).toMatchObject({ displacementScale: 1000, forceScale: 250 });
   });
 
+  it("resets to canonical defaults when a replacement dataset has no persisted state", () => {
+    const withInitial = { ...twoStepDataset, initialStructure: {
+      source: "POSCAR" as const,
+      lattice: twoStepDataset.ionicSteps[0]!.lattice,
+      fractionalPositions: twoStepDataset.ionicSteps[0]!.fractionalPositions,
+      cartesianPositions: twoStepDataset.ionicSteps[0]!.cartesianPositions,
+    } };
+    const hostA = analysisReducer(initialAnalysisState, { type: "datasetLoaded", dataset: withInitial,
+      persisted: { version: 4, selectedFrame: { kind: "initial" }, comparisonTarget: 1,
+        displacementScale: 400, selectedSite: 0, forceMode: "raw", forceScale: 250,
+        layout: { ...defaultLayout, inspectorCollapsed: false },
+        convergence: { ...DEFAULT_CONVERGENCE, selectedModules: ["force"] } } });
+    const comparing = analysisReducer(hostA, { type: "setCompareEnabled", enabled: true });
+
+    const hostB = analysisReducer(comparing, { type: "datasetLoaded", dataset: twoStepDataset });
+
+    expect(hostB).toEqual({ ...initialAnalysisState, dataset: twoStepDataset });
+  });
+
   it.each([
     [[], ["energy"]],
     [["force", "energy", "force", "cellStress"], ["energy", "force", "cellStress"]],

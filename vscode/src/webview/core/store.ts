@@ -199,21 +199,21 @@ function validSite(dataset: CalculationDataset, selectedFrame: FrameSelection, s
 export function analysisReducer(state: AnalysisState, action: AnalysisAction): AnalysisState {
   switch (action.type) {
     case "datasetLoaded": {
-      const selectedFrame = normalizeFrame(action.dataset, action.persisted?.selectedFrame ?? state.selectedFrame);
-      const selectedStep = selectedFrame.kind === "ionic" ? selectedFrame.index : state.selectedStep;
+      const selectedFrame = normalizeFrame(action.dataset, action.persisted?.selectedFrame ?? initialAnalysisState.selectedFrame);
+      const selectedStep = selectedFrame.kind === "ionic" ? selectedFrame.index : initialAnalysisState.selectedStep;
       return {
-        ...state,
+        ...initialAnalysisState,
         dataset: action.dataset,
         selectedFrame,
         selectedStep,
-        comparisonTarget: normalizeIonicIndex(action.dataset, action.persisted?.comparisonTarget ?? state.comparisonTarget),
-        compareEnabled: selectedFrame.kind === "initial" ? state.compareEnabled : false,
-        displacementScale: normalizeScale(action.persisted?.displacementScale, state.displacementScale),
-        selectedSite: validSite(action.dataset, selectedFrame, action.persisted?.selectedSite ?? state.selectedSite),
-        forceMode: action.persisted?.forceMode ?? state.forceMode,
-        forceScale: normalizeForceScale(action.persisted?.forceScale, state.forceScale),
-        layout: action.persisted ? normalizeLayout(action.persisted.layout) : state.layout,
-        convergence: action.persisted ? normalizeConvergence(action.persisted.convergence) : state.convergence,
+        comparisonTarget: normalizeIonicIndex(action.dataset, action.persisted?.comparisonTarget ?? initialAnalysisState.comparisonTarget),
+        compareEnabled: false,
+        displacementScale: normalizeScale(action.persisted?.displacementScale, initialAnalysisState.displacementScale),
+        selectedSite: validSite(action.dataset, selectedFrame, action.persisted?.selectedSite ?? initialAnalysisState.selectedSite),
+        forceMode: action.persisted?.forceMode ?? initialAnalysisState.forceMode,
+        forceScale: normalizeForceScale(action.persisted?.forceScale, initialAnalysisState.forceScale),
+        layout: action.persisted ? normalizeLayout(action.persisted.layout) : initialAnalysisState.layout,
+        convergence: action.persisted ? normalizeConvergence(action.persisted.convergence) : initialAnalysisState.convergence,
       };
     }
     case "selectFrame": {
