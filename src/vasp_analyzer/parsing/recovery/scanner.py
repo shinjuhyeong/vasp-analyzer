@@ -44,6 +44,10 @@ _COMBINED_ENERGY_AGGREGATES = re.compile(
     rb"energy\(sigma->0\)\s*=\s*([^\s]+)(?:\s+eV)?\s*$",
     re.IGNORECASE,
 )
+_IONIC_CONVERGENCE_DIAGNOSTIC = re.compile(
+    rb"^\s*forcemax\s*=\s*(\S+)\s+EDIFFG\s*=\s*(\S+)\s*$",
+    re.IGNORECASE,
+)
 
 
 class _NonNumericRow(OutcarFormatError):
@@ -118,6 +122,16 @@ def _combined_energy_terms(line: bytes, dialect: Dialect) -> tuple[EnergyTerm, E
     if without_entropy is None or sigma_to_zero is None:  # pragma: no cover - invariant
         raise OutcarFormatError("combined energy aggregate line is malformed")
     return without_entropy, sigma_to_zero
+
+
+def _is_ionic_convergence_diagnostic(line: bytes, *, offset: int) -> bool:
+    """Recognize the home-version force threshold summary inside an energy section."""
+
+    match = _IONIC_CONVERGENCE_DIAGNOSTIC.fullmatch(line.rstrip(b"\r\n"))
+    if match is None:
+        return False
+    _finite_numbers(b" ".join(match.groups()), context="ionic convergence diagnostic", offset=offset)
+    return True
 
 
 def _finite_numbers(line: bytes, *, context: str, offset: int) -> tuple[float, ...]:
@@ -855,6 +869,8 @@ def scan_outcar(
                 if not raw.endswith((b"\n", b"\r")):
                     handle_incomplete_tail("incomplete energy detail line", line_start)
                     break
+                if _is_ionic_convergence_diagnostic(raw, offset=line_start):
+                    continue
                 combined = _combined_energy_terms(raw, dialect)
                 if combined is not None:
                     pending["energy_terms"].extend(combined)  # type: ignore[union-attr]
