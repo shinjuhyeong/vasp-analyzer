@@ -113,8 +113,7 @@ function nearestImage(initialCartesian: Vec3, targetFractional: Vec3, targetLatt
   const enumerate = (row: number, partialDistance: number): void => {
     if (row < 0) {
       const candidate = vec(current[0]!, current[1]!, current[2]!);
-      const tolerance = Number.EPSILON * 64 * Math.max(1, bestDistance, partialDistance);
-      if (partialDistance < bestDistance - tolerance || (Math.abs(partialDistance - bestDistance) <= tolerance && lexicographicallyBefore(candidate, bestShift))) {
+      if (partialDistance < bestDistance || (partialDistance === bestDistance && lexicographicallyBefore(candidate, bestShift))) {
         bestShift = candidate;
         bestDistance = partialDistance;
       }
@@ -123,7 +122,8 @@ function nearestImage(initialCartesian: Vec3, targetFractional: Vec3, targetLatt
     let known = 0;
     for (let column = row + 1; column < 3; column += 1) known += r[row]![column]! * current[column]!;
     const center = (projected[row]! - known) / r[row]![row]!;
-    const radius = Math.sqrt(Math.max(0, bestDistance - partialDistance)) / Math.abs(r[row]![row]!);
+    const outwardTolerance = Number.EPSILON * 64 * bestDistance;
+    const radius = Math.sqrt(Math.max(0, bestDistance + outwardTolerance - partialDistance)) / Math.abs(r[row]![row]!);
     const lower = Math.ceil(center - radius);
     const upper = Math.floor(center + radius);
     if (!Number.isSafeInteger(lower) || !Number.isSafeInteger(upper)) throw new Error("Periodic image enumeration overflows the safe integer range");

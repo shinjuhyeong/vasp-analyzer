@@ -31,6 +31,15 @@ describe("compareStructures", () => {
     expect(tie.sites[0]!.imageShift).toEqual([0, 0, 0]);
   });
 
+  it("uses strict distance rather than tolerance to select either side of a half-cell", () => {
+    const unit: Mat3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    const above = compareStructures(structure(unit, [[0.5000000000000001, 0, 0]]), structure(unit, [[0, 0, 0]]));
+    const below = compareStructures(structure(unit, [[0.4999999999999999, 0, 0]]), structure(unit, [[0, 0, 0]]));
+
+    expect(above.sites[0]!.imageShift).toEqual([1, 0, 0]);
+    expect(below.sites[0]!.imageShift).toEqual([0, 0, 0]);
+  });
+
   it("finds the exact closest image beyond a fixed neighborhood in an adversarial skew cell", () => {
     const adversarial: Mat3 = [[1, 0, 0], [100, 0.01, 0], [0, 0, 1]];
     const result = compareStructures(
