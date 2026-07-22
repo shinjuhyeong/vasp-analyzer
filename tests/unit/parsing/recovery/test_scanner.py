@@ -22,6 +22,85 @@ SUFFIX = b""" direct lattice vectors                 reciprocal lattice vectors
 """
 
 
+def scan_fixture(tmp_path: Path, name: str):  # type: ignore[no-untyped-def]
+    path = tmp_path / "OUTCAR"
+    path.write_bytes((FIXTURES / name).read_bytes())
+    return scan_outcar(path, HOME_BARRIER)
+
+
+def _iteration_prefix(ionic: int, electronic: int) -> bytes:
+    return f"Iteration {ionic}({electronic})\n".encode()
+
+
+def test_iteration_owns_stress_volume_lattice_and_force_without_header_conflict(
+    tmp_path: Path,
+) -> None:
+    result = scan_fixture(tmp_path, "iteration-volume-basis-two-step.OUTCAR")
+    assert [(step.index, step.scf_iterations, step.cell_volume) for step in result.steps] == [
+        (0, 17, 351.73),
+        (1, 9, 352.11),
+    ]
+    assert result.steps[0].external_pressure_kb == pytest.approx(-6.40)
+
+
+@pytest.mark.parametrize(
+    "iterations, message",
+    [
+        ([(2, 1), (1, 2)], "decreased"),
+        ([(2, 1)], "contiguous"),
+        ([(1, 2), (1, 1)], "electronic"),
+        ([(1, 0)], "counters"),
+    ],
+)
+def test_invalid_iteration_sequences_raise(
+    tmp_path: Path, iterations: list[tuple[int, int]], message: str
+) -> None:
+    body = b"NIONS = 1\n" + b"".join(_iteration_prefix(*item) for item in iterations)
+    body += (
+        b"VOLUME and BASIS-vectors are now\n"
+        b"direct lattice vectors reciprocal lattice vectors\n"
+        b"1 0 0 1 0 0\n0 1 0 0 1 0\n0 0 1 0 0 1\n"
+        b"POSITION TOTAL-FORCE\n--------------------\n0 0 0 0 0 0\n"
+    )
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(body)
+    with pytest.raises(OutcarFormatError, match=message):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_duplicate_volume_in_open_geometry_section_raises(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        b"NIONS = 1\nIteration 1(1)\nVOLUME and BASIS-vectors are now\n"
+        b"volume of cell : 1\nvolume of cell : 2\n"
+    )
+    with pytest.raises(OutcarFormatError, match="ambiguous"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_marker_free_iteration_lattice_crossing_remains_ambiguous(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        b"NIONS = 1\nIteration 1(1)\nvolume of cell : 1\n"
+        b"direct lattice vectors reciprocal lattice vectors\n"
+        b"1 0 0 1 0 0\n0 1 0 0 1 0\n0 0 1 0 0 1\n"
+        b"direct lattice vectors reciprocal lattice vectors\n"
+    )
+    with pytest.raises(OutcarFormatError, match="lattice boundary"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_incomplete_final_iteration_is_not_emitted(tmp_path: Path) -> None:
+    content = (FIXTURES / "iteration-volume-basis-two-step.OUTCAR").read_bytes()
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(content.split(b"POSITION TOTAL-FORCE", 1)[0])
+    result = scan_outcar(path, HOME_BARRIER)
+    assert result.steps == ()
+    assert result.checkpoint.current_ionic_iteration == 1
+    assert result.checkpoint.max_electronic_iteration == 17
+    assert result.checkpoint.geometry_section_open is True
+
+
 def strict_tail_dialect():  # type: ignore[no-untyped-def]
     strict_validation = HOME_BARRIER.profile.validation.model_copy(
         update={"allow_incomplete_tail": False}

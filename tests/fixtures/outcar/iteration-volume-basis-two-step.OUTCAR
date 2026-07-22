@@ -1,0 +1,35 @@
+NIONS = 1 ions
+volume of cell : 350.00
+direct lattice vectors reciprocal lattice vectors
+7 0 0 0.142857 0 0
+0 7 0 0 0.142857 0
+0 0 7 0 0 0.142857
+Iteration 1(1)
+Iteration 1(17)
+FORCE on cell =-STRESS in cart. coord. units (eV):
+in kB 1 2 3 0.1 0.2 0.3
+external pressure = -6.40 kB
+VOLUME and BASIS-vectors are now
+volume of cell : 351.73
+direct lattice vectors reciprocal lattice vectors
+7.1 0 0 0.140845 0 0
+0 7.1 0 0 0.140845 0
+0 0 7.1 0 0 0.140845
+POSITION TOTAL-FORCE
+--------------------
+0 0 0 0.1 0 0
+Iteration 2(1)
+Iteration 2(9)
+FORCE on cell =-STRESS in cart. coord. units (eV):
+in kB 4 5 6 0.4 0.5 0.6
+external pressure = -4.20 kB
+VOLUME and BASIS-vectors are now
+volume of cell : 352.11
+direct lattice vectors reciprocal lattice vectors
+7.2 0 0 0.138889 0 0
+0 7.2 0 0 0.138889 0
+0 0 7.2 0 0 0.138889
+POSITION TOTAL-FORCE
+--------------------
+0 0 0 0.2 0 0
+General timing and accounting informations for this job:

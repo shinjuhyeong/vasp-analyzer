@@ -26,6 +26,10 @@ class ParserCheckpoint(FrozenModel):
     replay_provisional: bool = False
     normally_finished: bool = False
     species: tuple[str, ...] = ()
+    current_ionic_iteration: int | None
+    max_electronic_iteration: int | None
+    geometry_section_open: bool
+    header_volume: float | None
 
 
 def _hash_prefix(stream: BinaryIO, size: int):  # type: ignore[no-untyped-def]
@@ -96,6 +100,23 @@ def checkpoint_is_append_only(path: Path, checkpoint: ParserCheckpoint) -> bool:
             or 0 < checkpoint.last_verified_offset < checkpoint.size
         )
         and (not checkpoint.normally_finished or not checkpoint.replay_provisional)
+        and (
+            (checkpoint.current_ionic_iteration is None)
+            == (checkpoint.max_electronic_iteration is None)
+        )
+        and (
+            checkpoint.current_ionic_iteration is None
+            or checkpoint.current_ionic_iteration > checkpoint.next_step_id
+        )
+        and (
+            checkpoint.max_electronic_iteration is None
+            or checkpoint.max_electronic_iteration > 0
+        )
+        and (not checkpoint.geometry_section_open or checkpoint.current_ionic_iteration is not None)
+        and (
+            checkpoint.header_volume is None
+            or math.isfinite(checkpoint.header_volume) and checkpoint.header_volume > 0
+        )
         and _is_line_boundary(path, checkpoint.last_verified_offset)
         and fingerprint_prefix(path, checkpoint.size) == checkpoint.prefix_fingerprint
     )

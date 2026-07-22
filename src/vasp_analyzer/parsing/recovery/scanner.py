@@ -72,6 +72,12 @@ class StepRecord(FrozenModel):
     electronic_converged: bool | None = None
     ionic_converged: bool | None = None
 
+    @property
+    def index(self) -> int:
+        """Expose the analyzer's zero-based step index."""
+
+        return self.step_id
+
 
 class ScanResult(FrozenModel):
     steps: tuple[StepRecord, ...]
@@ -208,6 +214,7 @@ def _step(
     pulay_stress_kb: float | None,
     stress_tensor_kb: Mat3 | None,
     cell_volume: float | None,
+    scf_iterations: int | None,
     ionic_converged: bool | None,
 ) -> StepRecord:
     return StepRecord(
@@ -224,7 +231,7 @@ def _step(
         pulay_stress_kb=pulay_stress_kb,
         stress_tensor_kb=stress_tensor_kb,
         cell_volume=cell_volume,
-        scf_iterations=None,
+        scf_iterations=scf_iterations,
         electronic_converged=None,
         ionic_converged=ionic_converged,
     )
@@ -243,6 +250,18 @@ def scan_outcar(
     lattice = checkpoint.last_lattice if restore_parser_state else None
     next_step_id = checkpoint.next_step_id if restore_parser_state else 0
     species = checkpoint.species if restore_parser_state and checkpoint is not None else ()
+    current_ionic_iteration = (
+        checkpoint.current_ionic_iteration if restore_parser_state and checkpoint is not None else None
+    )
+    max_electronic_iteration = (
+        checkpoint.max_electronic_iteration
+        if restore_parser_state and checkpoint is not None
+        else None
+    )
+    geometry_section_open = (
+        checkpoint.geometry_section_open if restore_parser_state and checkpoint is not None else False
+    )
+    header_volume = checkpoint.header_volume if restore_parser_state and checkpoint is not None else None
     element_types: list[str] = []
 
     steps: list[StepRecord] = []
@@ -388,6 +407,65 @@ def scan_outcar(
             lowered = raw.lower()
             force_marker_now = _contains_all(raw, dialect.profile.outcar.markers.position_force)
 
+            iteration = dialect.profile.outcar.details.iteration.parse(raw)
+            iteration_prefix = dialect.profile.outcar.details.iteration.prefix.encode("ascii").lower()
+            if iteration is None and lowered.lstrip().startswith(iteration_prefix):
+                raise OutcarFormatError(f"iteration counters at byte {line_start} are malformed")
+            if iteration is not None:
+                ionic_iteration, electronic_iteration = iteration
+                if current_ionic_iteration is None:
+                    if (
+                        next_detail_start is not None
+                        and upcoming_volume_crossed_lattice
+                        and next_details_are_only_volume()
+                        and pending is None
+                    ):
+                        header_volume = float(next_details["cell_volume"])  # type: ignore[arg-type]
+                        next_details = _empty_details()
+                        next_detail_start = None
+                        upcoming_volume_crossed_lattice = False
+                    finalize_pending(stable=True)
+                    if ionic_iteration <= next_step_id:
+                        raise OutcarFormatError(
+                            f"ionic iteration decreased to {ionic_iteration} at byte {line_start}"
+                        )
+                    current_ionic_iteration = ionic_iteration
+                    max_electronic_iteration = electronic_iteration
+                elif ionic_iteration < current_ionic_iteration:
+                    raise OutcarFormatError(
+                        f"ionic iteration decreased from {current_ionic_iteration} "
+                        f"to {ionic_iteration} at byte {line_start}"
+                    )
+                elif ionic_iteration > current_ionic_iteration:
+                    raise OutcarFormatError(
+                        f"ionic iteration {current_ionic_iteration} ended without a force block"
+                    )
+                elif (
+                    max_electronic_iteration is not None
+                    and electronic_iteration < max_electronic_iteration
+                ):
+                    raise OutcarFormatError(
+                        f"electronic iteration decreased from {max_electronic_iteration} "
+                        f"to {electronic_iteration} at byte {line_start}"
+                    )
+                else:
+                    max_electronic_iteration = max(
+                        max_electronic_iteration or electronic_iteration, electronic_iteration
+                    )
+                continue
+
+            if any(marker.lower() in lowered for marker in dialect.profile.outcar.details.volume_basis_section):
+                if current_ionic_iteration is None:
+                    raise OutcarFormatError(
+                        f"geometry section at byte {line_start} has no active ionic iteration"
+                    )
+                if geometry_section_open:
+                    raise OutcarFormatError(
+                        f"geometry section at byte {line_start} is already open"
+                    )
+                geometry_section_open = True
+                continue
+
             if _contains_any(raw, dialect.profile.outcar.details.parameter_sections):
                 parameter_section_active = True
                 energy_section_active = False
@@ -470,7 +548,7 @@ def scan_outcar(
                     raise OutcarFormatError(
                         f"stress block at byte {stress_block_start} ended before a complete tensor"
                     )
-                if next_detail_start is not None and (
+                if not geometry_section_open and next_detail_start is not None and (
                     upcoming_volume_crossed_lattice or not next_details_are_only_volume()
                 ):
                     raise OutcarFormatError(
@@ -504,6 +582,11 @@ def scan_outcar(
                 if incomplete_lattice:
                     break
                 lattice = _mat3(lattice_rows, line_start)
+                if current_ionic_iteration is not None and not geometry_section_open:
+                    if next_detail_start is not None:
+                        raise OutcarFormatError(
+                            f"details at byte {next_detail_start} crossed a lattice boundary"
+                        )
                 if next_detail_start is not None:
                     upcoming_volume_crossed_lattice = True
                 force_rows_just_finished = False
@@ -523,6 +606,14 @@ def scan_outcar(
                     raise OutcarFormatError(
                         f"force block at byte {line_start} appears before a complete lattice"
                     )
+                if current_ionic_iteration is not None:
+                    if current_ionic_iteration != next_step_id + 1:
+                        raise OutcarFormatError(
+                            f"ionic iteration {current_ionic_iteration} is not contiguous with "
+                            f"completed step {next_step_id}"
+                        )
+                    if max_electronic_iteration is None:
+                        raise OutcarFormatError("active ionic iteration has no electronic iteration")
                 separator = read_line()
                 if separator is None:
                     handle_incomplete_tail("force block ended before its atom rows", line_start)
@@ -581,6 +672,7 @@ def scan_outcar(
                     "forces": tuple(forces),
                     "energy": None,
                     **next_details,
+                    "scf_iterations": max_electronic_iteration,
                     "ionic_converged": None,
                 }
                 next_details = _empty_details()
@@ -588,6 +680,9 @@ def scan_outcar(
                 upcoming_volume_crossed_lattice = False
                 post_force_detail_mode = False
                 force_rows_just_finished = True
+                current_ionic_iteration = None
+                max_electronic_iteration = None
+                geometry_section_open = False
                 continue
 
             if force_rows_just_finished:
@@ -760,6 +855,16 @@ def scan_outcar(
         provisional_start = int(pending["block_start"]) if pending is not None else None
         replay_start = provisional_start if provisional_start is not None else last_verified_offset
         replay_provisional = (pending is not None or unverified_next_record) and replay_start > 0
+        resumable_active_iteration = (
+            current_ionic_iteration is not None
+            and pending is None
+            and next_detail_start is None
+            and stress_target is None
+        )
+        if resumable_active_iteration:
+            replay_start = offset
+            last_verified_offset = offset
+            replay_provisional = False
         finalize_pending(stable=False)
     current_stat = path.stat()
     new_checkpoint = ParserCheckpoint(
@@ -774,6 +879,10 @@ def scan_outcar(
         replay_provisional=replay_provisional,
         normally_finished=normally_finished,
         species=species,
+        current_ionic_iteration=current_ionic_iteration,
+        max_electronic_iteration=max_electronic_iteration,
+        geometry_section_open=geometry_section_open,
+        header_volume=header_volume,
     )
     return ScanResult(
         steps=tuple(steps),
