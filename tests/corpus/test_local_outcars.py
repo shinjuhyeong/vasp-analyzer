@@ -1,6 +1,8 @@
 import os
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -107,6 +109,36 @@ def test_detail_summary_accumulates_exact_path_free_counters_once() -> None:
         "non_finite_energy_terms": 0,
         "invalid_stress_shapes": 0,
     }
+
+
+def test_detail_summary_streams_a_one_shot_step_iterable() -> None:
+    class OneShotSteps:
+        def __init__(self) -> None:
+            self.iterations = 0
+
+        def __iter__(self):
+            self.iterations += 1
+            if self.iterations > 1:
+                raise AssertionError("ionic steps were traversed more than once")
+            yield SimpleNamespace(
+                energy_terms=(
+                    SimpleNamespace(value=-1.0),
+                    SimpleNamespace(value=2.0),
+                ),
+                stress_tensor_kb=IDENTITY,
+            )
+
+    steps = OneShotSteps()
+    dataset = SimpleNamespace(ionic_steps=steps, parameters=())
+
+    report = summarize_detail_datasets(
+        iter((cast(CalculationDataset, dataset),))
+    )
+
+    assert report.energy_terms == 2
+    assert report.files_with_energy_terms == 1
+    assert report.files_with_stress == 1
+    assert steps.iterations == 1
 
 
 def corpus_root_or_skip() -> Path:

@@ -14,6 +14,20 @@ def test_outcar_path_resolves_parent(tmp_path: Path) -> None:
     assert found.outcar == outcar.resolve()
 
 
+@pytest.mark.parametrize("filename", ["outcar", "OutCar"])
+def test_selected_outcar_filename_is_case_insensitive_and_preserved(
+    tmp_path: Path, filename: str
+) -> None:
+    selected = tmp_path / filename
+    selected.write_text("fixture", encoding="utf-8")
+
+    found = discover_calculation(selected)
+
+    assert found.root == tmp_path.resolve()
+    assert found.outcar.name == filename
+    assert str(found.outcar) == str(selected.resolve())
+
+
 def test_missing_outcar_is_actionable(tmp_path: Path) -> None:
     with pytest.raises(AnalyzerError, match="OUTCAR"):
         discover_calculation(tmp_path)

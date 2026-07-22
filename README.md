@@ -118,7 +118,7 @@ DOS, band structure, charge analysis, and volumetric charge isosurfaces are inte
 ```text
 python -m pip install -e ".[dev]"
 python -m pytest -m "not corpus"
-python -m ruff check src tests
+python -m ruff check src tests scripts
 cd vscode
 pnpm install --frozen-lockfile
 pnpm test

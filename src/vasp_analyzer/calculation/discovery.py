@@ -24,7 +24,11 @@ class DiscoveredCalculation:
 def discover_calculation(path: Path) -> DiscoveredCalculation:
     selected = path.expanduser().resolve()
     root = selected.parent if selected.is_file() else selected
-    outcar = selected if selected.name == "OUTCAR" else root / "OUTCAR"
+    outcar = (
+        selected
+        if selected.is_file() and selected.name.casefold() == "outcar"
+        else root / "OUTCAR"
+    )
     if not outcar.is_file():
         raise AnalyzerError(f"OUTCAR not found under {root}")
     optional_names = (

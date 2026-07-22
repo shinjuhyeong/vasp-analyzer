@@ -68,22 +68,23 @@ def summarize_detail_datasets(
     non_finite_energy_terms = invalid_stress_shapes = 0
     for dataset in datasets:
         files_seen += 1
-        terms = tuple(term for step in dataset.ionic_steps for term in step.energy_terms)
-        tensors = tuple(
-            step.stress_tensor_kb
-            for step in dataset.ionic_steps
-            if step.stress_tensor_kb is not None
-        )
-        files_with_energy_terms += bool(terms)
-        files_with_stress += bool(tensors)
+        has_energy_terms = False
+        has_stress = False
+        for step in dataset.ionic_steps:
+            for term in step.energy_terms:
+                has_energy_terms = True
+                energy_terms += 1
+                non_finite_energy_terms += not math.isfinite(term.value)
+            tensor = step.stress_tensor_kb
+            if tensor is not None:
+                has_stress = True
+                invalid_stress_shapes += len(tensor) != 3 or any(
+                    len(row) != 3 for row in tensor
+                )
+        files_with_energy_terms += has_energy_terms
+        files_with_stress += has_stress
         files_with_parameters += bool(dataset.parameters)
-        energy_terms += len(terms)
         parameter_occurrences += len(dataset.parameters)
-        non_finite_energy_terms += sum(not math.isfinite(term.value) for term in terms)
-        invalid_stress_shapes += sum(
-            len(tensor) != 3 or any(len(row) != 3 for row in tensor)
-            for tensor in tensors
-        )
     return CorpusDetailReport(
         files_seen=files_seen,
         files_with_energy_terms=files_with_energy_terms,

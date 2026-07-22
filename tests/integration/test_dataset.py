@@ -37,6 +37,21 @@ def make_calculation(tmp_path: Path, outcar_name: str = "ase-complete-one-step.O
     return tmp_path
 
 
+@pytest.mark.parametrize("filename", ["outcar", "OutCar"])
+def test_load_selected_outcar_preserves_case_insensitive_real_path(
+    tmp_path: Path, filename: str
+) -> None:
+    selected = tmp_path / filename
+    selected.write_bytes(
+        (FIXTURES / "outcar" / "ase-complete-one-step.OUTCAR").read_bytes()
+    )
+
+    dataset = load_dataset(selected)
+
+    assert Path(dataset.source_files[0].path).name == filename
+    assert dataset.ionic_steps
+
+
 def use_scanner_trajectory(monkeypatch: pytest.MonkeyPatch) -> None:
     def recovered_steps(_path: Path, scan):
         return tuple(
