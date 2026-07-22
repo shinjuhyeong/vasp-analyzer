@@ -30,6 +30,8 @@ class ParserCheckpoint(FrozenModel):
     max_electronic_iteration: int | None
     geometry_section_open: bool
     header_volume: float | None
+    geometry_volume_consumed: bool
+    geometry_lattice_consumed: bool
 
 
 def _hash_prefix(stream: BinaryIO, size: int):  # type: ignore[no-untyped-def]
@@ -113,6 +115,11 @@ def checkpoint_is_append_only(path: Path, checkpoint: ParserCheckpoint) -> bool:
             or checkpoint.max_electronic_iteration > 0
         )
         and (not checkpoint.geometry_section_open or checkpoint.current_ionic_iteration is not None)
+        and (
+            checkpoint.geometry_section_open
+            or not checkpoint.geometry_volume_consumed
+            and not checkpoint.geometry_lattice_consumed
+        )
         and (
             checkpoint.header_volume is None
             or math.isfinite(checkpoint.header_volume) and checkpoint.header_volume > 0

@@ -78,6 +78,24 @@ def test_duplicate_volume_in_open_geometry_section_raises(tmp_path: Path) -> Non
         scan_outcar(path, HOME_BARRIER)
 
 
+@pytest.mark.parametrize("second_scale", [1, 2])
+def test_duplicate_or_conflicting_lattice_in_open_geometry_section_raises(
+    tmp_path: Path, second_scale: int
+) -> None:
+    lattice = (
+        b"direct lattice vectors reciprocal lattice vectors\n"
+        b"1 0 0 1 0 0\n0 1 0 0 1 0\n0 0 1 0 0 1\n"
+    )
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        b"NIONS = 1\nIteration 1(1)\nVOLUME and BASIS-vectors are now\n"
+        + lattice.replace(b"1 0 0", f"{second_scale} 0 0".encode())
+        + lattice
+    )
+    with pytest.raises(OutcarFormatError, match="lattice.*already consumed"):
+        scan_outcar(path, HOME_BARRIER)
+
+
 def test_marker_free_iteration_lattice_crossing_remains_ambiguous(tmp_path: Path) -> None:
     path = tmp_path / "OUTCAR"
     path.write_bytes(

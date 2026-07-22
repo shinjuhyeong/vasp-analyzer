@@ -262,6 +262,23 @@ def scan_outcar(
         checkpoint.geometry_section_open if restore_parser_state and checkpoint is not None else False
     )
     header_volume = checkpoint.header_volume if restore_parser_state and checkpoint is not None else None
+    geometry_volume_consumed = (
+        checkpoint.geometry_volume_consumed
+        if restore_parser_state and checkpoint is not None
+        else False
+    )
+    geometry_lattice_consumed = (
+        checkpoint.geometry_lattice_consumed
+        if restore_parser_state and checkpoint is not None
+        else False
+    )
+    boundary_lattice = lattice
+    boundary_current_ionic_iteration = current_ionic_iteration
+    boundary_max_electronic_iteration = max_electronic_iteration
+    boundary_geometry_section_open = geometry_section_open
+    boundary_header_volume = header_volume
+    boundary_geometry_volume_consumed = geometry_volume_consumed
+    boundary_geometry_lattice_consumed = geometry_lattice_consumed
     element_types: list[str] = []
 
     steps: list[StepRecord] = []
@@ -305,6 +322,10 @@ def scan_outcar(
         def finalize_pending(*, stable: bool) -> None:
             nonlocal pending, next_step_id, last_verified_offset
             nonlocal energy_section_active, post_force_detail_mode
+            nonlocal boundary_lattice, boundary_current_ionic_iteration
+            nonlocal boundary_max_electronic_iteration, boundary_geometry_section_open
+            nonlocal boundary_header_volume, boundary_geometry_volume_consumed
+            nonlocal boundary_geometry_lattice_consumed
             if pending is None:
                 return
             if stable and stress_target == "pending":
@@ -317,6 +338,13 @@ def scan_outcar(
             if stable:
                 next_step_id += 1
                 last_verified_offset = record.block_end
+                boundary_lattice = lattice
+                boundary_current_ionic_iteration = current_ionic_iteration
+                boundary_max_electronic_iteration = max_electronic_iteration
+                boundary_geometry_section_open = geometry_section_open
+                boundary_header_volume = header_volume
+                boundary_geometry_volume_consumed = geometry_volume_consumed
+                boundary_geometry_lattice_consumed = geometry_lattice_consumed
             pending = None
             energy_section_active = False
             post_force_detail_mode = False
@@ -464,6 +492,8 @@ def scan_outcar(
                         f"geometry section at byte {line_start} is already open"
                     )
                 geometry_section_open = True
+                geometry_volume_consumed = False
+                geometry_lattice_consumed = False
                 continue
 
             if _contains_any(raw, dialect.profile.outcar.details.parameter_sections):
@@ -544,6 +574,10 @@ def scan_outcar(
                 pending["ionic_converged"] = True
 
             if _LATTICE_MARKER in lowered:
+                if geometry_section_open and geometry_lattice_consumed:
+                    raise OutcarFormatError(
+                        f"lattice at byte {line_start} was already consumed by the geometry section"
+                    )
                 if pending is None and stress_target is not None:
                     raise OutcarFormatError(
                         f"stress block at byte {stress_block_start} ended before a complete tensor"
@@ -582,6 +616,8 @@ def scan_outcar(
                 if incomplete_lattice:
                     break
                 lattice = _mat3(lattice_rows, line_start)
+                if geometry_section_open:
+                    geometry_lattice_consumed = True
                 if current_ionic_iteration is not None and not geometry_section_open:
                     if next_detail_start is not None:
                         raise OutcarFormatError(
@@ -683,6 +719,8 @@ def scan_outcar(
                 current_ionic_iteration = None
                 max_electronic_iteration = None
                 geometry_section_open = False
+                geometry_volume_consumed = False
+                geometry_lattice_consumed = False
                 continue
 
             if force_rows_just_finished:
@@ -774,6 +812,13 @@ def scan_outcar(
                 break
             volume = parse_volume_line(raw, dialect.profile.outcar)
             if volume is not None:
+                if geometry_section_open:
+                    if geometry_volume_consumed:
+                        raise OutcarFormatError(
+                            f"cell volume at byte {line_start} is ambiguous with an already "
+                            "consumed geometry-section volume"
+                        )
+                    geometry_volume_consumed = True
                 target = volume_target(line_start)
                 target["cell_volume"] = volume
                 if target is pending:
@@ -865,6 +910,25 @@ def scan_outcar(
             replay_start = offset
             last_verified_offset = offset
             replay_provisional = False
+        checkpoint_lattice = lattice
+        checkpoint_current_ionic_iteration = current_ionic_iteration
+        checkpoint_max_electronic_iteration = max_electronic_iteration
+        checkpoint_geometry_section_open = geometry_section_open
+        checkpoint_header_volume = header_volume
+        checkpoint_geometry_volume_consumed = geometry_volume_consumed
+        checkpoint_geometry_lattice_consumed = geometry_lattice_consumed
+        if replay_provisional and (
+            current_ionic_iteration is not None
+            or pending is not None and pending.get("scf_iterations") is not None
+        ):
+            replay_start = last_verified_offset
+            checkpoint_lattice = boundary_lattice
+            checkpoint_current_ionic_iteration = boundary_current_ionic_iteration
+            checkpoint_max_electronic_iteration = boundary_max_electronic_iteration
+            checkpoint_geometry_section_open = boundary_geometry_section_open
+            checkpoint_header_volume = boundary_header_volume
+            checkpoint_geometry_volume_consumed = boundary_geometry_volume_consumed
+            checkpoint_geometry_lattice_consumed = boundary_geometry_lattice_consumed
         finalize_pending(stable=False)
     current_stat = path.stat()
     new_checkpoint = ParserCheckpoint(
@@ -875,14 +939,16 @@ def scan_outcar(
         last_verified_offset=(replay_start if replay_provisional else last_verified_offset),
         next_step_id=next_step_id,
         expected_atom_count=expected_atom_count,
-        last_lattice=lattice,
+        last_lattice=checkpoint_lattice,
         replay_provisional=replay_provisional,
         normally_finished=normally_finished,
         species=species,
-        current_ionic_iteration=current_ionic_iteration,
-        max_electronic_iteration=max_electronic_iteration,
-        geometry_section_open=geometry_section_open,
-        header_volume=header_volume,
+        current_ionic_iteration=checkpoint_current_ionic_iteration,
+        max_electronic_iteration=checkpoint_max_electronic_iteration,
+        geometry_section_open=checkpoint_geometry_section_open,
+        header_volume=checkpoint_header_volume,
+        geometry_volume_consumed=checkpoint_geometry_volume_consumed,
+        geometry_lattice_consumed=checkpoint_geometry_lattice_consumed,
     )
     return ScanResult(
         steps=tuple(steps),

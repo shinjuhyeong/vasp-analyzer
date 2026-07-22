@@ -51,8 +51,48 @@ def test_checkpoint_payload_without_iteration_ownership_state_is_rejected() -> N
         "maxElectronicIteration",
         "geometrySectionOpen",
         "headerVolume",
+        "geometryVolumeConsumed",
+        "geometryLatticeConsumed",
     ):
         old_payload.pop(field, None)
 
     with pytest.raises(ValidationError):
         ParserCheckpoint.model_validate(old_payload)
+
+
+@pytest.mark.parametrize("needle", [b"in kB", b"volume of cell : 351.73", b"7.1 0 0"])
+def test_resume_replays_partial_first_iteration_from_matching_state(
+    tmp_path: Path, needle: bytes
+) -> None:
+    complete = (FIXTURES / "iteration-volume-basis-two-step.OUTCAR").read_bytes()
+    cut = complete.index(b"\n", complete.index(needle)) + 1
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(complete[:cut])
+    first = scan_outcar(path, HOME_BARRIER)
+
+    path.write_bytes(complete)
+    resumed = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+
+    assert [(step.index, step.scf_iterations, step.cell_volume) for step in resumed.steps] == [
+        (0, 17, 351.73),
+        (1, 9, 352.11),
+    ]
+
+
+@pytest.mark.parametrize("needle", [b"in kB 4", b"volume of cell : 352.11", b"7.2 0 0"])
+def test_resume_replays_partial_iteration_after_completed_step(
+    tmp_path: Path, needle: bytes
+) -> None:
+    complete = (FIXTURES / "iteration-volume-basis-two-step.OUTCAR").read_bytes()
+    cut = complete.index(b"\n", complete.index(needle)) + 1
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(complete[:cut])
+    first = scan_outcar(path, HOME_BARRIER)
+    assert [(step.index, step.scf_iterations) for step in first.steps] == [(0, 17)]
+
+    path.write_bytes(complete)
+    resumed = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+
+    assert [(step.index, step.scf_iterations, step.cell_volume) for step in resumed.steps] == [
+        (1, 9, 352.11)
+    ]
