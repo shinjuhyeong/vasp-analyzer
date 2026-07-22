@@ -115,6 +115,7 @@ function fakeAnimationFrames() {
 }
 
 function fakeViewer() {
+  let handle = 0;
   const viewer = {
     removeAllShapes: vi.fn(),
     removeAllLabels: vi.fn(),
@@ -122,6 +123,8 @@ function fakeViewer() {
     addArrow: vi.fn(),
     addLabel: vi.fn(),
     addSphere: vi.fn(),
+    removeShape: vi.fn(),
+    removeLabel: vi.fn(),
     render: vi.fn(),
     zoomTo: vi.fn(),
     getView: vi.fn(() => [0, 0, 0, 1, 0, 0, 0, 1]),
@@ -130,6 +133,8 @@ function fakeViewer() {
     resize: vi.fn(),
     clear: vi.fn(),
   };
+  for (const name of ["addCylinder", "addArrow", "addSphere", "addLabel"] as const)
+    viewer[name].mockImplementation(() => ({ handle: ++handle }));
   for (const name of [
     "removeAllShapes",
     "removeAllLabels",
@@ -165,12 +170,30 @@ describe("ThreeDmolRenderer adapter", () => {
     expect(viewer.addCylinder).toHaveBeenCalledWith(expect.objectContaining({ dashed: false, opacity: 1 }));
     expect(viewer.addArrow).toHaveBeenCalledWith(expect.objectContaining({ start: { x: 1.5, y: 1, z: 1.5 }, end: { x: 3.5, y: 1, z: 1.5 }, color: 0x00bcd4 }));
     expect(viewer.addArrow).toHaveBeenCalledWith(expect.objectContaining({ start: { x: 0, y: 0, z: 0 }, color: 0xff8c00 }));
+    expect(viewer.addArrow).toHaveBeenCalledWith(expect.objectContaining({ end: { x: 4, y: 0, z: 0 }, color: 0xf85149 }));
     expect(viewer.addArrow).not.toHaveBeenCalledWith(expect.objectContaining({ end: { x: 20.5, y: 1, z: 1.5 } }));
 
     const shapesBefore = viewer.removeAllShapes.mock.calls.length;
     renderer.setScene(scene(frame, 1));
-    expect(viewer.removeAllShapes.mock.calls.length).toBeGreaterThan(shapesBefore);
+    expect(viewer.removeAllShapes.mock.calls.length).toBe(shapesBefore);
+    expect(viewer.removeShape).toHaveBeenCalled();
+    expect(viewer.removeLabel).toHaveBeenCalled();
     expect(viewer.addSphere.mock.calls.slice(clickable.length).some(([spec]) => spec.opacity === 0.35 && spec.clickable)).toBe(false);
+  });
+
+  it("keeps target boundary atoms solid and replaces comparison through retained handles", () => {
+    const viewer = fakeViewer();
+    const renderer = new ThreeDmolRenderer(viewer as unknown as GLViewer, document.createElement("div"));
+    const base = comparisonScene();
+    const compared: CrystalScene = { ...base, comparison: { ...base.comparison!, targetFrame: frameWithGhost } };
+    renderer.setScene(compared);
+    const targetAtoms = viewer.addSphere.mock.calls.filter(([spec]) => spec.clickable).slice(-2).map(([spec]) => spec);
+    expect(targetAtoms).toHaveLength(2);
+    expect(targetAtoms.every((spec) => spec.opacity === 1)).toBe(true);
+    const globalClears = viewer.removeAllShapes.mock.calls.length;
+    renderer.setSelectedSite(1);
+    expect(viewer.removeAllShapes).toHaveBeenCalledTimes(globalClears);
+    expect(viewer.removeShape).toHaveBeenCalled();
   });
   it("uses white-on-dark atom labels while preserving colored transparent axis labels", () => {
     const viewer = fakeViewer();
