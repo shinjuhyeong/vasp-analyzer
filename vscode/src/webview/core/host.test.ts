@@ -248,7 +248,8 @@ describe("analysis hosts", () => {
   });
 
   it.each([
-    ["incomplete dataset", { schemaVersion: 1 }],
+    ["incomplete dataset", { schemaVersion: 3 }],
+    ["schema-2 dataset", { ...twoStepDataset, schemaVersion: 2 }],
     ["wrong method payload", step],
     ["null array", { ...twoStepDataset, sites: null }],
     ["invalid nested array", { ...twoStepDataset, ionicSteps: [{ ...step, lattice: [[1, 0, 0]] }] }],
@@ -262,11 +263,45 @@ describe("analysis hosts", () => {
     host.dispose();
   });
 
-  it("accepts a complete schema-2 dataset", async () => {
+  it("accepts a complete schema-3 dataset with a null initial structure", async () => {
     const result = detailedDatasetResult();
     const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 1, result }) });
 
     await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).resolves.toEqual(result);
+  });
+
+  it("accepts a complete schema-3 dataset with a valid initial structure", async () => {
+    const result = detailedDatasetResult();
+    result.initialStructure = {
+      source: "POSCAR",
+      lattice: [[3, 0, 0], [0, 3, 0], [0, 0, 3]],
+      fractionalPositions: [[0, 0, 0], [0.5, 0.5, 0.5]],
+      cartesianPositions: [[0, 0, 0], [1.5, 1.5, 1.5]],
+    };
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 1, result }) });
+
+    await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).resolves.toEqual(result);
+  });
+
+  it.each([
+    ["missing initialStructure", (dataset: any) => { delete dataset.initialStructure; }],
+    ["mismatched initial coordinate lengths", (dataset: any) => { dataset.initialStructure.cartesianPositions.pop(); }],
+    ["initial coordinates mismatched with sites", (dataset: any) => { dataset.initialStructure.fractionalPositions.pop(); dataset.initialStructure.cartesianPositions.pop(); }],
+    ["non-finite initial lattice", (dataset: any) => { dataset.initialStructure.lattice[0][0] = Number.NaN; }],
+    ["non-finite initial coordinate", (dataset: any) => { dataset.initialStructure.fractionalPositions[0][0] = Number.POSITIVE_INFINITY; }],
+    ["unknown initial source", (dataset: any) => { dataset.initialStructure.source = "CONTCAR"; }],
+  ])("rejects %s", async (_name, mutate) => {
+    const result = detailedDatasetResult();
+    result.initialStructure = {
+      source: "POSCAR",
+      lattice: [[3, 0, 0], [0, 3, 0], [0, 0, 3]],
+      fractionalPositions: [[0, 0, 0], [0.5, 0.5, 0.5]],
+      cartesianPositions: [[0, 0, 0], [1.5, 1.5, 1.5]],
+    };
+    mutate(result);
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 1, result }) });
+
+    await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).rejects.toMatchObject({ code: "invalid_response" });
   });
 
   it("accepts exact JSON-parsed and null-prototype records with declared nullable fields", async () => {
@@ -291,7 +326,7 @@ describe("analysis hosts", () => {
     ["empty energy label", (dataset: any) => { dataset.ionicSteps[0].energyTerms[0].rawLabel = "  "; }],
     ["malformed parameter occurrence", (dataset: any) => { dataset.parameters[0].ordinal = -1; }],
     ["non-finite typed parameter tuple", (dataset: any) => { dataset.parameters[0].value = [1, Number.POSITIVE_INFINITY]; }],
-  ])("rejects %s in a schema-2 result", async (_name, mutate) => {
+  ])("rejects %s in a schema-3 result", async (_name, mutate) => {
     const result = detailedDatasetResult();
     mutate(result);
     const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 1, result }) });

@@ -129,6 +129,16 @@ function isSite(value: unknown): boolean {
     && [mask.a, mask.b, mask.c].every((item) => item === null || typeof item === "boolean");
 }
 
+function isInitialStructure(value: unknown): boolean {
+  if (!isRecordWith(value, ["source", "lattice", "fractionalPositions", "cartesianPositions"])
+    || value.source !== "POSCAR"
+    || !isMat3(value.lattice)
+    || !isVec3Array(value.fractionalPositions)
+    || !isVec3Array(value.cartesianPositions)) return false;
+  return (value.fractionalPositions as readonly unknown[]).length
+    === (value.cartesianPositions as readonly unknown[]).length;
+}
+
 function isForceComponent(value: unknown): boolean {
   return isRecordWith(value, ["siteIndex", "axis", "value", "magnitude"])
     && isNonNegativeInteger(value.siteIndex)
@@ -241,20 +251,25 @@ function isProvenance(value: unknown): boolean {
 
 function isCalculationDataset(value: unknown): value is CalculationDataset {
   if (!isRecordWith(value, [
-    "schemaVersion", "root", "sourceFiles", "sites", "ionicSteps", "parameters",
+    "schemaVersion", "root", "sourceFiles", "sites", "initialStructure", "ionicSteps", "parameters",
     "capabilities", "warnings", "provenance",
   ])
     || value.schemaVersion !== DATASET_SCHEMA_VERSION
     || typeof value.root !== "string"
     || !isArrayOf(value.sourceFiles, isSourceFile)
     || !isArrayOf(value.sites, isSite)
+    || !(value.initialStructure === null || isInitialStructure(value.initialStructure))
     || !isArrayOf(value.ionicSteps, isIonicStep)
     || !isArrayOf(value.parameters, isParameterOccurrence)
     || !isArrayOf(value.capabilities, isCapability)
     || !isArrayOf(value.warnings, isWarning)
     || !(value.provenance === null || isProvenance(value.provenance))) return false;
   const siteCount = (value.sites as readonly unknown[]).length;
-  return (value.ionicSteps as readonly IonicStep[]).every((step) => step.cartesianPositions.length === siteCount);
+  const initialStructure = value.initialStructure as Record<string, unknown> | null;
+  return (initialStructure === null
+      || ((initialStructure.fractionalPositions as readonly unknown[]).length === siteCount
+        && (initialStructure.cartesianPositions as readonly unknown[]).length === siteCount))
+    && (value.ionicSteps as readonly IonicStep[]).every((step) => step.cartesianPositions.length === siteCount);
 }
 
 function validatedResult(method: AnalysisMethod, value: unknown): AnalysisResult {

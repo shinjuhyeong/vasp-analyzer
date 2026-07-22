@@ -27,8 +27,8 @@ def validate_stdio_output(output: str) -> None:
             "installed stdio smoke returned invalid JSON"
         ) from None
     result = envelope.get("result") if isinstance(envelope, dict) else None
-    if not isinstance(result, dict) or result.get("schemaVersion") != 2:
-        raise InstalledWheelSmokeError("installed stdio smoke did not return schema 2")
+    if not isinstance(result, dict) or result.get("schemaVersion") != 3:
+        raise InstalledWheelSmokeError("installed stdio smoke did not return schema 3")
 
 
 def validate_no_browser_result(returncode: int, output: str) -> None:

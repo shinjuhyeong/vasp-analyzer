@@ -24,6 +24,13 @@ export interface Site {
   readonly selectiveDynamics: SelectiveMask;
 }
 
+export interface InitialStructure {
+  readonly source: "POSCAR";
+  readonly lattice: Mat3;
+  readonly fractionalPositions: readonly Vec3[];
+  readonly cartesianPositions: readonly Vec3[];
+}
+
 export interface ForceComponent {
   readonly siteIndex: number;
   readonly axis: "a" | "b" | "c";
@@ -102,6 +109,7 @@ export interface CalculationDataset {
   readonly root: string;
   readonly sourceFiles: readonly SourceFile[];
   readonly sites: readonly Site[];
+  readonly initialStructure: InitialStructure | null;
   readonly ionicSteps: readonly IonicStep[];
   readonly parameters: readonly ParameterOccurrence[];
   readonly capabilities: readonly Capability[];

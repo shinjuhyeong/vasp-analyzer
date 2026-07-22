@@ -171,7 +171,7 @@ def validate_runtime_url_policy(
 def verify_webview_schema_contract(
     surfaces: Mapping[PurePosixPath, str],
 ) -> None:
-    """Verify a schema-2 manifest cryptographically bound to packaged Webview JS."""
+    """Verify a schema-3 manifest cryptographically bound to packaged Webview JS."""
 
     index_entries = [
         text
@@ -196,8 +196,8 @@ def verify_webview_schema_contract(
         "webviewSha256",
     }:
         raise ReleaseVerificationError("Webview schema contract has invalid fields")
-    if type(manifest["schemaVersion"]) is not int or manifest["schemaVersion"] != 2:
-        raise ReleaseVerificationError("Webview contract must require schema 2")
+    if type(manifest["schemaVersion"]) is not int or manifest["schemaVersion"] != 3:
+        raise ReleaseVerificationError("Webview contract must require schema 3")
     fingerprint = hashlib.sha256(index_entries[0].encode("utf-8")).hexdigest()
     if manifest["webviewSha256"] != fingerprint:
         raise ReleaseVerificationError("Webview bundle fingerprint does not match contract")
@@ -244,7 +244,7 @@ def _read_sdist_surfaces(
 
 
 def verify_wheel_schema_contract(wheel: Path) -> None:
-    """Exercise schema 2 acceptance/rejection from the archived wheel runtime."""
+    """Exercise schema 3 acceptance/rejection from the archived wheel runtime."""
 
     code = """
 import sys
@@ -252,22 +252,23 @@ sys.path.insert(0, sys.argv[1])
 import vasp_analyzer
 from vasp_analyzer.core import CalculationDataset
 payload = {
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "root": "/calculation",
     "sourceFiles": [],
     "sites": [],
+    "initialStructure": None,
     "ionicSteps": [],
     "parameters": [],
     "capabilities": [],
 }
 dataset = CalculationDataset.model_validate(payload)
-assert dataset.model_dump(mode="json", by_alias=True)["schemaVersion"] == 2
+assert dataset.model_dump(mode="json", by_alias=True)["schemaVersion"] == 3
 try:
-    CalculationDataset.model_validate({**payload, "schemaVersion": 1})
+    CalculationDataset.model_validate({**payload, "schemaVersion": 2})
 except Exception:
     pass
 else:
-    raise AssertionError("schema 1 payload was accepted")
+    raise AssertionError("schema 2 payload was accepted")
 assert sys.argv[1] in vasp_analyzer.__file__
 """
     result = subprocess.run(
@@ -278,7 +279,7 @@ assert sys.argv[1] in vasp_analyzer.__file__
     )
     if result.returncode:
         raise ReleaseVerificationError(
-            "archived wheel schema 2 runtime contract failed"
+            "archived wheel schema 3 runtime contract failed"
         ) from None
 
 

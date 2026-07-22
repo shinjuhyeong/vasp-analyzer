@@ -30,13 +30,14 @@ const step = (index: number): IonicStep => ({
 });
 
 export const twoStepDataset: CalculationDataset = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   root: "/calculation",
   sourceFiles: [],
   sites: [
     { siteIndex: 0, element: "Cu", initialFractionalPosition: [0, 0, 0], initialCartesianPosition: [0, 0, 0], selectiveDynamics: { a: true, b: true, c: true } },
     { siteIndex: 1, element: "O", initialFractionalPosition: [0.5, 0.5, 0.5], initialCartesianPosition: [1.5, 1.5, 1.5], selectiveDynamics: { a: true, b: false, c: true } },
   ],
+  initialStructure: null,
   ionicSteps: [step(0), step(1)],
   parameters: [],
   capabilities: [

@@ -308,7 +308,7 @@ def test_serve_stdio_and_dialect_validate_commands(tmp_path: Path) -> None:
     dialect = runner.invoke(app, ["dialect", "validate", str(root)])
 
     assert stdio.exit_code == 0, stdio.output
-    assert json.loads(stdio.output)["result"]["schemaVersion"] == 2
+    assert json.loads(stdio.output)["result"]["schemaVersion"] == 3
     assert dialect.exit_code == 0, dialect.output
     assert json.loads(dialect.output)["dialect"] == "standard"
 

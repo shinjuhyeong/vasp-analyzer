@@ -7,11 +7,11 @@ from scripts.verify_installed_wheel import (
 )
 
 
-def test_installed_stdio_smoke_requires_schema_2_result() -> None:
-    validate_stdio_output('{"id":1,"result":{"schemaVersion":2}}\n')
+def test_installed_stdio_smoke_requires_schema_3_result() -> None:
+    validate_stdio_output('{"id":1,"result":{"schemaVersion":3}}\n')
 
-    with pytest.raises(InstalledWheelSmokeError, match="schema 2"):
-        validate_stdio_output('{"id":1,"result":{"schemaVersion":1}}\n')
+    with pytest.raises(InstalledWheelSmokeError, match="schema 3"):
+        validate_stdio_output('{"id":1,"result":{"schemaVersion":2}}\n')
 
 
 def test_installed_default_smoke_requires_handoff_error_without_loopback_url() -> None:

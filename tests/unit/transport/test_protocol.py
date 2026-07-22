@@ -82,7 +82,7 @@ def test_dispatch_returns_dataset_and_step_with_versioned_aliases(tmp_path: Path
         ),
     )
 
-    assert dataset_response.model_dump(by_alias=True)["result"]["schemaVersion"] == 2
+    assert dataset_response.model_dump(by_alias=True)["result"]["schemaVersion"] == 3
     assert step_response.model_dump(by_alias=True)["result"]["index"] == 0
 
 
@@ -127,7 +127,7 @@ def test_dispatch_preserves_detailed_camel_case_step_contract(tmp_path: Path) ->
         Request.model_validate({"id": 1, "method": "getDataset", "params": {}}),
     ).model_dump(mode="json", by_alias=True)["result"]
 
-    assert response["schemaVersion"] == 2
+    assert response["schemaVersion"] == 3
     assert response["ionicSteps"][0]["energyTerms"][0]["rawLabel"] == "Ewald energy TEWEN"
     assert response["ionicSteps"][0]["stressTensorKb"][1] == [0.2, 3.0, 0.3]
     assert [item["rawKey"] for item in response["parameters"]] == ["ENCUT"]

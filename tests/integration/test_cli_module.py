@@ -54,5 +54,5 @@ def test_python_module_entrypoint_serves_one_stdio_request(tmp_path: Path) -> No
     assert result.returncode == 0, result.stderr
     response = json.loads(result.stdout)
     assert response["id"] == 1
-    assert response["result"]["schemaVersion"] == 2
+    assert response["result"]["schemaVersion"] == 3
     assert result.stderr == ""
