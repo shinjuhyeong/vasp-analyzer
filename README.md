@@ -80,6 +80,19 @@ position_force = ["POSITION", "TOTAL-FORCE"]
 total_energy = ["free energy", "TOTEN"]
 converged = ["reached required accuracy"]
 
+[outcar.details]
+energy_section = ["FREE ENERGIE OF THE ION-ELECTRON SYSTEM"]
+stress_section = ["FORCE on cell =-STRESS"]
+external_pressure = ["external pressure"]
+cell_volume = ["volume of cell"]
+parameter_sections = ["INCAR:"]
+parameter_section_end = ["VRHFIN", "ions per type", "NIONS", "direct lattice vectors"]
+
+[[outcar.energy_terms]]
+key = "home_correction"
+labels = ["home correction"]
+kind = "contribution"
+
 [validation]
 expected_force_columns = 6
 force_prefix_columns = 2
@@ -87,6 +100,8 @@ allow_incomplete_tail = true
 ```
 
 The special POSCAR rule removes only the declared standalone integer immediately after `Selective dynamics`; any different line is an error with location context. `force_prefix_columns` is restricted to `0` or `2`, and `expected_force_columns` to `6`.
+
+All detail marker defaults are shown above. Marker and energy-label aliases are bounded literal, case-insensitive substring/label matches; they are not regular expressions. `parameter_sections` opens a recognized effective-parameter region and `parameter_section_end` closes it, so unknown home-version keys are retained only inside an explicitly bounded region. Standard VASP energy rules remain available when custom rules are added; a custom rule must declare a bounded canonical `key`, one or more literal `labels`, and `kind = "contribution"` or `"aggregate"`.
 
 ## Recovery and interpretation
 
@@ -107,7 +122,19 @@ python -m pytest -m corpus tests/corpus -v
 
 On POSIX shells use `export` instead of `set`. Raw calculations, cache files, corpus reports, and absolute corpus paths are ignored and must never be committed or emitted in checked-in reports.
 
-The detailed opt-in gate additionally reports only aggregate counts for schema 2 energy terms, stress tensors, and effective-parameter occurrences. It consumes analyzed datasets one at a time and retains no source paths or calculation content in its report.
+The detailed opt-in gate additionally reports only aggregate counts for schema 2 energy terms, stress tensors, and effective-parameter occurrences. It consumes analyzed datasets one at a time and retains no source paths or calculation content in its report. Its five feature counters must all be nonzero. For reproducible private-corpus regression floors, store a path-free JSON file outside the repository and set `VASP_ANALYZER_CORPUS_DETAIL_BASELINE` to it:
+
+```text
+{
+  "files_with_energy_terms": <measured-positive-integer>,
+  "files_with_stress": <measured-positive-integer>,
+  "files_with_parameters": <measured-positive-integer>,
+  "energy_terms": <measured-positive-integer>,
+  "parameter_occurrences": <measured-positive-integer>
+}
+```
+
+Replace every placeholder with an aggregate count measured from the configured corpus; no private path or OUTCAR content belongs in the file. The gate treats them as minimums and also compares cached/append-resumed detail identities against stable or fresh results.
 
 ## Planned analysis seams
 

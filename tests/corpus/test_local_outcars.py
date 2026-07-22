@@ -7,13 +7,23 @@ from typing import cast
 import pytest
 
 from vasp_analyzer.cli.corpus import (
+    CorpusDetailMinimums,
+    require_detail_minimums,
     summarize_detail_datasets,
     validate_corpus,
     validate_corpus_details,
 )
 from vasp_analyzer.calculation.cache import CacheStore
 from vasp_analyzer.calculation.session import CalculationSession
-from vasp_analyzer.core import CalculationDataset, EnergyTerm, IonicStep, ParameterOccurrence
+from vasp_analyzer.core import (
+    AnalyzerError,
+    CalculationDataset,
+    EnergyTerm,
+    IonicStep,
+    ParameterOccurrence,
+)
+from vasp_analyzer.parsing.dialects import HOME_BARRIER
+from vasp_analyzer.parsing.recovery import ScanResult, scan_outcar
 
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "outcar"
@@ -141,6 +151,48 @@ def test_detail_summary_streams_a_one_shot_step_iterable() -> None:
     assert steps.iterations == 1
 
 
+def test_detail_minimums_reject_vacuous_or_regressed_aggregate_counts() -> None:
+    report = summarize_detail_datasets((CalculationDataset(
+        root="/empty", source_files=(), sites=(), ionic_steps=(), capabilities=()
+    ),))
+    minimums = CorpusDetailMinimums(
+        files_with_energy_terms=1,
+        files_with_stress=1,
+        files_with_parameters=1,
+        energy_terms=1,
+        parameter_occurrences=1,
+    )
+
+    with pytest.raises(AnalyzerError, match="files_with_energy_terms"):
+        require_detail_minimums(report, minimums)
+
+
+def test_fixture_append_resume_detail_identity_matches_fresh_parse(tmp_path: Path) -> None:
+    root = tmp_path / "detailed-append"
+    root.mkdir()
+    outcar = root / "OUTCAR"
+    truncated = (FIXTURES / "detail-truncated-tail.OUTCAR").read_bytes()
+    complete = (FIXTURES / "detail-complete-two-step.OUTCAR").read_bytes()
+    assert complete.startswith(truncated)
+    outcar.write_bytes(truncated)
+    before = scan_outcar(outcar, HOME_BARRIER)
+    with outcar.open("ab") as stream:
+        stream.write(complete[len(truncated):])
+
+    resumed = scan_outcar(outcar, HOME_BARRIER, before.checkpoint)
+    fresh = scan_outcar(outcar, HOME_BARRIER)
+
+    assert _merged_scan_detail_identity(before, resumed) == _scan_detail_identity(fresh)
+    assert tuple(
+        (item.raw_key, item.raw_value, item.line_number)
+        for scan in (before, resumed)
+        for item in scan.parameters
+    ) == tuple(
+        (item.raw_key, item.raw_value, item.line_number)
+        for item in fresh.parameters
+    )
+
+
 def corpus_root_or_skip() -> Path:
     configured = os.environ.get("VASP_ANALYZER_CORPUS_DIR")
     if configured is None:
@@ -171,7 +223,23 @@ def test_configured_corpus_detailed_metadata_is_finite_and_bounded() -> None:
     assert report.files_seen > 0
     assert report.non_finite_energy_terms == 0
     assert report.invalid_stress_shapes == 0
-    assert report.parameter_occurrences >= report.files_with_parameters
+    require_detail_minimums(
+        report,
+        CorpusDetailMinimums(
+            files_with_energy_terms=1,
+            files_with_stress=1,
+            files_with_parameters=1,
+            energy_terms=1,
+            parameter_occurrences=1,
+        ),
+    )
+
+    configured_baseline = os.environ.get("VASP_ANALYZER_CORPUS_DETAIL_BASELINE")
+    if configured_baseline is not None:
+        minimums = CorpusDetailMinimums.model_validate_json(
+            Path(configured_baseline).read_text(encoding="utf-8")
+        )
+        require_detail_minimums(report, minimums)
 
 
 @pytest.mark.corpus
@@ -189,6 +257,7 @@ def test_largest_file_cache_reuse_and_bounded_append_resume(tmp_path: Path) -> N
     assert cached_session.last_evidence.cache_reused is True
     assert cached_dataset.source_files == first_dataset.source_files
     assert len(cached_dataset.ionic_steps) == len(first_dataset.ionic_steps)
+    assert _detail_identity(cached_dataset) == _detail_identity(first_dataset)
 
     append_root = tmp_path / "bounded-append"
     append_root.mkdir()
@@ -208,3 +277,66 @@ def test_largest_file_cache_reuse_and_bounded_append_resume(tmp_path: Path) -> N
     assert evidence.resumed_from is not None
     assert evidence.resumed_from > 0
     assert refreshed.ionic_steps[-1].total_energy == -10.25
+
+    detailed_root = tmp_path / "detailed-append"
+    detailed_root.mkdir()
+    detailed_outcar = detailed_root / "OUTCAR"
+    truncated = (FIXTURES / "detail-truncated-tail.OUTCAR").read_bytes()
+    complete = (FIXTURES / "detail-complete-two-step.OUTCAR").read_bytes()
+    assert complete.startswith(truncated)
+    detailed_outcar.write_bytes(truncated)
+    before = scan_outcar(detailed_outcar, HOME_BARRIER)
+    with detailed_outcar.open("ab") as stream:
+        stream.write(complete[len(truncated):])
+
+    resumed = scan_outcar(detailed_outcar, HOME_BARRIER, before.checkpoint)
+    fresh = scan_outcar(detailed_outcar, HOME_BARRIER)
+
+    assert _merged_scan_detail_identity(before, resumed) == _scan_detail_identity(fresh)
+    assert tuple(
+        (item.raw_key, item.raw_value, item.line_number)
+        for scan in (before, resumed)
+        for item in scan.parameters
+    ) == tuple(
+        (item.raw_key, item.raw_value, item.line_number)
+        for item in fresh.parameters
+    )
+
+
+def _detail_identity(dataset: CalculationDataset) -> tuple[int, tuple[object, ...], tuple[object, ...]]:
+    terms = tuple(
+        (step.index, term.key, term.raw_label, term.value, term.kind)
+        for step in dataset.ionic_steps
+        for term in step.energy_terms
+    )
+    stress = tuple(
+        (step.index, step.external_pressure_kb, step.pulay_stress_kb, step.stress_tensor_kb, step.cell_volume)
+        for step in dataset.ionic_steps
+        if any(value is not None for value in (
+            step.external_pressure_kb, step.pulay_stress_kb, step.stress_tensor_kb, step.cell_volume
+        ))
+    )
+    return len(terms), terms, stress
+
+
+def _scan_detail_identity(scan: ScanResult) -> tuple[object, ...]:
+    return tuple(
+        (
+            step.step_id,
+            tuple((term.key, term.raw_label, term.value, term.kind) for term in step.energy_terms),
+            step.external_pressure_kb,
+            step.pulay_stress_kb,
+            step.stress_tensor_kb,
+            step.cell_volume,
+        )
+        for step in scan.steps
+    )
+
+
+def _merged_scan_detail_identity(*scans: ScanResult) -> tuple[object, ...]:
+    by_step_id: dict[int, object] = {}
+    for scan in scans:
+        for identity in _scan_detail_identity(scan):
+            assert isinstance(identity, tuple)
+            by_step_id[int(identity[0])] = identity
+    return tuple(by_step_id[step_id] for step_id in sorted(by_step_id))

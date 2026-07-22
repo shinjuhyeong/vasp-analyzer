@@ -58,6 +58,30 @@ class CorpusDetailReport(FrozenModel):
     invalid_stress_shapes: int = Field(ge=0)
 
 
+class CorpusDetailMinimums(FrozenModel):
+    """Privacy-safe lower bounds stored separately from private calculations."""
+
+    files_with_energy_terms: int = Field(gt=0)
+    files_with_stress: int = Field(gt=0)
+    files_with_parameters: int = Field(gt=0)
+    energy_terms: int = Field(gt=0)
+    parameter_occurrences: int = Field(gt=0)
+
+
+def require_detail_minimums(
+    report: CorpusDetailReport, minimums: CorpusDetailMinimums
+) -> None:
+    """Fail when any detailed-metadata aggregate drops below its declared floor."""
+
+    regressions = [
+        f"{field}={getattr(report, field)} < {minimum}"
+        for field, minimum in minimums.model_dump(by_alias=False).items()
+        if getattr(report, field) < minimum
+    ]
+    if regressions:
+        raise AnalyzerError("detailed corpus baseline regression: " + ", ".join(regressions))
+
+
 def summarize_detail_datasets(
     datasets: Iterable[CalculationDataset],
 ) -> CorpusDetailReport:
@@ -260,8 +284,10 @@ def validate_corpus(root: Path) -> CorpusReport:
 
 
 __all__ = [
+    "CorpusDetailMinimums",
     "CorpusDetailReport",
     "CorpusReport",
+    "require_detail_minimums",
     "summarize_detail_datasets",
     "validate_corpus",
     "validate_corpus_details",
