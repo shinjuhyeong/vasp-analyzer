@@ -25,6 +25,7 @@ export function ComparisonInspector({ site, sitePosition, initial, target, compa
     <h3>Comparison summary</h3>
     <p>Maximum displacement {summary.largestDisplacement.toFixed(6)} Å</p><p>Mean displacement {summary.meanDisplacement.toFixed(6)} Å</p>
     <p>Cell vector changes {vector(summary.cellDeltaMagnitudes)} Å</p><p>Cell length changes {vector(summary.lengthChanges)} Å</p>
+    {comparison.cellDeltas.map((delta, axis) => <p key={axis}>Delta {(["a", "b", "c"] as const)[axis]} vector {vector(delta)} Å; magnitude {magnitude(delta)} Å</p>)}
     <p>Cell angle changes {vector(summary.angleChanges)} degrees</p><p>Cell volume change {summary.volumeChange.toFixed(6)} Å³ ({(summary.relativeVolumeChange * 100).toFixed(6)}%)</p>
   </aside>;
 }

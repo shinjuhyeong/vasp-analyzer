@@ -82,3 +82,13 @@ it("updates only the selected module metric and mode", async () => {
     modes: { ...DEFAULT_CONVERGENCE.modes, force: "table", energy: "table" },
   }));
 });
+
+it("retains all graph series on Initial without inventing selected markers", () => {
+  render(<ConvergenceWorkspace dataset={{ ...twoStepDataset, initialStructure: { source: "POSCAR", lattice: twoStepDataset.ionicSteps[0]!.lattice,
+    fractionalPositions: twoStepDataset.ionicSteps[0]!.fractionalPositions, cartesianPositions: twoStepDataset.ionicSteps[0]!.cartesianPositions } }}
+    selectedIndex={-1} preferences={{ ...DEFAULT_CONVERGENCE, selectedModules: ["energy", "force", "cellStress"] }}
+    onSelectStep={vi.fn()} onPreferencesChange={vi.fn()} onSelectSite={vi.fn()} />);
+  expect(screen.getAllByText("Initial structure has no ionic convergence values")).toHaveLength(3);
+  expect(screen.getByTestId("Total energy graph-visual").querySelectorAll("circle")).toHaveLength(2);
+  expect(document.querySelectorAll('[data-selected="true"]')).toHaveLength(0);
+});

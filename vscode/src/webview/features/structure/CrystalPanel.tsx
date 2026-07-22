@@ -155,19 +155,21 @@ export function CrystalPanel({
     () => buildCrystalFrame(sceneInputs, selectedStep.lattice, repeat),
     [sceneInputs, selectedStep.lattice, repeat],
   );
-  const comparisonResult = useMemo<Readonly<{ value: StructureComparison | null; error: unknown }>>(() => {
-    if (!initialStructure || !comparisonTarget) return { value: null, error: null };
-    try { return { value: compareStructures(initialStructure, comparisonTarget), error: null }; }
-    catch (error) { return { value: null, error }; }
-  }, [comparisonTarget, failRenderer, initialStructure]);
+  const comparisonResult = useMemo<Readonly<{ value: StructureComparison | null; scene: ReturnType<typeof buildComparisonScene> | null; error: unknown }>>(() => {
+    if (!initialStructure || !comparisonTarget) return { value: null, scene: null, error: null };
+    try {
+      const value = compareStructures(initialStructure, comparisonTarget);
+      const scene = buildComparisonScene(
+        sites.map((site, position) => ({ siteIndex: site.siteIndex, element: site.element, fractionalPosition: initialStructure.fractionalPositions[position]!, cartesianPosition: initialStructure.cartesianPositions[position]! })),
+        sites.map((site, position) => ({ siteIndex: site.siteIndex, element: site.element, fractionalPosition: comparisonTarget.fractionalPositions[position]!, cartesianPosition: comparisonTarget.cartesianPositions[position]! })),
+        initialStructure.lattice, comparisonTarget.lattice, value, repeat, displacementScale);
+      return { value, scene, error: null };
+    }
+    catch (error) { return { value: null, scene: null, error }; }
+  }, [comparisonTarget, displacementScale, initialStructure, repeat, sites]);
   const comparison = comparisonResult.value;
   useEffect(() => { if (comparisonResult.error) failRenderer(comparisonResult.error); }, [comparisonResult, failRenderer]);
-  const comparisonScene = useMemo(() => comparison && initialStructure && comparisonTarget
-    ? buildComparisonScene(
-      sites.map((site, position) => ({ siteIndex: site.siteIndex, element: site.element, fractionalPosition: initialStructure.fractionalPositions[position]!, cartesianPosition: initialStructure.cartesianPositions[position]! })),
-      sites.map((site, position) => ({ siteIndex: site.siteIndex, element: site.element, fractionalPosition: comparisonTarget.fractionalPositions[position]!, cartesianPosition: comparisonTarget.cartesianPositions[position]! })),
-      initialStructure.lattice, comparisonTarget.lattice, comparison, repeat, displacementScale)
-    : null, [comparison, comparisonTarget, displacementScale, initialStructure, repeat, sites]);
+  const comparisonScene = comparisonResult.scene;
   const legend = useMemo(() => elementLegend(sites), [sites]);
   const vectors = useMemo(
     () =>

@@ -427,4 +427,14 @@ describe("CrystalPanel", () => {
     expect(renderer.setStructure).not.toHaveBeenCalled();
     expect(renderer.setForces).not.toHaveBeenCalled();
   });
+
+  it("bounds comparison scene mapping errors in the existing fallback", async () => {
+    const target = twoStepDataset.ionicSteps[0]!;
+    render(<CrystalPanel sites={twoStepDataset.sites.map((site) => ({ ...site, siteIndex: site.siteIndex + 10 }))}
+      selectedStep={{ ...target, index: -1 }} selectedSite={null} forceMode="free" forceScale={1}
+      initialStructure={{ source: "POSCAR", lattice: target.lattice, fractionalPositions: target.fractionalPositions, cartesianPositions: target.cartesianPositions }}
+      comparisonTarget={target} displacementScale={10} onSelectSite={vi.fn()} rendererFactory={() => new FakeRenderer()} />);
+    expect(await screen.findByRole("table", { name: "Atomic positions and forces" })).toBeVisible();
+    expect(screen.getByText(/Comparison is missing siteIndex 10/)).toBeVisible();
+  });
 });

@@ -17,4 +17,7 @@ it("shows per-site displacement, drift, ranking, multiplier, and cell summaries"
     "Displacement arrow multiplier 25×", "Maximum displacement", "Mean displacement", "Cell vector changes",
     "Cell length changes", "Cell angle changes", "Cell volume change"])
     expect(screen.getByText(new RegExp(text))).toBeVisible();
+  expect(screen.getByText(/Delta a vector \[/)).toBeVisible();
+  expect(screen.getByText(/Delta b vector \[/)).toBeVisible();
+  expect(screen.getByText(/Delta c vector \[/)).toBeVisible();
 });

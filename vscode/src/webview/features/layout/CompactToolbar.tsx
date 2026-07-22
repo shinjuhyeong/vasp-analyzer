@@ -51,7 +51,8 @@ export function CompactToolbar({
       {selectedStepIndex === -1 && totalSteps > 0 && comparison && <>
         <label className="toolbar-control"><input aria-label="Compare structures" type="checkbox" checked={comparison.enabled} onChange={(event) => comparison.onEnabledChange(event.target.checked)} />Compare</label>
         {comparison.enabled && <>
-          <label className="toolbar-control">Compare target<input aria-label="Comparison target number" type="number" min="1" max={totalSteps} value={comparison.target + 1} onChange={(event) => comparison.onTargetChange(Number(event.target.value) - 1)} /></label>
+          <label className="toolbar-control">Compare target slider<input aria-label="Comparison target slider" type="range" min="1" max={totalSteps} step="1" value={comparison.target + 1} onChange={(event) => comparison.onTargetChange(Number(event.target.value) - 1)} /></label>
+          <label className="toolbar-control">Compare target number<input aria-label="Comparison target number" type="number" min="1" max={totalSteps} value={comparison.target + 1} onChange={(event) => comparison.onTargetChange(Math.max(0, Math.min(totalSteps - 1, Number(event.target.value) - 1)))} /></label>
           <ForceScaleControl value={comparison.displacementScale} onChange={comparison.onDisplacementScaleChange} label="Displacement arrow multiplier" />
         </>}
       </>}

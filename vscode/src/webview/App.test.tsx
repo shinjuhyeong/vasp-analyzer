@@ -21,6 +21,11 @@ const inertRendererFactory: CrystalRendererFactory = () => ({
 });
 
 describe("Initial comparison flow", () => {
+  it("keeps ionic-only datasets on one-based frames without Compare", async () => {
+    render(<App host={new MemoryHost(twoStepDataset)} structure={FakeStructure} convergence={FakeConvergence} />);
+    expect(await screen.findByLabelText("Ionic step slider")).toHaveAttribute("min", "1");
+    expect(screen.queryByLabelText("Compare structures")).not.toBeInTheDocument();
+  });
   it("offers Initial, scopes Compare to it, and removes force controls during comparison", async () => {
     const user = userEvent.setup();
     const first = twoStepDataset.ionicSteps[0]!;
@@ -33,8 +38,16 @@ describe("Initial comparison flow", () => {
     const compare = screen.getByLabelText("Compare structures");
     await user.click(compare);
     expect(screen.getByLabelText("Comparison target number")).toHaveValue(1);
+    expect(screen.getByLabelText("Comparison target slider")).toHaveValue("1");
     expect(screen.getByLabelText("Displacement arrow multiplier slider")).toBeVisible();
     expect(screen.queryByLabelText("Force vector scale slider")).not.toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Comparison target number"));
+    await user.type(screen.getByLabelText("Comparison target number"), "99");
+    expect(screen.getByLabelText("Comparison target number")).toHaveValue(2);
+    expect(screen.getByLabelText("Comparison target slider")).toHaveValue("2");
+    await user.clear(screen.getByLabelText("Displacement arrow multiplier number"));
+    await user.type(screen.getByLabelText("Displacement arrow multiplier number"), "100");
+    expect(screen.getByLabelText("Displacement arrow multiplier slider")).toHaveValue(String(2 / 3));
     await user.clear(frame); await user.type(frame, "1{Enter}");
     expect(screen.queryByLabelText("Compare structures")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Force vector scale slider")).toBeVisible();
