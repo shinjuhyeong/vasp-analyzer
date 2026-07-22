@@ -51,7 +51,12 @@ class IterationPattern(FrozenModel):
     @field_validator("prefix")
     @classmethod
     def validate_prefix(cls, value: str) -> str:
-        return _bounded_text(value)
+        value = _bounded_text(value)
+        try:
+            value.encode("ascii")
+        except UnicodeEncodeError as exc:
+            raise ValueError("iteration prefix must be ASCII") from exc
+        return value
 
     def parse(self, line: bytes) -> tuple[int, int] | None:
         prefix = re.escape(self.prefix.encode("ascii"))

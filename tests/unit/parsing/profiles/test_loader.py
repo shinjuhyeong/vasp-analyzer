@@ -16,9 +16,32 @@ from vasp_analyzer.parsing.profiles import (
 FIXTURES = Path(__file__).parents[3] / "fixtures"
 
 
-def test_iteration_pattern_requires_both_positive_decimal_groups() -> None:
+@pytest.mark.parametrize(
+    ("ionic_group", "electronic_group"),
+    [(".*", "\\d+"), ("\\d+", ".*")],
+)
+def test_iteration_pattern_requires_both_positive_decimal_groups(
+    ionic_group: str, electronic_group: str
+) -> None:
     with pytest.raises(ValidationError):
-        IterationPattern(prefix="Iteration", ionic_group=".*", electronic_group="\\d+")
+        IterationPattern(
+            prefix="Iteration",
+            ionic_group=ionic_group,
+            electronic_group=electronic_group,
+        )
+
+
+def test_iteration_pattern_rejects_non_ascii_prefix_during_validation() -> None:
+    with pytest.raises(ValidationError, match="ASCII"):
+        IterationPattern(prefix="Iteración", ionic_group="\\d+", electronic_group="\\d+")
+
+
+def test_iteration_pattern_parses_ascii_replacement_prefix() -> None:
+    pattern = IterationPattern(
+        prefix="SCF Iteration", ionic_group="\\d+", electronic_group="\\d+"
+    )
+
+    assert pattern.parse(b"--- SCF Iteration 3( 9) ---") == (3, 9)
 
 
 @pytest.mark.parametrize(
