@@ -28,6 +28,19 @@ def scan_fixture(tmp_path: Path, name: str):  # type: ignore[no-untyped-def]
     return scan_outcar(path, HOME_BARRIER)
 
 
+def write_energy_fixture(tmp_path: Path, *, body: bytes, close: bool = True) -> Path:
+    path = tmp_path / "OUTCAR"
+    closing_separator = b" ---------------------------------------------------\n" if close else b""
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+        + b" ---------------------------------------------------\n"
+        + body
+        + closing_separator
+    )
+    return path
+
+
 def _iteration_prefix(ionic: int, electronic: int) -> bytes:
     return f"Iteration {ionic}({electronic})\n".encode()
 
@@ -577,6 +590,7 @@ def test_parameter_marker_ends_an_active_energy_section(tmp_path: Path) -> None:
     path.write_bytes(
         (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
         + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+        + b" ---------------------------------------------------\n"
         + b" home correction = 1.0 eV\n"
         + b" INCAR:\n"
         + b" HOME_TAG = alpha\n"
@@ -629,6 +643,7 @@ def test_complete_empty_energy_assignment_fails_closed(tmp_path: Path, assignmen
         (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
         + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
         + b" harmless diagnostic prose\n"
+        + b" ---------------------------------------------------\n"
         + assignment
         + b" General timing and accounting informations for this job:\n"
     )
@@ -653,37 +668,57 @@ def test_non_assignment_equals_separator_is_ignored_in_energy_section(
     assert scan.steps[0].energy_terms == ()
 
 
-def test_multiple_convergence_assignments_are_ignored_in_energy_section(
+@pytest.mark.parametrize(
+    "diagnostic",
+    [
+        b" d Force = 0.359E-03[ 0.351E-03, 0.368E-03]  d Energy = 0.358E-03 0.939E-06\n",
+        b" d Force = 0.359E-03[ 0.351E-03, 0.368E-03]  d Energy = 0.358E-03-0.939E-06\n",
+        b" d Force =-0.850E+00[-0.852E+00,-0.849E+00]  d Ewald  = 0.116E+02-0.125E+02\n",
+        b" d Force =-0.850E+00[-0.852E+00,-0.849E+00]  d Ewald  =-0.116E+02 0.125E+02\n",
+    ],
+)
+def test_optimizer_diagnostic_variants_are_omitted(
+    diagnostic: bytes, tmp_path: Path
+) -> None:
+    path = write_energy_fixture(tmp_path, body=diagnostic)
+    assert scan_outcar(path, HOME_BARRIER).steps[0].energy_terms == ()
+
+
+def test_closing_energy_separator_prevents_forcemax_from_becoming_energy(
     tmp_path: Path,
 ) -> None:
-    path = tmp_path / "OUTCAR"
-    path.write_bytes(
-        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
-        + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
-        + b" forcemax=  0.104743575296862      EDIFFG= -1.000000000000000E-002\n"
-        + b" General timing and accounting informations for this job:\n"
+    path = write_energy_fixture(
+        tmp_path,
+        body=b" free energy TOTEN = -10.0 eV\n",
     )
+    with path.open("ab") as stream:
+        stream.write(
+            b" forcemax=  0.104743575296862      EDIFFG= -1.000000000000000E-002\n"
+            b" General timing and accounting informations for this job:\n"
+        )
+    assert scan_outcar(path, HOME_BARRIER).steps[0].energy == pytest.approx(-10.0)
 
-    scan = scan_outcar(path, HOME_BARRIER)
 
-    assert scan.steps[0].energy_terms == ()
+def test_malformed_single_energy_assignment_inside_body_still_fails(tmp_path: Path) -> None:
+    path = write_energy_fixture(tmp_path, body=b" home correction = nope eV\n")
+    with pytest.raises(OutcarFormatError, match="energy"):
+        scan_outcar(path, HOME_BARRIER)
 
 
-def test_force_energy_convergence_summary_is_ignored_in_energy_section(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "OUTCAR"
-    path.write_bytes(
-        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
-        + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
-        + b" d Force = 0.3595222E-03[ 0.351E-03, 0.368E-03]"
-        + b"  d Energy = 0.3585828E-03 0.939E-06\n"
-        + b" General timing and accounting informations for this job:\n"
+def test_malformed_optimizer_diagnostic_inside_body_fails(tmp_path: Path) -> None:
+    path = write_energy_fixture(
+        tmp_path,
+        body=b" d Force = nope[ 0.351E-03, 0.368E-03]  d Energy = 0.358E-03 0.939E-06\n",
     )
+    with pytest.raises(OutcarFormatError, match="optimizer"):
+        scan_outcar(path, HOME_BARRIER)
 
-    scan = scan_outcar(path, HOME_BARRIER)
 
-    assert scan.steps[0].energy_terms == ()
+def test_unknown_valid_single_energy_assignment_is_preserved(tmp_path: Path) -> None:
+    path = write_energy_fixture(tmp_path, body=b" home correction* = 2.5 eV\n")
+    assert [(term.key, term.value) for term in scan_outcar(path, HOME_BARRIER).steps[0].energy_terms] == [
+        ("home_correction", 2.5)
+    ]
 
 
 def test_unknown_punctuated_energy_label_is_preserved(tmp_path: Path) -> None:
@@ -691,6 +726,7 @@ def test_unknown_punctuated_energy_label_is_preserved(tmp_path: Path) -> None:
     path.write_bytes(
         (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
         + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+        + b" ---------------------------------------------------\n"
         + b" home correction* = 2.5 eV\n"
         + b" General timing and accounting informations for this job:\n"
     )
@@ -707,6 +743,7 @@ def test_truncated_energy_assignment_warns_then_replays(tmp_path: Path) -> None:
     prefix = (
         (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
         + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+        + b" ---------------------------------------------------\n"
         + b" home correction ="
     )
     path.write_bytes(prefix)
@@ -721,6 +758,32 @@ def test_truncated_energy_assignment_warns_then_replays(tmp_path: Path) -> None:
     assert first.steps[0].energy_terms == ()
     assert [term.key for term in second.steps[0].energy_terms] == ["home_correction"]
     assert second.steps[0].energy_terms[0].value == pytest.approx(1.5)
+
+
+def test_incomplete_energy_block_rewinds_for_append_resume(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    prefix = (
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+        + b" ---------------------------------------------------\n"
+        + b" home correction ="
+    )
+    path.write_bytes(prefix)
+    first = scan_outcar(path, HOME_BARRIER)
+
+    path.write_bytes(
+        prefix
+        + b" 1.5 eV\n"
+        + b" ---------------------------------------------------\n"
+        + b" General timing and accounting informations for this job:\n"
+    )
+    second = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+
+    assert first.checkpoint.replay_provisional is True
+    assert first.steps[0].energy_terms == ()
+    assert [(term.key, term.value) for term in second.steps[0].energy_terms] == [
+        ("home_correction", 1.5)
+    ]
 
 
 def test_exact_three_by_three_kb_stress_attaches_to_step(tmp_path: Path) -> None:

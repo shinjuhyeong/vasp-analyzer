@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from enum import Enum
 from hashlib import sha256
 from pathlib import Path
 
@@ -44,15 +45,20 @@ _COMBINED_ENERGY_AGGREGATES = re.compile(
     rb"energy\(sigma->0\)\s*=\s*([^\s]+)(?:\s+eV)?\s*$",
     re.IGNORECASE,
 )
-_IONIC_CONVERGENCE_DIAGNOSTIC = re.compile(
-    rb"^\s*forcemax\s*=\s*(\S+)\s+EDIFFG\s*=\s*(\S+)\s*$",
+_SCIENTIFIC_NUMBER = rb"[+-]?(?:\d+(?:\.\d*)?|\.\d+)[EeDd][+-]?\d+"
+_OPTIMIZER_DIAGNOSTIC = re.compile(
+    rb"^\s*d\s+Force\s*=\s*(" + _SCIENTIFIC_NUMBER + rb")\s*"
+    rb"\[\s*(" + _SCIENTIFIC_NUMBER + rb")\s*,\s*(" + _SCIENTIFIC_NUMBER + rb")\s*\]\s*"
+    rb"d\s+(?:Energy|Ewald)\s*=\s*(" + _SCIENTIFIC_NUMBER + rb")\s*"
+    rb"(" + _SCIENTIFIC_NUMBER + rb")\s*$",
     re.IGNORECASE,
 )
-_FORCE_ENERGY_CONVERGENCE_DIAGNOSTIC = re.compile(
-    rb"^\s*d\s+Force\s*=\s*([^\s\[]+)\[\s*([^\s,]+),\s*([^\s\]]+)\]"
-    rb"\s+d\s+Energy\s*=\s*(\S+)\s+(\S+)\s*$",
-    re.IGNORECASE,
-)
+
+
+class _EnergyPhase(Enum):
+    CLOSED = "closed"
+    AWAITING_SEPARATOR = "awaiting_separator"
+    BODY = "body"
 
 
 class _NonNumericRow(OutcarFormatError):
@@ -129,23 +135,24 @@ def _combined_energy_terms(line: bytes, dialect: Dialect) -> tuple[EnergyTerm, E
     return without_entropy, sigma_to_zero
 
 
-def _is_ionic_convergence_diagnostic(line: bytes, *, offset: int) -> bool:
-    """Recognize the home-version force threshold summary inside an energy section."""
+def _is_hyphen_separator(line: bytes) -> bool:
+    stripped = line.strip()
+    return len(stripped) >= 10 and not stripped.strip(b"-")
 
+
+def _is_optimizer_diagnostic(
+    line: bytes, prefixes: tuple[str, ...], *, offset: int
+) -> bool:
     stripped = line.rstrip(b"\r\n")
-    for pattern in (
-        _IONIC_CONVERGENCE_DIAGNOSTIC,
-        _FORCE_ENERGY_CONVERGENCE_DIAGNOSTIC,
-    ):
-        match = pattern.fullmatch(stripped)
-        if match is not None:
-            _finite_numbers(
-                b" ".join(match.groups()),
-                context="ionic convergence diagnostic",
-                offset=offset,
-            )
-            return True
-    return False
+    if not any(stripped.lstrip().lower().startswith(prefix.encode().lower()) for prefix in prefixes):
+        return False
+    match = _OPTIMIZER_DIAGNOSTIC.fullmatch(stripped)
+    if match is None:
+        raise OutcarFormatError(f"optimizer diagnostic at byte {offset} is malformed")
+    _finite_numbers(
+        b" ".join(match.groups()), context="optimizer diagnostic", offset=offset
+    )
+    return True
 
 
 def _finite_numbers(line: bytes, *, context: str, offset: int) -> tuple[float, ...]:
@@ -323,7 +330,7 @@ def scan_outcar(
     post_force_detail_mode = False
     force_rows_just_finished = False
     parameter_section_active = False
-    energy_section_active = False
+    energy_phase = _EnergyPhase.CLOSED
     stress_block_start: int | None = None
     stress_target: str | None = None
     stress_rows: list[bytes] | None = None
@@ -351,7 +358,7 @@ def scan_outcar(
 
         def finalize_pending(*, stable: bool) -> None:
             nonlocal pending, next_step_id, last_verified_offset
-            nonlocal energy_section_active, post_force_detail_mode
+            nonlocal energy_phase, post_force_detail_mode
             nonlocal boundary_lattice, boundary_current_ionic_iteration
             nonlocal boundary_max_electronic_iteration, boundary_geometry_section_open
             nonlocal boundary_header_volume, boundary_geometry_volume_consumed
@@ -376,7 +383,7 @@ def scan_outcar(
                 boundary_geometry_volume_consumed = geometry_volume_consumed
                 boundary_geometry_lattice_consumed = geometry_lattice_consumed
             pending = None
-            energy_section_active = False
+            energy_phase = _EnergyPhase.CLOSED
             post_force_detail_mode = False
 
         def mark_next_detail(line_start: int) -> None:
@@ -528,7 +535,7 @@ def scan_outcar(
 
             if _contains_any(raw, dialect.profile.outcar.details.parameter_sections):
                 parameter_section_active = True
-                energy_section_active = False
+                energy_phase = _EnergyPhase.CLOSED
                 continue
             if parameter_section_active and _contains_any(
                 raw, dialect.profile.outcar.details.parameter_section_end
@@ -764,7 +771,22 @@ def scan_outcar(
             if pending is not None and _contains_any(
                 raw, dialect.profile.outcar.details.energy_section
             ):
-                energy_section_active = True
+                energy_phase = _EnergyPhase.AWAITING_SEPARATOR
+                continue
+
+            if pending is not None and energy_phase is _EnergyPhase.AWAITING_SEPARATOR:
+                if _is_hyphen_separator(raw):
+                    energy_phase = _EnergyPhase.BODY
+                    continue
+                if _contains_all(raw, dialect.profile.outcar.markers.total_energy):
+                    # Retain support for compact analyzer fixtures that contain only
+                    # the canonical total-energy row and omit the formatted body.
+                    energy_phase = _EnergyPhase.CLOSED
+                else:
+                    continue
+
+            if pending is not None and energy_phase is _EnergyPhase.BODY and _is_hyphen_separator(raw):
+                energy_phase = _EnergyPhase.CLOSED
                 continue
 
             if _contains_any(raw, dialect.profile.outcar.details.stress_section):
@@ -772,7 +794,7 @@ def scan_outcar(
                     raise OutcarFormatError(
                         f"stress block at byte {stress_block_start} contains a nested marker"
                     )
-                energy_section_active = False
+                energy_phase = _EnergyPhase.CLOSED
                 stress_block_start = line_start
                 stress_target = (
                     "next" if next_detail_start is not None or pending is None else "pending"
@@ -877,13 +899,17 @@ def scan_outcar(
                     clear_stress_state()
                 continue
 
-            if pending is not None and energy_section_active:
+            if pending is not None and energy_phase is _EnergyPhase.BODY:
                 if not raw.strip():
                     continue
                 if not raw.endswith((b"\n", b"\r")):
                     handle_incomplete_tail("incomplete energy detail line", line_start)
                     break
-                if _is_ionic_convergence_diagnostic(raw, offset=line_start):
+                if _is_optimizer_diagnostic(
+                    raw,
+                    dialect.profile.outcar.details.optimizer_diagnostics,
+                    offset=line_start,
+                ):
                     continue
                 combined = _combined_energy_terms(raw, dialect)
                 if combined is not None:
