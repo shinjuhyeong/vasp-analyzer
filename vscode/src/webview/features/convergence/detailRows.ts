@@ -63,8 +63,7 @@ export function forceDetailRows(
     const mask = maskValues(site.selectiveDynamics);
     if (!force || mask.includes(null)) return;
     force.forEach((value, component) => {
-      if (mask[component] === true)
-        candidates.push({ row, component: component as 0 | 1 | 2, value });
+      candidates.push({ row, component: component as 0 | 1 | 2, value });
     });
   });
   const ranks = rankTopTwo(candidates, () => true, ({ value }) => Math.abs(value));

@@ -125,6 +125,7 @@ describe("analysis workspace", () => {
     render(<App host={new MemoryHost()} structure={FakeStructure} />);
     const number = await screen.findByLabelText("Convergence ionic step number");
     fireEvent.change(number, { target: { value: "2" } });
+    fireEvent.keyDown(number, { key: "Enter" });
     expect(screen.getByLabelText("Ionic step number")).toHaveValue(2);
     expect(screen.getByTestId("structure-step")).toHaveTextContent("1");
   });
@@ -138,7 +139,9 @@ describe("analysis workspace", () => {
       })),
     };
     render(<App host={new MemoryHost(dataset)} structure={FakeStructure} />);
-    fireEvent.change(await screen.findByLabelText("Convergence ionic step number"), { target: { value: "2" } });
+    const number = await screen.findByLabelText("Convergence ionic step number");
+    fireEvent.change(number, { target: { value: "2" } });
+    fireEvent.keyDown(number, { key: "Enter" });
     expect(screen.getByLabelText("Ionic step number")).toHaveValue(2);
     expect(screen.getByTestId("structure-step")).toHaveTextContent("20");
   });
@@ -173,7 +176,9 @@ describe("analysis workspace", () => {
     render(<App host={new MemoryHost()} structure={FakeStructure} convergence={FakeConvergence} />);
     await screen.findByTestId("structure-step");
 
-    fireEvent.change(screen.getByLabelText("Ionic step number"), { target: { value: "2" } });
+    const number = screen.getByLabelText("Ionic step number");
+    fireEvent.change(number, { target: { value: "2" } });
+    fireEvent.keyDown(number, { key: "Enter" });
 
     expect(screen.getByLabelText("Ionic step number")).toHaveValue(2);
     expect(screen.getByTestId("structure-step")).toHaveTextContent("1");
@@ -210,7 +215,9 @@ describe("analysis workspace", () => {
     render(<App host={host} structure={FakeStructure} convergence={FakeConvergence} />);
     await screen.findByTestId("structure-step");
 
-    fireEvent.change(screen.getByLabelText("Ionic step number"), { target: { value: "2" } });
+    const number = screen.getByLabelText("Ionic step number");
+    fireEvent.change(number, { target: { value: "2" } });
+    fireEvent.keyDown(number, { key: "Enter" });
     await user.click(screen.getByRole("button", { name: "select O" }));
 
     expect(host.state).toEqual({
@@ -235,9 +242,11 @@ describe("analysis workspace", () => {
     );
     await screen.findByTestId("convergence-step");
 
-    fireEvent.change(screen.getByLabelText("Ionic step number"), {
+    const number = screen.getByLabelText("Ionic step number");
+    fireEvent.change(number, {
       target: { value: "2" },
     });
+    fireEvent.keyDown(number, { key: "Enter" });
     fireEvent.change(screen.getByLabelText("Force vector scale number"), {
       target: { value: "250" },
     });
@@ -424,7 +433,9 @@ describe("analysis workspace", () => {
     const hostB = new DeferredHost(twoStepDataset, { selectedStep: 0, selectedSite: 1 });
     const view = render(<App host={hostA} structure={FakeStructure} convergence={FakeConvergence} />);
     await screen.findByTestId("structure-step");
-    fireEvent.change(screen.getByLabelText("Ionic step number"), { target: { value: "2" } });
+    const number = screen.getByLabelText("Ionic step number");
+    fireEvent.change(number, { target: { value: "2" } });
+    fireEvent.keyDown(number, { key: "Enter" });
 
     view.rerender(<App host={hostB} structure={FakeStructure} convergence={FakeConvergence} />);
     expect(screen.getByText("Loading VASP calculation…")).toBeVisible();

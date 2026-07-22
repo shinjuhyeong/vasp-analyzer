@@ -23,21 +23,14 @@ export function IonicStepControl({
 
   useEffect(() => setDraft(String(selectedStep)), [selectedStep]);
 
-  const selectDraft = (value: string): void => {
-    const step = Number(value);
-    if (Number.isFinite(step) && Number.isInteger(step) && step >= 1 && step <= total) {
-      onSelect(step - 1);
-    }
-  };
-
   const normalizeDraft = (): void => {
-    if (draft.trim() === "") {
+    const parsed = Number(draft);
+    if (draft.trim() === "" || !Number.isFinite(parsed) || !Number.isInteger(parsed)) {
       setDraft(String(selectedStep));
       return;
     }
 
-    const parsed = Number(draft);
-    const step = Number.isFinite(parsed) ? clamp(Math.round(parsed), 1, total) : selectedStep;
+    const step = clamp(parsed, 1, total);
     setDraft(String(step));
     onSelect(step - 1);
   };
@@ -79,7 +72,6 @@ export function IonicStepControl({
           disabled={total === 0}
           onChange={(event) => {
             setDraft(event.target.value);
-            selectDraft(event.target.value);
           }}
           onBlur={normalizeDraft}
           onKeyDown={handleKeyDown}

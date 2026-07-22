@@ -33,7 +33,7 @@ describe("energyDetailRows", () => {
 });
 
 describe("forceDetailRows", () => {
-  it("returns every position/raw/free/norm field and ranks eligible free components", () => {
+  it("returns every position/raw/free/norm field and ranks displayed free Cartesian components", () => {
     const dataset = {
       ...twoStepDataset,
       sites: twoStepDataset.sites.map((site, index) => index === 1
@@ -42,7 +42,7 @@ describe("forceDetailRows", () => {
     };
     const step = {
       ...dataset.ionicSteps[0]!,
-      freeForces: [[0.5, 0.4, 0.3], [0.2, 99, -0.6]] as const,
+      freeForces: [[0.5, 0.4, 0.3], [0.2, 0.1, -0.6]] as const,
       freeForceNorms: [Math.sqrt(0.5), Math.sqrt(0.4)] as const,
     };
     const rows = forceDetailRows(dataset, step);
@@ -50,10 +50,29 @@ describe("forceDetailRows", () => {
       siteIndex: 1, siteLabel: "O 2", position: [1.5, 1.5, 1.5],
       rawForce: [0, -0.2, 0], selective: { a: true, b: false, c: true },
       rawForceNorm: 0.2,
-      freeForce: [0.2, 99, -0.6], freeForceNorm: Math.sqrt(0.4),
+      freeForce: [0.2, 0.1, -0.6], freeForceNorm: Math.sqrt(0.4),
       componentRanks: [null, null, 1],
     });
     expect(rows[0]?.componentRanks).toEqual([2, null, null]);
+  });
+
+  it("ranks all Cartesian components of a direct-a projection in a skew cell", () => {
+    const dataset = {
+      ...twoStepDataset,
+      sites: twoStepDataset.sites.map((site, index) => index === 0
+        ? { ...site, selectiveDynamics: { a: true, b: false, c: false } }
+        : { ...site, selectiveDynamics: { a: false, b: false, c: false } }),
+    };
+    const step = {
+      ...dataset.ionicSteps[0]!,
+      lattice: [[1, 1, 0], [0, 1, 0], [0, 0, 1]] as const,
+      freeForces: [[3, 4, 0], [0, 0, 0]] as const,
+      freeForceNorms: [5, 0] as const,
+    };
+
+    const rows = forceDetailRows(dataset, step);
+
+    expect(rows[0]?.componentRanks).toEqual([2, 1, null]);
   });
 
   it("does not rank any component when selective dynamics are unknown", () => {

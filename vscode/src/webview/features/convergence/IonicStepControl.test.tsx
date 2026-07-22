@@ -23,7 +23,7 @@ it("prefixes only accessible labels for a second synchronized control", () => {
   expect(screen.getByText("Ionic step number")).toBeVisible();
 });
 
-it("converts a typed one-based ionic step to a zero-based index", async () => {
+it("keeps a typed ionic step local until Enter commits the zero-based index", async () => {
   const select = vi.fn();
   render(<IonicStepControl total={120} selectedIndex={1} onSelect={select} />);
 
@@ -31,6 +31,8 @@ it("converts a typed one-based ionic step to a zero-based index", async () => {
   await userEvent.setup().clear(number);
   await userEvent.setup().type(number, "42");
 
+  expect(select).not.toHaveBeenCalled();
+  await userEvent.setup().keyboard("{Enter}");
   expect(select).toHaveBeenLastCalledWith(41);
 });
 
@@ -74,3 +76,20 @@ it("clamps a submitted ionic step to the final index", async () => {
   expect(select).toHaveBeenLastCalledWith(119);
   expect(number).toHaveValue(120);
 });
+
+it.each(["1.5", "not-a-number"])(
+  "restores without dispatch when invalid draft %s commits",
+  async (draft) => {
+    const select = vi.fn();
+    render(<IonicStepControl total={120} selectedIndex={1} onSelect={select} />);
+    const user = userEvent.setup();
+    const number = screen.getByLabelText("Ionic step number");
+
+    await user.clear(number);
+    await user.type(number, draft);
+    await user.keyboard("{Enter}");
+
+    expect(number).toHaveValue(2);
+    expect(select).not.toHaveBeenCalled();
+  },
+);

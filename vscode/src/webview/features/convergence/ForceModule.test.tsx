@@ -18,6 +18,7 @@ it("shows complete atom force data, ranks components, and selects a zero-based s
     }, twoStepDataset.ionicSteps[1]!],
   };
   render(<ForceModule dataset={dataset} selectedIndex={0} metric="strongestFreeComponent" mode="table" onMetricChange={vi.fn()} onModeChange={vi.fn()} onSelectStep={vi.fn()} onSelectSite={select} />);
+  expect(screen.getByText("Atomic positions and forces for ionic step 1 (Å, eV/Å)")).toBeVisible();
   const row = screen.getByRole("row", { name: /O 2/ });
   expect(row).toHaveTextContent("1.5, 1.5, 1.5");
   expect(row).toHaveTextContent("0, -0.2, 0");

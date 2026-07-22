@@ -21,6 +21,7 @@ it("shows every selected-step term with distinct contribution ranks", () => {
     }, twoStepDataset.ionicSteps[1]!],
   };
   render(<EnergyModule dataset={dataset} selectedIndex={0} metric="totalEnergy" mode="table" {...callbacks} />);
+  expect(screen.getByText("Energy terms for ionic step 1 (eV)")).toBeVisible();
   const aggregate = screen.getByRole("row", { name: /toten.*TOTEN.*aggregate.*-500/ });
   expect(aggregate).toBeVisible();
   expect(aggregate).toHaveAttribute("data-kind", "aggregate");

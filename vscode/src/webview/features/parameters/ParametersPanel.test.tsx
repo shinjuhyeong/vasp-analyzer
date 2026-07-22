@@ -15,6 +15,23 @@ const parameters: readonly ParameterOccurrence[] = [
 ];
 
 describe("ParametersPanel", () => {
+  it("renders canonical scanner metadata in scientific parameter groups", () => {
+    const parsedMetadata: readonly ParameterOccurrence[] = [
+      { key: "ediff", rawKey: "EDIFF", rawValue: "1E-6", value: 1e-6, unit: "eV", category: "electronic", description: "Electronic convergence tolerance", ordinal: 0, lineNumber: 3 },
+      { key: "ispin", rawKey: "ISPIN", rawValue: "2", value: 2, unit: null, category: "spin", description: "Spin-polarization mode", ordinal: 1, lineNumber: 3 },
+      { key: "ncore", rawKey: "NCORE", rawValue: "4", value: 4, unit: null, category: "parallelization", description: "Bands distributed per orbital group", ordinal: 2, lineNumber: 3 },
+      { key: "lwave", rawKey: "LWAVE", rawValue: "F", value: false, unit: null, category: "output", description: "Write WAVECAR output", ordinal: 3, lineNumber: 3 },
+    ];
+
+    render(<ParametersPanel parameters={parsedMetadata} />);
+
+    for (const group of ["Electronic", "Spin", "Parallelization", "Output"]) {
+      expect(screen.getByRole("heading", { name: group })).toBeVisible();
+    }
+    expect(screen.getByText("Electronic convergence tolerance")).toBeVisible();
+    expect(screen.queryByText("Unrecognized OUTCAR parameter")).not.toBeInTheDocument();
+  });
+
   it("uses the last occurrence as effective while raw mode preserves every source occurrence", async () => {
     render(<ParametersPanel parameters={parameters} />);
 
