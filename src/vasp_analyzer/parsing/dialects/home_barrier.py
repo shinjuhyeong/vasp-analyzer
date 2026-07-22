@@ -22,6 +22,7 @@ _HOME_BARRIER_PROFILE = CompatibilityProfile(
                 "electronic_group": r"\d+",
             },
             "volume_basis_section": (b"VOLUME and BASIS-vectors are now",),
+            "optimizer_diagnostics": ("d Force",),
         }
     },
 )

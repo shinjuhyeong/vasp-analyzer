@@ -22,6 +22,10 @@ def _marker_tuple(value: tuple[str, ...], *, required: bool = False) -> tuple[st
         raise ValueError("marker group must not be empty")
     for marker in value:
         _bounded_text(marker)
+        try:
+            marker.encode("ascii")
+        except UnicodeEncodeError as exc:
+            raise ValueError("marker must be ASCII") from exc
     folded = [marker.casefold() for marker in value]
     if len(folded) != len(set(folded)):
         raise ValueError("marker group contains case-insensitive duplicates")
@@ -147,6 +151,7 @@ class DetailMarkers(FrozenModel):
     )
     volume_basis_section: tuple[bytes, ...] = (b"VOLUME and BASIS-vectors are now",)
     energy_section: tuple[str, ...] = ("FREE ENERGIE OF THE ION-ELECTRON SYSTEM",)
+    optimizer_diagnostics: tuple[str, ...] = ("d Force",)
     stress_section: tuple[str, ...] = ("FORCE on cell =-STRESS",)
     external_pressure: tuple[str, ...] = ("external pressure",)
     cell_volume: tuple[str, ...] = ("volume of cell",)
@@ -164,6 +169,7 @@ class DetailMarkers(FrozenModel):
 
     @field_validator(
         "energy_section",
+        "optimizer_diagnostics",
         "stress_section",
         "external_pressure",
         "cell_volume",

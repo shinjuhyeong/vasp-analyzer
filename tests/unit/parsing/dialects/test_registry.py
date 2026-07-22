@@ -4,8 +4,14 @@ import pytest
 
 from vasp_analyzer.core import UnsupportedDialect
 from vasp_analyzer.parsing.dialects import detect_dialect
+from vasp_analyzer.parsing.dialects.home_barrier import HOME_BARRIER
 from vasp_analyzer.parsing.dialects.standard import STANDARD as STANDARD_DIALECT
 from vasp_analyzer.parsing.profiles import CompatibilityProfile
+
+
+def test_built_in_profiles_declare_force_optimizer_diagnostic() -> None:
+    assert STANDARD_DIALECT.profile.outcar.details.optimizer_diagnostics == ("d Force",)
+    assert HOME_BARRIER.profile.outcar.details.optimizer_diagnostics == ("d Force",)
 
 
 def test_standard_profile_declares_iteration_and_volume_basis_markers() -> None:

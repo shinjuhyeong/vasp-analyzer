@@ -133,6 +133,18 @@ def test_default_detail_markers_are_stable() -> None:
     assert "------------------------------" in profile.outcar.details.parameter_section_end
 
 
+@pytest.mark.parametrize("marker", ["", "Δ Force"])
+def test_optimizer_diagnostic_marker_must_be_nonempty_ascii(marker: str) -> None:
+    with pytest.raises(ValidationError):
+        DetailMarkers(optimizer_diagnostics=(marker,))
+
+
+def test_optimizer_diagnostic_marker_allows_ascii_punctuation() -> None:
+    details = DetailMarkers(optimizer_diagnostics=("? Force",))
+
+    assert details.optimizer_diagnostics == ("? Force",)
+
+
 @pytest.mark.parametrize("field", ["python", "command", "regex", "expression"])
 def test_profile_rejects_executable_detail_rules(tmp_path: Path, field: str) -> None:
     path = tmp_path / f"bad-{field}.toml"
