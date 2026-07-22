@@ -181,11 +181,25 @@ class Capability(FrozenModel):
     reason: str | None = None
 
 
+class InitialStructure(FrozenModel):
+    source: Literal["POSCAR"] = "POSCAR"
+    lattice: Mat3
+    fractional_positions: tuple[Vec3, ...]
+    cartesian_positions: tuple[Vec3, ...]
+
+    @model_validator(mode="after")
+    def validate_coordinate_counts(self) -> "InitialStructure":
+        if len(self.fractional_positions) != len(self.cartesian_positions):
+            raise ValueError("initial structure coordinate counts must match")
+        return self
+
+
 class CalculationDataset(FrozenModel):
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     root: str
     source_files: tuple[SourceFile, ...]
     sites: tuple[Site, ...]
+    initial_structure: InitialStructure | None = None
     ionic_steps: tuple[IonicStep, ...]
     parameters: tuple[ParameterOccurrence, ...] = ()
     capabilities: tuple[Capability, ...]

@@ -105,7 +105,7 @@ def test_dataset_reconciles_detailed_scanner_values_by_step_id(
     root = make_calculation(tmp_path / "detail", "detail-complete-two-step.OUTCAR")
     dataset = load_dataset(root)
 
-    assert dataset.schema_version == 2
+    assert dataset.schema_version == 3
     assert [term.key for term in dataset.ionic_steps[1].energy_terms] == [
         "ewald",
         "toten",
@@ -232,9 +232,61 @@ def test_outcar_only_dataset_constructs_unknown_constraint_sites(tmp_path: Path)
 
     dataset = load_dataset(root)
 
+    assert dataset.initial_structure is None
     assert tuple(site.element for site in dataset.sites) == ("H", "H")
     assert dataset.sites[0].selective_dynamics.as_tuple() == (None, None, None)
     assert dataset.ionic_steps[0].free_forces is None
+
+
+def test_poscar_provides_initial_structure(tmp_path: Path) -> None:
+    root = make_calculation(tmp_path)
+    write_poscar(root / "POSCAR")
+
+    dataset = load_dataset(root)
+
+    assert dataset.initial_structure is not None
+    assert dataset.initial_structure.source == "POSCAR"
+    assert dataset.initial_structure.lattice == ((3.0, 0.0, 0.0), (0.0, 3.0, 0.0), (0.0, 0.0, 3.0))
+    assert dataset.initial_structure.fractional_positions == (
+        (0.0, 0.0, 0.0),
+        (0.5, 0.5, 0.5),
+    )
+    assert dataset.initial_structure.cartesian_positions == (
+        (0.0, 0.0, 0.0),
+        (1.5, 1.5, 1.5),
+    )
+
+
+def test_contcar_only_is_not_initial_but_still_provides_sites_and_masks(tmp_path: Path) -> None:
+    root = make_calculation(tmp_path)
+    write_selective_poscar(root / "CONTCAR", allowed=False)
+
+    dataset = load_dataset(root)
+
+    assert dataset.initial_structure is None
+    assert dataset.sites[0].initial_fractional_position == (0.0, 0.0, 0.0)
+    assert dataset.sites[1].initial_cartesian_position == (1.5, 1.5, 1.5)
+    assert tuple(site.selective_dynamics.as_tuple() for site in dataset.sites) == (
+        (False, False, False),
+        (False, False, False),
+    )
+
+
+def test_poscar_coordinate_count_mismatch_is_bounded_calculation_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = make_calculation(tmp_path)
+    write_poscar(root / "POSCAR")
+    original_parse = dataset_module.parse_poscar
+
+    def malformed_parse(path: Path, dialect):
+        parsed = original_parse(path, dialect)
+        return parsed.model_copy(update={"fractional_positions": ()})
+
+    monkeypatch.setattr(dataset_module, "parse_poscar", malformed_parse)
+
+    with pytest.raises(DatasetConsistencyError, match=r"POSCAR coordinate counts.*site count"):
+        load_dataset(root)
 
 
 def test_session_cache_reuse_and_refresh_upserts_provisional_step(tmp_path: Path) -> None:

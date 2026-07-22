@@ -9,6 +9,7 @@ from vasp_analyzer.core.models import (
     EnergyTerm,
     ForceComponent,
     IonicStep,
+    InitialStructure,
     ParameterOccurrence,
     SelectiveMask,
     SourceFile,
@@ -41,7 +42,7 @@ def test_source_files_are_deeply_immutable(tmp_path: Path) -> None:
         dataset.source_files = ()
 
 
-def test_dataset_v2_preserves_energy_stress_and_parameter_occurrences() -> None:
+def test_dataset_v3_preserves_energy_stress_and_parameter_occurrences() -> None:
     term = EnergyTerm(
         key="ewald",
         raw_label="Ewald energy",
@@ -90,10 +91,35 @@ def test_dataset_v2_preserves_energy_stress_and_parameter_occurrences() -> None:
         capabilities=(),
     )
 
-    assert dataset.schema_version == 2
+    assert dataset.schema_version == 3
     assert dataset.ionic_steps[0].energy_terms[0].raw_label == "Ewald energy"
     assert dataset.parameters[0].value == 520.0
-    assert dataset.model_dump(mode="json")["schemaVersion"] == 2
+    assert dataset.model_dump(mode="json")["schemaVersion"] == 3
+    assert dataset.model_dump(mode="json")["initialStructure"] is None
+
+
+def test_initial_structure_serializes_camel_case_coordinates() -> None:
+    structure = InitialStructure(
+        lattice=IDENTITY,
+        fractional_positions=((0.0, 0.0, 0.0),),
+        cartesian_positions=((0.0, 0.0, 0.0),),
+    )
+
+    assert structure.model_dump(mode="json") == {
+        "source": "POSCAR",
+        "lattice": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        "fractionalPositions": [[0.0, 0.0, 0.0]],
+        "cartesianPositions": [[0.0, 0.0, 0.0]],
+    }
+
+
+def test_initial_structure_rejects_coordinate_length_mismatch() -> None:
+    with pytest.raises(ValidationError, match="coordinate counts"):
+        InitialStructure(
+            lattice=IDENTITY,
+            fractional_positions=((0.0, 0.0, 0.0),),
+            cartesian_positions=(),
+        )
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])

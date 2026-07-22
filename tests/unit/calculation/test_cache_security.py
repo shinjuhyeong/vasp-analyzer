@@ -41,13 +41,13 @@ def test_cache_atomic_writers_do_not_share_tmp_name(tmp_path: Path) -> None:
     assert not list(store.root.glob("*.tmp"))
 
 
-def test_cache_schema_3_uses_a_new_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cache_schema_4_uses_a_new_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     source = SourceFile(path="/calc", size=10, mtime_ns=20, fingerprint="abc")
     profile = CompatibilityProfile(schema_version=1, id="standard", display_name="Standard")
-    assert cache_module._CACHE_SCHEMA_VERSION == 3
-    monkeypatch.setattr(cache_module, "_CACHE_SCHEMA_VERSION", 2)
-    legacy = cache_key(source, "standard", profile)
+    assert cache_module._CACHE_SCHEMA_VERSION == 4
     monkeypatch.setattr(cache_module, "_CACHE_SCHEMA_VERSION", 3)
+    legacy = cache_key(source, "standard", profile)
+    monkeypatch.setattr(cache_module, "_CACHE_SCHEMA_VERSION", 4)
     current = cache_key(source, "standard", profile)
 
     assert current != legacy

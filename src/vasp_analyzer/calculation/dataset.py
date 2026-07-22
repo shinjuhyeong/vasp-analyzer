@@ -18,6 +18,7 @@ from vasp_analyzer.core import (
     Site,
     SourceFile,
 )
+from vasp_analyzer.core.models import InitialStructure
 from vasp_analyzer.parsing.adapters.outcar_ase import ParsedTrajectoryStep, iter_outcar_steps
 from vasp_analyzer.parsing.adapters.poscar_pymatgen import ParsedStructure, parse_poscar
 from vasp_analyzer.parsing.dialects import Dialect, detect_dialect
@@ -197,6 +198,22 @@ def _assemble(
         sites = merge_existing.sites
     else:
         raise DatasetConsistencyError("OUTCAR contains no structure records")
+    initial_structure = None
+    if poscar is not None:
+        site_count = len(poscar.sites)
+        fractional_count = len(poscar.fractional_positions)
+        cartesian_count = len(poscar.cartesian_positions)
+        if fractional_count != site_count or cartesian_count != site_count:
+            raise DatasetConsistencyError(
+                "POSCAR coordinate counts "
+                f"(fractional={fractional_count}, cartesian={cartesian_count}) "
+                f"do not match site count {site_count}"
+            )
+        initial_structure = InitialStructure(
+            lattice=poscar.lattice,
+            fractional_positions=poscar.fractional_positions,
+            cartesian_positions=poscar.cartesian_positions,
+        )
 
     records = {record.step_id: record for record in scan.steps}
     frames = {step.step_id: step for step in trajectory}
@@ -268,6 +285,7 @@ def _assemble(
         root=str(discovered.root),
         source_files=_source_files(discovered),
         sites=sites,
+        initial_structure=initial_structure,
         ionic_steps=ordered,
         parameters=_merge_parameter_occurrences(
             merge_existing.parameters if merge_existing is not None else (),
