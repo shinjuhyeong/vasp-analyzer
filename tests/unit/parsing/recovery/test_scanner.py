@@ -930,6 +930,40 @@ def test_missing_closing_energy_separator_at_eof_remains_replayable(
     assert resumed.steps == fresh.steps
 
 
+def test_nested_energy_marker_is_rejected_while_awaiting_opening_separator(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "OUTCAR"
+    marker = b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + marker
+        + marker
+        + b" ---------------------------------------------------\n"
+        + b" free energy TOTEN = -10.0 eV\n"
+        + b" ---------------------------------------------------\n"
+    )
+
+    with pytest.raises(OutcarFormatError, match="nested energy block"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_nested_energy_marker_is_rejected_inside_energy_body(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    marker = b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + marker
+        + b" ---------------------------------------------------\n"
+        + b" free energy TOTEN = -10.0 eV\n"
+        + marker
+        + b" ---------------------------------------------------\n"
+    )
+
+    with pytest.raises(OutcarFormatError, match="nested energy block"):
+        scan_outcar(path, HOME_BARRIER)
+
+
 def test_unknown_valid_single_energy_assignment_is_preserved(tmp_path: Path) -> None:
     path = write_energy_fixture(tmp_path, body=b" home correction* = 2.5 eV\n")
     assert [(term.key, term.value) for term in scan_outcar(path, HOME_BARRIER).steps[0].energy_terms] == [

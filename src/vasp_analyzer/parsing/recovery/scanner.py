@@ -801,6 +801,10 @@ def scan_outcar(
             if pending is not None and _contains_any(
                 raw, dialect.profile.outcar.details.energy_section
             ):
+                if energy_phase is not _EnergyPhase.CLOSED:
+                    raise OutcarFormatError(
+                        f"nested energy block at byte {line_start}"
+                    )
                 energy_phase = _EnergyPhase.AWAITING_SEPARATOR
                 continue
 
