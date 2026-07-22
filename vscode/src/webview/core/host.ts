@@ -15,6 +15,7 @@ import {
   normalizeLayout,
   normalizeConvergence,
 } from "./store.js";
+import { DATASET_SCHEMA_VERSION } from "./schema.js";
 
 interface VsCodeApi {
   postMessage(message: unknown): void;
@@ -243,7 +244,7 @@ function isCalculationDataset(value: unknown): value is CalculationDataset {
     "schemaVersion", "root", "sourceFiles", "sites", "ionicSteps", "parameters",
     "capabilities", "warnings", "provenance",
   ])
-    || value.schemaVersion !== 2
+    || value.schemaVersion !== DATASET_SCHEMA_VERSION
     || typeof value.root !== "string"
     || !isArrayOf(value.sourceFiles, isSourceFile)
     || !isArrayOf(value.sites, isSite)

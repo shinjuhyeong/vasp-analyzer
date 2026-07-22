@@ -82,6 +82,8 @@ jobs:
             --wheel dist/*.whl \
             --sdist dist/*.tar.gz \
             --vsix vscode/*.vsix
+          python scripts/verify_installed_wheel.py \
+            --fixture tests/fixtures/outcar/ase-complete-one-step.OUTCAR
       - uses: actions/upload-artifact@v4
         with:
           name: vasp-analyzer-release-artifacts

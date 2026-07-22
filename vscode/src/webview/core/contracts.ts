@@ -1,3 +1,5 @@
+import type { DATASET_SCHEMA_VERSION } from "./schema.js";
+
 export type Vec3 = readonly [number, number, number];
 export type Mat3 = readonly [Vec3, Vec3, Vec3];
 
@@ -96,7 +98,7 @@ export interface ParserProvenance {
 }
 
 export interface CalculationDataset {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: typeof DATASET_SCHEMA_VERSION;
   readonly root: string;
   readonly sourceFiles: readonly SourceFile[];
   readonly sites: readonly Site[];
