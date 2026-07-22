@@ -188,7 +188,18 @@ class InitialStructure(FrozenModel):
     cartesian_positions: tuple[Vec3, ...]
 
     @model_validator(mode="after")
-    def validate_coordinate_counts(self) -> "InitialStructure":
+    def validate_geometry(self) -> "InitialStructure":
+        if not all(np.isfinite(item) for row in self.lattice for item in row):
+            raise ValueError("initial structure lattice must be finite")
+        if abs(float(np.linalg.det(self.lattice))) < 1e-12:
+            raise ValueError("initial structure lattice must be non-singular")
+        if not all(
+            np.isfinite(item)
+            for positions in (self.fractional_positions, self.cartesian_positions)
+            for vector in positions
+            for item in vector
+        ):
+            raise ValueError("initial structure coordinates must be finite")
         if len(self.fractional_positions) != len(self.cartesian_positions):
             raise ValueError("initial structure coordinate counts must match")
         return self
@@ -199,7 +210,7 @@ class CalculationDataset(FrozenModel):
     root: str
     source_files: tuple[SourceFile, ...]
     sites: tuple[Site, ...]
-    initial_structure: InitialStructure | None = None
+    initial_structure: InitialStructure | None
     ionic_steps: tuple[IonicStep, ...]
     parameters: tuple[ParameterOccurrence, ...] = ()
     capabilities: tuple[Capability, ...]

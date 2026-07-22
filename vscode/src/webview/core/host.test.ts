@@ -288,6 +288,7 @@ describe("analysis hosts", () => {
     ["mismatched initial coordinate lengths", (dataset: any) => { dataset.initialStructure.cartesianPositions.pop(); }],
     ["initial coordinates mismatched with sites", (dataset: any) => { dataset.initialStructure.fractionalPositions.pop(); dataset.initialStructure.cartesianPositions.pop(); }],
     ["non-finite initial lattice", (dataset: any) => { dataset.initialStructure.lattice[0][0] = Number.NaN; }],
+    ["finite singular initial lattice", (dataset: any) => { dataset.initialStructure.lattice = [[1, 0, 0], [2, 0, 0], [0, 0, 1]]; }],
     ["non-finite initial coordinate", (dataset: any) => { dataset.initialStructure.fractionalPositions[0][0] = Number.POSITIVE_INFINITY; }],
     ["unknown initial source", (dataset: any) => { dataset.initialStructure.source = "CONTCAR"; }],
   ])("rejects %s", async (_name, mutate) => {

@@ -94,9 +94,9 @@ describe("AnalyzerProcess", () => {
     const first = analyzer.request("getDataset", {});
     const second = analyzer.request("getStep", { stepIndex: 0 });
 
-    child.stdout.write('{"id":2,"result":{"stepIndex":0}}\n{"id":1,"result":{"schemaVersion":2}}\n');
+    child.stdout.write('{"id":2,"result":{"stepIndex":0}}\n{"id":1,"result":{"schemaVersion":3}}\n');
 
-    await expect(first).resolves.toMatchObject({ schemaVersion: 2 });
+    await expect(first).resolves.toMatchObject({ schemaVersion: 3 });
     await expect(second).resolves.toMatchObject({ stepIndex: 0 });
     analyzer.dispose();
   });

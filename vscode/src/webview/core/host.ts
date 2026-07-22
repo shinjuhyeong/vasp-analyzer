@@ -106,6 +106,13 @@ function isMat3(value: unknown): boolean {
   return isDenseArray(value) && value.length === 3 && isArrayOf(value, isVec3);
 }
 
+function determinant(matrix: readonly (readonly number[])[]): number {
+  const [a, b, c] = matrix;
+  return a![0]! * (b![1]! * c![2]! - b![2]! * c![1]!)
+    - a![1]! * (b![0]! * c![2]! - b![2]! * c![0]!)
+    + a![2]! * (b![0]! * c![1]! - b![1]! * c![0]!);
+}
+
 function isVec3Array(value: unknown): boolean {
   return isArrayOf(value, isVec3);
 }
@@ -133,6 +140,7 @@ function isInitialStructure(value: unknown): boolean {
   if (!isRecordWith(value, ["source", "lattice", "fractionalPositions", "cartesianPositions"])
     || value.source !== "POSCAR"
     || !isMat3(value.lattice)
+    || Math.abs(determinant(value.lattice as readonly (readonly number[])[])) < 1e-12
     || !isVec3Array(value.fractionalPositions)
     || !isVec3Array(value.cartesianPositions)) return false;
   return (value.fractionalPositions as readonly unknown[]).length

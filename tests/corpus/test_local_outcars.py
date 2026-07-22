@@ -58,6 +58,7 @@ def _step(
 def test_detail_summary_accumulates_exact_path_free_counters_once() -> None:
     datasets = (
         CalculationDataset(
+            initial_structure=None,
             root="/calculation/first",
             source_files=(),
             sites=(),
@@ -99,6 +100,7 @@ def test_detail_summary_accumulates_exact_path_free_counters_once() -> None:
             capabilities=(),
         ),
         CalculationDataset(
+            initial_structure=None,
             root="/calculation/second",
             source_files=(),
             sites=(),
@@ -153,6 +155,7 @@ def test_detail_summary_streams_a_one_shot_step_iterable() -> None:
 
 def test_detail_minimums_reject_vacuous_or_regressed_aggregate_counts() -> None:
     report = summarize_detail_datasets((CalculationDataset(
+        initial_structure=None,
         root="/empty", source_files=(), sites=(), ionic_steps=(), capabilities=()
     ),))
     minimums = CorpusDetailMinimums(

@@ -38,6 +38,7 @@ def test_source_files_are_deeply_immutable(tmp_path: Path) -> None:
         root=str(tmp_path),
         source_files=(source,),
         sites=(),
+        initial_structure=None,
         ionic_steps=(),
         capabilities=(),
     )
@@ -89,6 +90,7 @@ def test_dataset_v3_preserves_energy_stress_and_parameter_occurrences() -> None:
         root="/calculation",
         source_files=(),
         sites=(),
+        initial_structure=None,
         ionic_steps=(step,),
         parameters=(parameter,),
         capabilities=(),
@@ -123,6 +125,53 @@ def test_initial_structure_rejects_coordinate_length_mismatch() -> None:
             fractional_positions=((0.0, 0.0, 0.0),),
             cartesian_positions=(),
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("lattice", ((float("nan"), 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))),
+        ("fractional_positions", ((float("inf"), 0.0, 0.0),)),
+        ("cartesian_positions", ((0.0, float("-inf"), 0.0),)),
+    ],
+)
+def test_initial_structure_rejects_non_finite_geometry(field: str, value: object) -> None:
+    values = {
+        "lattice": IDENTITY,
+        "fractional_positions": ((0.0, 0.0, 0.0),),
+        "cartesian_positions": ((0.0, 0.0, 0.0),),
+    }
+    values[field] = value
+
+    with pytest.raises(ValidationError, match="finite"):
+        InitialStructure(**values)
+
+
+def test_initial_structure_rejects_finite_singular_lattice() -> None:
+    with pytest.raises(ValidationError, match="non-singular"):
+        InitialStructure(
+            lattice=((1.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+            fractional_positions=(),
+            cartesian_positions=(),
+        )
+
+
+def test_calculation_dataset_requires_explicit_nullable_initial_structure() -> None:
+    payload = {
+        "schemaVersion": 3,
+        "root": "/calculation",
+        "sourceFiles": [],
+        "sites": [],
+        "ionicSteps": [],
+        "parameters": [],
+        "capabilities": [],
+        "warnings": [],
+        "provenance": None,
+    }
+
+    with pytest.raises(ValidationError, match="initialStructure"):
+        CalculationDataset.model_validate(payload)
+    assert CalculationDataset.model_validate({**payload, "initialStructure": None}).initial_structure is None
 
 
 def test_calculation_dataset_rejects_initial_coordinate_count_mismatch_with_sites() -> None:
