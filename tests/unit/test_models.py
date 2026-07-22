@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+import vasp_analyzer.core as core_module
+
 from vasp_analyzer.core.models import (
     CalculationDataset,
     EnergyTerm,
@@ -12,6 +14,7 @@ from vasp_analyzer.core.models import (
     InitialStructure,
     ParameterOccurrence,
     SelectiveMask,
+    Site,
     SourceFile,
 )
 
@@ -120,6 +123,35 @@ def test_initial_structure_rejects_coordinate_length_mismatch() -> None:
             fractional_positions=((0.0, 0.0, 0.0),),
             cartesian_positions=(),
         )
+
+
+def test_calculation_dataset_rejects_initial_coordinate_count_mismatch_with_sites() -> None:
+    initial = InitialStructure(
+        lattice=IDENTITY,
+        fractional_positions=(),
+        cartesian_positions=(),
+    )
+    site = Site(
+        site_index=0,
+        element="H",
+        initial_fractional_position=(0.0, 0.0, 0.0),
+        initial_cartesian_position=(0.0, 0.0, 0.0),
+        selective_dynamics=SelectiveMask(a=True, b=True, c=True),
+    )
+
+    with pytest.raises(ValidationError, match="initial structure coordinate counts.*sites"):
+        CalculationDataset(
+            root="/calculation",
+            source_files=(),
+            sites=(site,),
+            initial_structure=initial,
+            ionic_steps=(),
+            capabilities=(),
+        )
+
+
+def test_initial_structure_is_exported_as_a_public_core_contract() -> None:
+    assert getattr(core_module, "InitialStructure", None) is InitialStructure
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])

@@ -206,6 +206,18 @@ class CalculationDataset(FrozenModel):
     warnings: tuple[ParserWarning, ...] = ()
     provenance: ParserProvenance | None = None
 
+    @model_validator(mode="after")
+    def validate_initial_structure_count(self) -> "CalculationDataset":
+        if self.initial_structure is None:
+            return self
+        site_count = len(self.sites)
+        if (
+            len(self.initial_structure.fractional_positions) != site_count
+            or len(self.initial_structure.cartesian_positions) != site_count
+        ):
+            raise ValueError("initial structure coordinate counts must match sites")
+        return self
+
 
 class VolumetricDescriptor(FrozenModel):
     source: str
