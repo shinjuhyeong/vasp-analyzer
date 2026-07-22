@@ -23,6 +23,16 @@ def test_profile_loads_only_supported_declarative_rules() -> None:
         "FREE ENERGIE OF THE ION-ELECTRON SYSTEM",
         "HOME FREE ENERGY SUMMARY",
     )
+    assert profile.outcar.details.parameter_sections == (
+        "INCAR:",
+        "Startparameter for this Run",
+        "HOME PARAMETERS:",
+    )
+    assert profile.outcar.details.parameter_section_end == (
+        "VRHFIN",
+        "------------------------------",
+        "HOME HEADER END",
+    )
     assert profile.outcar.energy_terms[1] == EnergyTermRule(
         key="home_correction",
         labels=("home correction",),
@@ -70,6 +80,8 @@ def test_default_detail_markers_are_stable() -> None:
     profile = CompatibilityProfile(schema_version=1, id="standard", display_name="Standard")
 
     assert profile.outcar.details == DetailMarkers()
+    assert "Startparameter for this Run" in profile.outcar.details.parameter_sections
+    assert "------------------------------" in profile.outcar.details.parameter_section_end
 
 
 @pytest.mark.parametrize("field", ["python", "command", "regex", "expression"])

@@ -267,3 +267,30 @@ def test_unknown_parameter_keeps_raw_fields_without_guessed_metadata() -> None:
     assert parsed[0].category is None
     assert parsed[0].description is None
     assert parsed[0].unit is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "value", "unit", "description"),
+    [
+        (b"0.02", 0.02, "eV", "Ionic convergence threshold: energy-change criterion"),
+        (b"-0.02", -0.02, "eV/angstrom", "Ionic convergence threshold: force criterion"),
+        (b"0", 0, None, "Ionic convergence criterion disabled"),
+        (b"home-value", "home-value", None, "Ionic convergence threshold (uninterpreted)"),
+    ],
+)
+def test_ediffg_metadata_is_conservative_and_sign_aware(
+    raw: bytes,
+    value: object,
+    unit: str | None,
+    description: str,
+) -> None:
+    parsed = parse_parameter_assignments(b" EDIFFG = " + raw + b"\n")[0]
+
+    assert parsed.value == value
+    assert parsed.unit == unit
+    assert parsed.category == "ionic"
+    assert parsed.description == description
+    serialized = parsed.model_dump(by_alias=True, mode="json")
+    assert serialized["rawValue"] == raw.decode("ascii")
+    assert serialized["unit"] == unit
+    assert serialized["description"] == description

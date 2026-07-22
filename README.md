@@ -56,7 +56,7 @@ Convergence starts with **Energy** only. Select **Energy**, **Force**, and **Cel
 
 Module selection, metric selection, and Graph/Table modes are restored after reopening. The initial or normalized-empty state remains Energy-only.
 
-The **Parameters** analysis tab has interpreted and raw views of effective values echoed by OUTCAR. Interpreted mode categorizes recognized keys and uses the last repeated occurrence as the effective value. Raw mode retains every ordered occurrence, including repeated or unknown home-version keys. It does not claim whether a value was explicitly present in INCAR or chosen by a VASP default.
+The **Parameters** analysis tab has interpreted and raw views of effective values echoed by OUTCAR. Interpreted mode categorizes recognized keys and uses the last repeated occurrence as the effective value. EDIFFG is interpreted conservatively by its parsed scalar sign: positive values are energy-change criteria in eV, negative values are force criteria in eV/angstrom, zero is disabled, and untyped values receive no asserted unit. Raw mode retains every ordered occurrence, including repeated or unknown home-version keys. It does not claim whether a value was explicitly present in INCAR or chosen by a VASP default.
 
 ## Declarative compatibility profiles
 
@@ -85,8 +85,8 @@ energy_section = ["FREE ENERGIE OF THE ION-ELECTRON SYSTEM"]
 stress_section = ["FORCE on cell =-STRESS"]
 external_pressure = ["external pressure"]
 cell_volume = ["volume of cell"]
-parameter_sections = ["INCAR:"]
-parameter_section_end = ["VRHFIN", "ions per type", "NIONS", "direct lattice vectors"]
+parameter_sections = ["INCAR:", "Startparameter for this Run"]
+parameter_section_end = ["VRHFIN", "ions per type", "NIONS", "direct lattice vectors", "------------------------------"]
 
 [[outcar.energy_terms]]
 key = "home_correction"
@@ -101,7 +101,7 @@ allow_incomplete_tail = true
 
 The special POSCAR rule removes only the declared standalone integer immediately after `Selective dynamics`; any different line is an error with location context. `force_prefix_columns` is restricted to `0` or `2`, and `expected_force_columns` to `6`.
 
-All detail marker defaults are shown above. Marker and energy-label aliases are bounded literal, case-insensitive substring/label matches; they are not regular expressions. `parameter_sections` opens a recognized effective-parameter region and `parameter_section_end` closes it, so unknown home-version keys are retained only inside an explicitly bounded region. Standard VASP energy rules remain available when custom rules are added; a custom rule must declare a bounded canonical `key`, one or more literal `labels`, and `kind = "contribution"` or `"aggregate"`.
+All detail marker defaults are shown above. Marker and energy-label aliases are bounded literal, case-insensitive substring/label matches; they are not regular expressions. The colon-free `Startparameter for this Run` literal accepts capitalization and optional-colon variants, while the dash marker closes that standard effective block. `parameter_sections` opens a recognized parameter region and `parameter_section_end` closes it, so unknown home-version keys are retained only inside an explicitly bounded region. Profiles replace these tuples explicitly; extend standard behavior by retaining the defaults and appending home aliases, as in `tests/fixtures/profiles/home-example.toml`. Standard VASP energy rules remain available when custom rules are added; a custom rule must declare a bounded canonical `key`, one or more literal `labels`, and `kind = "contribution"` or `"aggregate"`.
 
 ## Recovery and interpretation
 

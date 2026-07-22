@@ -20,8 +20,8 @@ energy_section = ["FREE ENERGIE OF THE ION-ELECTRON SYSTEM", "HOME FREE ENERGY S
 stress_section = ["FORCE on cell =-STRESS"]
 external_pressure = ["external pressure"]
 cell_volume = ["volume of cell"]
-parameter_sections = ["INCAR:", "HOME PARAMETERS:"]
-parameter_section_end = ["VRHFIN", "HOME HEADER END"]
+parameter_sections = ["INCAR:", "Startparameter for this Run", "HOME PARAMETERS:"]
+parameter_section_end = ["VRHFIN", "------------------------------", "HOME HEADER END"]
 
 [[outcar.energy_terms]]
 key = "ewald"

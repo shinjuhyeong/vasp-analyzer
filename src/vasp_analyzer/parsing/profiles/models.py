@@ -102,12 +102,16 @@ class DetailMarkers(FrozenModel):
     stress_section: tuple[str, ...] = ("FORCE on cell =-STRESS",)
     external_pressure: tuple[str, ...] = ("external pressure",)
     cell_volume: tuple[str, ...] = ("volume of cell",)
-    parameter_sections: tuple[str, ...] = ("INCAR:",)
+    parameter_sections: tuple[str, ...] = (
+        "INCAR:",
+        "Startparameter for this Run",
+    )
     parameter_section_end: tuple[str, ...] = (
         "VRHFIN",
         "ions per type",
         "NIONS",
         "direct lattice vectors",
+        "------------------------------",
     )
 
     @field_validator(

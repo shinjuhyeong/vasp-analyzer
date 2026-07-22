@@ -40,7 +40,6 @@ _PARAMETER_METADATA: dict[str, tuple[str, str, str | None]] = {
     "algo": ("electronic", "Electronic minimization algorithm", None),
     "ibrion": ("ionic", "Ionic update algorithm", None),
     "nsw": ("ionic", "Maximum ionic steps", None),
-    "ediffg": ("ionic", "Ionic convergence threshold", "eV/angstrom"),
     "isif": ("ionic", "Ionic relaxation degrees of freedom", None),
     "ispin": ("spin", "Spin-polarization mode", None),
     "magmom": ("spin", "Initial magnetic moments", None),
@@ -57,6 +56,32 @@ _PARAMETER_METADATA: dict[str, tuple[str, str, str | None]] = {
     "lorbit": ("output", "Orbital-projection output mode", None),
     "nwrite": ("output", "OUTCAR verbosity level", None),
 }
+
+
+def _parameter_metadata(
+    key: str, value: bool | int | float | str | tuple[float, ...]
+) -> tuple[str, str, str | None] | None:
+    if key != "ediffg":
+        return _PARAMETER_METADATA.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return (
+            "ionic",
+            "Ionic convergence threshold (uninterpreted)",
+            None,
+        )
+    if value > 0:
+        return (
+            "ionic",
+            "Ionic convergence threshold: energy-change criterion",
+            "eV",
+        )
+    if value < 0:
+        return (
+            "ionic",
+            "Ionic convergence threshold: force criterion",
+            "eV/angstrom",
+        )
+    return "ionic", "Ionic convergence criterion disabled", None
 
 
 def _decode(value: bytes, *, context: str) -> str:
@@ -270,14 +295,14 @@ def parse_parameter_assignments(
         raw_value = _decode(raw_bytes, context="parameter value").strip()
         value, unit = _coerce_parameter_value(raw_bytes)
         key = _canonical_key(raw_key)
-        metadata = _PARAMETER_METADATA.get(key)
+        metadata = _parameter_metadata(key, value)
         parsed.append(
             ParameterOccurrence(
                 key=key,
                 raw_key=raw_key,
                 raw_value=raw_value,
                 value=value,
-                unit=metadata[2] if metadata is not None and metadata[2] is not None else unit,
+                unit=metadata[2] if metadata is not None else unit,
                 category=metadata[0] if metadata is not None else None,
                 description=metadata[1] if metadata is not None else None,
                 ordinal=start_ordinal + len(parsed),

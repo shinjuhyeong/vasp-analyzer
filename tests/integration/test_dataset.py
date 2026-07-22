@@ -126,6 +126,20 @@ def test_dataset_reconciles_detailed_scanner_values_by_step_id(
     assert dataset.parameters[-1].category == "electronic"
 
 
+def test_dataset_preserves_standard_effective_and_unknown_parameters(tmp_path: Path) -> None:
+    root = make_calculation(
+        tmp_path / "standard-parameters", "standard-startparameter-one-step.OUTCAR"
+    )
+
+    dataset = load_dataset(root)
+
+    assert [item.raw_key for item in dataset.parameters] == [
+        "ENCUT", "EDIFFG", "HOME_EFFECTIVE"
+    ]
+    assert dataset.parameters[1].unit == "eV/angstrom"
+    assert dataset.parameters[2].raw_value == "alpha-beta"
+
+
 def test_parameter_merge_deduplicates_only_complete_immutable_identity() -> None:
     first = ParameterOccurrence(
         key="encut", raw_key="ENCUT", raw_value="400", value=400, ordinal=0, line_number=3

@@ -44,6 +44,26 @@ def test_stdio_returns_camel_case_dataset(tmp_path: Path) -> None:
     assert response["result"]["parameters"] == []
 
 
+def test_stdio_preserves_standard_effective_parameter_metadata(tmp_path: Path) -> None:
+    (tmp_path / "OUTCAR").write_bytes(
+        (FIXTURES / "outcar" / "standard-startparameter-one-step.OUTCAR").read_bytes()
+    )
+
+    response = _transact(
+        tmp_path, [{"id": 1, "method": "getDataset", "params": {}}]
+    )[0]
+
+    parameters = response["result"]["parameters"]
+    assert [item["rawKey"] for item in parameters] == [
+        "ENCUT", "EDIFFG", "HOME_EFFECTIVE"
+    ]
+    assert parameters[1]["unit"] == "eV/angstrom"
+    assert parameters[1]["description"] == (
+        "Ionic convergence threshold: force criterion"
+    )
+    assert parameters[2]["category"] is None
+
+
 def test_stdio_recovers_after_invalid_json_and_mismatched_params(tmp_path: Path) -> None:
     responses = _transact(
         _calculation(tmp_path),

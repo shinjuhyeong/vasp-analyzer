@@ -15,6 +15,38 @@ const parameters: readonly ParameterOccurrence[] = [
 ];
 
 describe("ParametersPanel", () => {
+  it("preserves standard effective values and an unknown home occurrence from transport", async () => {
+    const transported: readonly ParameterOccurrence[] = [
+      { key: "encut", rawKey: "ENCUT", rawValue: "520", value: 520, unit: "eV", category: "electronic", description: "Plane-wave cutoff energy", ordinal: 0, lineNumber: 8 },
+      { key: "ediffg", rawKey: "EDIFFG", rawValue: "-0.02", value: -0.02, unit: "eV/angstrom", category: "ionic", description: "Ionic convergence threshold: force criterion", ordinal: 1, lineNumber: 9 },
+      { key: "home_effective", rawKey: "HOME_EFFECTIVE", rawValue: "alpha-beta", value: "alpha-beta", unit: null, category: null, description: null, ordinal: 2, lineNumber: 10 },
+    ];
+
+    render(<ParametersPanel parameters={transported} />);
+
+    expect(screen.getByRole("row", { name: /ENCUT.*520.*eV.*Plane-wave cutoff energy/ })).toBeVisible();
+    expect(screen.getByRole("row", { name: /EDIFFG.*-0\.02.*eV\/angstrom.*force criterion/ })).toBeVisible();
+    expect(screen.getByRole("row", { name: /HOME_EFFECTIVE.*alpha-beta.*Unrecognized/ })).toBeVisible();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Raw parameters" }));
+    expect(screen.getByRole("row", { name: /HOME_EFFECTIVE.*alpha-beta.*10/ })).toBeVisible();
+  });
+
+  it("shows sign-aware EDIFFG meanings and keeps untyped metadata conservative", () => {
+    const ediffgValues: readonly ParameterOccurrence[] = [
+      { key: "ediffg-positive", rawKey: "EDIFFG_POSITIVE", rawValue: "0.02", value: 0.02, unit: "eV", category: "ionic", description: "Ionic convergence threshold: energy-change criterion", ordinal: 0, lineNumber: 8 },
+      { key: "ediffg-negative", rawKey: "EDIFFG_NEGATIVE", rawValue: "-0.02", value: -0.02, unit: "eV/angstrom", category: "ionic", description: "Ionic convergence threshold: force criterion", ordinal: 1, lineNumber: 9 },
+      { key: "ediffg-zero", rawKey: "EDIFFG_ZERO", rawValue: "0", value: 0, unit: null, category: "ionic", description: "Ionic convergence criterion disabled", ordinal: 2, lineNumber: 10 },
+      { key: "ediffg-raw", rawKey: "EDIFFG_RAW", rawValue: "home-value", value: "home-value", unit: null, category: "ionic", description: "Ionic convergence threshold (uninterpreted)", ordinal: 3, lineNumber: 11 },
+    ];
+
+    render(<ParametersPanel parameters={ediffgValues} />);
+
+    expect(screen.getByRole("row", { name: /EDIFFG_POSITIVE.*0\.02.*eV.*energy-change criterion/ })).toBeVisible();
+    expect(screen.getByRole("row", { name: /EDIFFG_NEGATIVE.*-0\.02.*eV\/angstrom.*force criterion/ })).toBeVisible();
+    expect(screen.getByRole("row", { name: /EDIFFG_ZERO.*disabled/ })).toBeVisible();
+    expect(screen.getByRole("row", { name: /EDIFFG_RAW.*home-value.*uninterpreted/ })).toBeVisible();
+  });
+
   it("renders canonical scanner metadata in scientific parameter groups", () => {
     const parsedMetadata: readonly ParameterOccurrence[] = [
       { key: "ediff", rawKey: "EDIFF", rawValue: "1E-6", value: 1e-6, unit: "eV", category: "electronic", description: "Electronic convergence tolerance", ordinal: 0, lineNumber: 3 },

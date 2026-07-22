@@ -339,6 +339,41 @@ def test_parameter_collection_stops_at_declarative_header_boundary(tmp_path: Pat
     ]
 
 
+def test_standard_startparameter_block_reopens_after_structural_header() -> None:
+    scan = scan_outcar(
+        FIXTURES / "standard-startparameter-one-step.OUTCAR", HOME_BARRIER
+    )
+
+    assert [item.raw_key for item in scan.parameters] == [
+        "ENCUT", "EDIFFG", "HOME_EFFECTIVE"
+    ]
+    assert scan.parameters[0].category == "electronic"
+    assert scan.parameters[1].unit == "eV/angstrom"
+    assert scan.parameters[2].category is None
+    assert all(item.raw_key not in {"SYSTEM", "VRHFIN", "NIONS"} for item in scan.parameters)
+
+
+def test_standard_parameter_block_resume_preserves_occurrence_identity(tmp_path: Path) -> None:
+    complete = (FIXTURES / "standard-startparameter-one-step.OUTCAR").read_bytes()
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(complete)
+
+    first = scan_outcar(path, HOME_BARRIER)
+    with path.open("ab") as stream:
+        stream.write(
+            b" Startparameter for this run\n"
+            b" HOME_APPEND = beta\n"
+            b" ------------------------------\n"
+        )
+    resumed = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+    fresh = scan_outcar(path, HOME_BARRIER)
+
+    merged = first.parameters + resumed.parameters
+    assert [(item.raw_key, item.raw_value, item.line_number) for item in merged] == [
+        (item.raw_key, item.raw_value, item.line_number) for item in fresh.parameters
+    ]
+
+
 def test_resume_keeps_parameter_source_line_identity_absolute(tmp_path: Path) -> None:
     path = tmp_path / "OUTCAR"
     fixture = (FIXTURES / "ase-complete-one-step.OUTCAR").read_bytes()
