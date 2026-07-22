@@ -16,7 +16,20 @@ class InstalledWheelSmokeError(RuntimeError):
     """The installed wheel command surface failed its release smoke."""
 
 
-def validate_stdio_output(output: str) -> None:
+_CURATED_POSCAR = """installed-wheel fixture
+1
+3 0 0
+0 3 0
+0 0 3
+H
+2
+Direct
+0 0 0
+0.5 0.5 0.5
+"""
+
+
+def validate_stdio_output(output: str, *, expect_initial_structure: bool) -> None:
     lines = [line for line in output.splitlines() if line.strip()]
     if len(lines) != 1:
         raise InstalledWheelSmokeError("installed stdio smoke returned an invalid envelope")
@@ -26,9 +39,34 @@ def validate_stdio_output(output: str) -> None:
         raise InstalledWheelSmokeError(
             "installed stdio smoke returned invalid JSON"
         ) from None
+    if not isinstance(envelope, dict) or "error" in envelope:
+        raise InstalledWheelSmokeError("installed stdio smoke returned an error")
     result = envelope.get("result") if isinstance(envelope, dict) else None
     if not isinstance(result, dict) or result.get("schemaVersion") != 3:
         raise InstalledWheelSmokeError("installed stdio smoke did not return schema 3")
+    ionic_steps = result.get("ionicSteps")
+    if (
+        not isinstance(ionic_steps, list)
+        or not ionic_steps
+        or not isinstance(ionic_steps[0], dict)
+        or ionic_steps[0].get("scfIterations") is None
+    ):
+        raise InstalledWheelSmokeError(
+            "installed stdio smoke did not return step-1 SCF iterations"
+        )
+    initial_structure = result.get("initialStructure")
+    if expect_initial_structure:
+        if (
+            not isinstance(initial_structure, dict)
+            or initial_structure.get("source") != "POSCAR"
+        ):
+            raise InstalledWheelSmokeError(
+                "installed stdio smoke did not return the POSCAR initial structure"
+            )
+    elif "initialStructure" not in result or initial_structure is not None:
+        raise InstalledWheelSmokeError(
+            "installed stdio smoke returned Initial data for an OUTCAR-only calculation"
+        )
 
 
 def validate_no_browser_result(returncode: int, output: str) -> None:
@@ -45,7 +83,8 @@ def validate_no_browser_result(returncode: int, output: str) -> None:
         )
 
 
-def _run_module(
+def _run_console(
+    console: Path,
     arguments: list[str],
     *,
     cwd: Path,
@@ -53,7 +92,7 @@ def _run_module(
     environment: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-I", "-m", "vasp_analyzer.cli", *arguments],
+        [str(console), *arguments],
         cwd=cwd,
         input=input_text,
         capture_output=True,
@@ -70,10 +109,13 @@ def verify_installed_wheel(fixture: Path) -> None:
         raise InstalledWheelSmokeError("installed-wheel fixture is unavailable")
     with tempfile.TemporaryDirectory(prefix="vasp-analyzer-installed-") as temp:
         root = Path(temp)
-        calculation = root / "calculation"
-        calculation.mkdir()
-        outcar = calculation / "OUTCAR"
-        shutil.copyfile(fixture, outcar)
+        with_poscar = root / "with-poscar"
+        without_poscar = root / "without-poscar"
+        with_poscar.mkdir()
+        without_poscar.mkdir()
+        for calculation in (with_poscar, without_poscar):
+            shutil.copyfile(fixture, calculation / "OUTCAR")
+        (with_poscar / "POSCAR").write_text(_CURATED_POSCAR, encoding="utf-8")
 
         location = subprocess.run(
             [
@@ -113,20 +155,32 @@ def verify_installed_wheel(fixture: Path) -> None:
         if help_result.returncode or "Usage:" not in help_result.stdout:
             raise InstalledWheelSmokeError("installed CLI help smoke failed")
 
-        stdio_result = _run_module(
-            ["serve", "--stdio", str(outcar)],
-            cwd=root,
-            input_text='{"id":1,"method":"getDataset","params":{}}\n',
-        )
-        if stdio_result.returncode:
-            raise InstalledWheelSmokeError("installed stdio command smoke failed")
-        validate_stdio_output(stdio_result.stdout)
+        request = '{"id":1,"method":"getDataset","params":{}}\n'
+        for calculation, expect_initial_structure in (
+            (with_poscar, True),
+            (without_poscar, False),
+        ):
+            stdio_result = _run_console(
+                console,
+                ["serve", "--stdio", str(calculation / "OUTCAR")],
+                cwd=root,
+                input_text=request,
+            )
+            if stdio_result.returncode:
+                raise InstalledWheelSmokeError("installed stdio command smoke failed")
+            validate_stdio_output(
+                stdio_result.stdout,
+                expect_initial_structure=expect_initial_structure,
+            )
 
         environment = dict(os.environ)
         environment.pop("VASP_ANALYZER_ENDPOINT", None)
         environment.pop("VASP_ANALYZER_TOKEN", None)
-        default_result = _run_module(
-            [str(outcar)], cwd=root, environment=environment
+        default_result = _run_console(
+            console,
+            [str(without_poscar / "OUTCAR")],
+            cwd=root,
+            environment=environment,
         )
         validate_no_browser_result(
             default_result.returncode,
