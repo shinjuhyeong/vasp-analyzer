@@ -192,10 +192,10 @@ def test_parameter_parser_preserves_order_repeats_and_coerces_safe_types() -> No
     )
 
     assert parsed == (
-        ParameterOccurrence(key="encut", raw_key="ENCUT", raw_value="520", value=520, ordinal=7, line_number=42),
+        ParameterOccurrence(key="encut", raw_key="ENCUT", raw_value="520", value=520, unit="eV", category="electronic", description="Plane-wave cutoff energy", ordinal=7, line_number=42),
         ParameterOccurrence(key="lreal", raw_key="LREAL", raw_value="F", value=False, ordinal=8, line_number=42),
-        ParameterOccurrence(key="nelm", raw_key="NELM", raw_value="120", value=120, ordinal=9, line_number=42),
-        ParameterOccurrence(key="ediff", raw_key="EDIFF", raw_value="1D-06", value=1e-6, ordinal=10, line_number=42),
+        ParameterOccurrence(key="nelm", raw_key="NELM", raw_value="120", value=120, category="electronic", description="Maximum electronic iterations", ordinal=9, line_number=42),
+        ParameterOccurrence(key="ediff", raw_key="EDIFF", raw_value="1D-06", value=1e-6, unit="eV", category="electronic", description="Electronic convergence tolerance", ordinal=10, line_number=42),
         ParameterOccurrence(key="ferwe", raw_key="FERWE", raw_value="1.0 0.5 -0.5", value=(1.0, 0.5, -0.5), ordinal=11, line_number=42),
         ParameterOccurrence(key="home_tag", raw_key="HOME_TAG", raw_value="alpha-beta", value="alpha-beta", ordinal=12, line_number=42),
     )
@@ -241,3 +241,29 @@ def test_parameter_parser_keeps_ambiguous_mixed_value_as_raw_string() -> None:
 
     assert parsed[0].value == "1.0 alpha"
     assert math.isfinite(float(parsed[0].raw_value.split()[0]))
+
+
+def test_known_parameter_assignments_receive_canonical_interpretation_metadata() -> None:
+    parsed = parse_parameter_assignments(
+        b" ENCUT = 520; EDIFF = 1E-6; ISPIN = 2; NCORE = 4; LWAVE = F\n"
+    )
+
+    assert [item.category for item in parsed] == [
+        "electronic", "electronic", "spin", "parallelization", "output"
+    ]
+    assert parsed[0].unit == "eV"
+    assert parsed[0].description == "Plane-wave cutoff energy"
+    assert parsed[1].unit == "eV"
+    assert parsed[2].description == "Spin-polarization mode"
+    assert parsed[3].description == "Bands distributed per orbital group"
+    assert parsed[4].description == "Write WAVECAR output"
+
+
+def test_unknown_parameter_keeps_raw_fields_without_guessed_metadata() -> None:
+    parsed = parse_parameter_assignments(b" HOME_MAGIC = alpha-beta\n")
+
+    assert parsed[0].raw_key == "HOME_MAGIC"
+    assert parsed[0].raw_value == "alpha-beta"
+    assert parsed[0].category is None
+    assert parsed[0].description is None
+    assert parsed[0].unit is None

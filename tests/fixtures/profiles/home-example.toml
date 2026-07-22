@@ -21,6 +21,7 @@ stress_section = ["FORCE on cell =-STRESS"]
 external_pressure = ["external pressure"]
 cell_volume = ["volume of cell"]
 parameter_sections = ["INCAR:", "HOME PARAMETERS:"]
+parameter_section_end = ["VRHFIN", "HOME HEADER END"]
 
 [[outcar.energy_terms]]
 key = "ewald"

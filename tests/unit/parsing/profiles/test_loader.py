@@ -51,6 +51,21 @@ kind = "contribution"
     assert next(item for item in profile.outcar.energy_terms if item.key == "toten").kind == "aggregate"
 
 
+def test_profile_accepts_declarative_parameter_section_boundaries(tmp_path: Path) -> None:
+    path = tmp_path / "parameter-boundary.toml"
+    path.write_text(
+        "schema_version = 1\nid = 'home'\ndisplay_name = 'Home'\n"
+        "[outcar.details]\n"
+        "parameter_sections = ['HOME PARAMS:']\n"
+        "parameter_section_end = ['HOME HEADER END']\n",
+        encoding="utf-8",
+    )
+
+    profile = load_profile(path)
+
+    assert profile.outcar.details.parameter_section_end == ("HOME HEADER END",)
+
+
 def test_default_detail_markers_are_stable() -> None:
     profile = CompatibilityProfile(schema_version=1, id="standard", display_name="Standard")
 

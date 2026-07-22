@@ -103,6 +103,12 @@ class DetailMarkers(FrozenModel):
     external_pressure: tuple[str, ...] = ("external pressure",)
     cell_volume: tuple[str, ...] = ("volume of cell",)
     parameter_sections: tuple[str, ...] = ("INCAR:",)
+    parameter_section_end: tuple[str, ...] = (
+        "VRHFIN",
+        "ions per type",
+        "NIONS",
+        "direct lattice vectors",
+    )
 
     @field_validator(
         "energy_section",
@@ -110,6 +116,7 @@ class DetailMarkers(FrozenModel):
         "external_pressure",
         "cell_volume",
         "parameter_sections",
+        "parameter_section_end",
     )
     @classmethod
     def validate_markers(cls, value: tuple[str, ...]) -> tuple[str, ...]:

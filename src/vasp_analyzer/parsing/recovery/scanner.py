@@ -392,6 +392,10 @@ def scan_outcar(
                 parameter_section_active = True
                 energy_section_active = False
                 continue
+            if parameter_section_active and _contains_any(
+                raw, dialect.profile.outcar.details.parameter_section_end
+            ):
+                parameter_section_active = False
             if force_marker_now:
                 parameter_section_active = False
             elif parameter_section_active and _PARAMETER_ASSIGNMENT_LINE.match(raw):

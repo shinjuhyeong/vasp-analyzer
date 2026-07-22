@@ -315,6 +315,30 @@ def test_append_resume_replays_only_the_unverified_detailed_tail(tmp_path: Path)
     assert second.parameters == ()
 
 
+def test_parameter_collection_stops_at_declarative_header_boundary(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        b"INCAR:\n"
+        b" ENCUT = 520; EDIFF = 1E-6; ISPIN = 2; NCORE = 4; LWAVE = F; HOME_MAGIC = alpha\n"
+        b" VRHFIN =Cu: s1\n"
+        b" NIONS = 1 ions\n"
+        b" direct lattice vectors reciprocal lattice vectors\n"
+        b" 1 0 0 1 0 0\n0 1 0 0 1 0\n0 0 1 0 0 1\n"
+        b" POSITION TOTAL-FORCE\n--------------------\n"
+        b" 0 0 0 0 0 0\n"
+        b" General timing and accounting informations for this job:\n"
+    )
+
+    scan = scan_outcar(path, HOME_BARRIER)
+
+    assert [item.raw_key for item in scan.parameters] == [
+        "ENCUT", "EDIFF", "ISPIN", "NCORE", "LWAVE", "HOME_MAGIC"
+    ]
+    assert [item.category for item in scan.parameters] == [
+        "electronic", "electronic", "spin", "parallelization", "output", None
+    ]
+
+
 def test_resume_keeps_parameter_source_line_identity_absolute(tmp_path: Path) -> None:
     path = tmp_path / "OUTCAR"
     fixture = (FIXTURES / "ase-complete-one-step.OUTCAR").read_bytes()

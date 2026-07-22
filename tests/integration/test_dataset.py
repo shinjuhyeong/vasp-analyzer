@@ -122,7 +122,8 @@ def test_dataset_reconciles_detailed_scanner_values_by_step_id(
     )
     assert dataset.ionic_steps[1].cell_volume == pytest.approx(180.0)
     assert [parameter.raw_value for parameter in dataset.parameters[:2]] == ["400", "520"]
-    assert dataset.parameters[-1].key == "nions"
+    assert [parameter.key for parameter in dataset.parameters] == ["encut", "encut"]
+    assert dataset.parameters[-1].category == "electronic"
 
 
 def test_parameter_merge_deduplicates_only_complete_immutable_identity() -> None:
@@ -205,8 +206,8 @@ def test_stable_append_assigns_monotonic_order_to_legitimate_repeated_parameters
         stream.write(b" INCAR:\n ENCUT = 400; ENCUT = 400\n")
     refreshed = session.refresh_if_changed()
 
-    assert [item.ordinal for item in first.parameters] == [0, 1, 2]
-    assert [item.ordinal for item in refreshed.parameters] == [0, 1, 2, 3, 4]
+    assert [item.ordinal for item in first.parameters] == [0]
+    assert [item.ordinal for item in refreshed.parameters] == [0, 1, 2]
     assert [item.raw_value for item in refreshed.parameters[-2:]] == ["400", "400"]
     assert refreshed.parameters[-2] != refreshed.parameters[-1]
     assert refreshed.parameters[-2].line_number == refreshed.parameters[-1].line_number

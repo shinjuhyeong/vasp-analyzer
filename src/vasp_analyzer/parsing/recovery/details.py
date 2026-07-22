@@ -31,6 +31,33 @@ _KNOWN_PARAMETER_UNITS = {
     b"sec",
 }
 
+# Canonical VASP metadata enriches only presentation fields. The exact key and
+# value text emitted by OUTCAR remain untouched for raw inspection.
+_PARAMETER_METADATA: dict[str, tuple[str, str, str | None]] = {
+    "encut": ("electronic", "Plane-wave cutoff energy", "eV"),
+    "ediff": ("electronic", "Electronic convergence tolerance", "eV"),
+    "nelm": ("electronic", "Maximum electronic iterations", None),
+    "algo": ("electronic", "Electronic minimization algorithm", None),
+    "ibrion": ("ionic", "Ionic update algorithm", None),
+    "nsw": ("ionic", "Maximum ionic steps", None),
+    "ediffg": ("ionic", "Ionic convergence threshold", "eV/angstrom"),
+    "isif": ("ionic", "Ionic relaxation degrees of freedom", None),
+    "ispin": ("spin", "Spin-polarization mode", None),
+    "magmom": ("spin", "Initial magnetic moments", None),
+    "lsorbit": ("spin", "Enable spin-orbit coupling", None),
+    "gga": ("exchange-correlation", "Generalized-gradient functional", None),
+    "metagga": ("exchange-correlation", "Meta-GGA functional", None),
+    "lhfcalc": ("exchange-correlation", "Enable hybrid-functional calculation", None),
+    "ncore": ("parallelization", "Bands distributed per orbital group", None),
+    "npar": ("parallelization", "Band parallelization groups", None),
+    "kpar": ("parallelization", "k-point parallelization groups", None),
+    "lplane": ("parallelization", "Plane-wise FFT distribution", None),
+    "lwave": ("output", "Write WAVECAR output", None),
+    "lcharg": ("output", "Write CHGCAR output", None),
+    "lorbit": ("output", "Orbital-projection output mode", None),
+    "nwrite": ("output", "OUTCAR verbosity level", None),
+}
+
 
 def _decode(value: bytes, *, context: str) -> str:
     try:
@@ -242,13 +269,17 @@ def parse_parameter_assignments(
         raw_key = _decode(match.group("key"), context="parameter key")
         raw_value = _decode(raw_bytes, context="parameter value").strip()
         value, unit = _coerce_parameter_value(raw_bytes)
+        key = _canonical_key(raw_key)
+        metadata = _PARAMETER_METADATA.get(key)
         parsed.append(
             ParameterOccurrence(
-                key=_canonical_key(raw_key),
+                key=key,
                 raw_key=raw_key,
                 raw_value=raw_value,
                 value=value,
-                unit=unit,
+                unit=metadata[2] if metadata is not None and metadata[2] is not None else unit,
+                category=metadata[0] if metadata is not None else None,
+                description=metadata[1] if metadata is not None else None,
                 ordinal=start_ordinal + len(parsed),
                 line_number=line_number,
             )
