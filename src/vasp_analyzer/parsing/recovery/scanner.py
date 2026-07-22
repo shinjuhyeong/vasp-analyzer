@@ -561,8 +561,11 @@ def scan_outcar(
                 continue
 
             if _contains_any(raw, dialect.profile.outcar.details.parameter_sections):
+                if energy_phase is not _EnergyPhase.CLOSED:
+                    raise OutcarFormatError(
+                        "energy block ended before its closing separator"
+                    )
                 parameter_section_active = True
-                energy_phase = _EnergyPhase.CLOSED
                 continue
             if parameter_section_active and _contains_any(
                 raw, dialect.profile.outcar.details.parameter_section_end
@@ -821,7 +824,10 @@ def scan_outcar(
                     raise OutcarFormatError(
                         f"stress block at byte {stress_block_start} contains a nested marker"
                     )
-                energy_phase = _EnergyPhase.CLOSED
+                if energy_phase is not _EnergyPhase.CLOSED:
+                    raise OutcarFormatError(
+                        "energy block ended before its closing separator"
+                    )
                 stress_block_start = line_start
                 stress_target = (
                     "next" if next_detail_start is not None or pending is None else "pending"

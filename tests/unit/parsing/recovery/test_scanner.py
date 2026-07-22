@@ -675,7 +675,7 @@ def test_complete_wrong_stress_unit_at_eof_fails_closed(tmp_path: Path) -> None:
         scan_outcar(path, HOME_BARRIER)
 
 
-def test_parameter_marker_ends_an_active_energy_section(tmp_path: Path) -> None:
+def test_parameter_marker_cannot_end_an_active_energy_section(tmp_path: Path) -> None:
     path = tmp_path / "OUTCAR"
     path.write_bytes(
         (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
@@ -687,10 +687,51 @@ def test_parameter_marker_ends_an_active_energy_section(tmp_path: Path) -> None:
         + b" General timing and accounting informations for this job:\n"
     )
 
+    with pytest.raises(OutcarFormatError, match="energy block.*closing separator"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_stress_marker_cannot_end_an_active_energy_section(tmp_path: Path) -> None:
+    path = write_energy_fixture(
+        tmp_path,
+        body=b" free energy TOTEN = -10.0 eV\n",
+        close=False,
+    )
+    with path.open("ab") as stream:
+        stream.write(
+            b" FORCE on cell =-STRESS in cart. coord. units (eV):\n"
+            b" in kB\n"
+            b" 1 0 0\n"
+            b" 0 1 0\n"
+            b" 0 0 1\n"
+        )
+
+    with pytest.raises(OutcarFormatError, match="energy block.*closing separator"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_stress_before_energy_remains_valid(tmp_path: Path) -> None:
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(
+        (FIXTURES / "trailing-no-energy.OUTCAR").read_bytes()
+        + b" FORCE on cell =-STRESS in cart. coord. units (eV):\n"
+        + b" in kB\n"
+        + b" 1 0 0\n"
+        + b" 0 1 0\n"
+        + b" 0 0 1\n"
+        + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+        + b" ---------------------------------------------------\n"
+        + b" free energy TOTEN = -10.0 eV\n"
+        + b" ---------------------------------------------------\n"
+    )
+
     scan = scan_outcar(path, HOME_BARRIER)
 
-    assert [term.key for term in scan.steps[-1].energy_terms] == ["home_correction"]
-    assert scan.parameters[-1].raw_key == "HOME_TAG"
+    assert scan.steps[0].stress_tensor_kb == (
+        (1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+        (0.0, 0.0, 1.0),
+    )
 
 
 @pytest.mark.parametrize(

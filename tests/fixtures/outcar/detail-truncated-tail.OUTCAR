@@ -18,6 +18,7 @@
  alpha Z PSCENC = 1.250000 eV
  free energy TOTEN = -10.000000 eV
  energy without entropy = -9.900000  energy(sigma->0) = -9.800000
+ ---------------------------------------------------
  FORCE on cell =-STRESS in cart. coord. units (eV):
  in kB  1 2 3 0.1 0.2 0.3
  external pressure = 5.0 kB Pullay stress = 0.5 kB
@@ -34,4 +35,5 @@
  Ewald energy TEWEN = 2.500000 eV
  free energy TOTEN = -11.000000 eV
  energy without entropy = -10.900000  energy(sigma->0) = -10.800000
+ ---------------------------------------------------
  FORCE on cell =-STRESS in cart. coord. units (eV):
