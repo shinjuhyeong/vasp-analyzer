@@ -17,6 +17,10 @@ _ASSIGNMENT = re.compile(
 _PARAMETER_START = re.compile(
     rb"(?<!\S)(?P<key>[A-Za-z][A-Za-z0-9_.-]{0,63})\s*=\s*"
 )
+_ANNOTATED_INTEGER = re.compile(
+    rb"^(?P<value>[+-]?\d+)[ \t]+(?P<annotation>[A-Za-z][^\r\n]*)$"
+)
+_ANNOTATED_INTEGER_PARAMETERS = frozenset({"kblock", "nblock"})
 _UNIT = re.compile(rb"^[A-Za-z][A-Za-z0-9_./^*-]{0,31}$")
 _KNOWN_PARAMETER_UNITS = {
     b"a",
@@ -234,9 +238,13 @@ def parse_stress_rows(
 
 
 def _coerce_parameter_value(
-    raw: bytes,
+    raw: bytes, *, key: str
 ) -> tuple[bool | int | float | str | tuple[float, ...], str | None]:
     text = _decode(raw, context="parameter value").strip()
+    if key in _ANNOTATED_INTEGER_PARAMETERS:
+        annotated_integer = _ANNOTATED_INTEGER.fullmatch(raw)
+        if annotated_integer is not None:
+            return int(annotated_integer.group("value")), None
     folded = text.casefold()
     if folded in {"t", ".true.", "true"}:
         return True, None
@@ -289,12 +297,20 @@ def parse_parameter_assignments(
         raw_bytes = content[match.end() : end].strip()
         if raw_bytes.endswith(b";"):
             raw_bytes = raw_bytes[:-1].rstrip()
-        if not raw_bytes or b"=" in raw_bytes or b";" in raw_bytes:
-            raise OutcarFormatError("parameter assignment is malformed")
         raw_key = _decode(match.group("key"), context="parameter key")
-        raw_value = _decode(raw_bytes, context="parameter value").strip()
-        value, unit = _coerce_parameter_value(raw_bytes)
         key = _canonical_key(raw_key)
+        annotated_integer = (
+            key in _ANNOTATED_INTEGER_PARAMETERS
+            and _ANNOTATED_INTEGER.fullmatch(raw_bytes) is not None
+        )
+        if (
+            not raw_bytes
+            or b"=" in raw_bytes
+            or (b";" in raw_bytes and not annotated_integer)
+        ):
+            raise OutcarFormatError("parameter assignment is malformed")
+        raw_value = _decode(raw_bytes, context="parameter value").strip()
+        value, unit = _coerce_parameter_value(raw_bytes, key=key)
         metadata = _parameter_metadata(key, value)
         parsed.append(
             ParameterOccurrence(

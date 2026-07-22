@@ -243,6 +243,18 @@ def test_parameter_parser_keeps_ambiguous_mixed_value_as_raw_string() -> None:
     assert math.isfinite(float(parsed[0].raw_value.split()[0]))
 
 
+def test_parameter_parser_extracts_known_integer_before_inline_annotation() -> None:
+    parsed = parse_parameter_assignments(
+        b"   NBLOCK =      1;   KBLOCK =   3000    inner block; outer block \n"
+    )
+
+    assert [(item.key, item.value) for item in parsed] == [
+        ("nblock", 1),
+        ("kblock", 3000),
+    ]
+    assert parsed[1].raw_value == "3000    inner block; outer block"
+
+
 def test_known_parameter_assignments_receive_canonical_interpretation_metadata() -> None:
     parsed = parse_parameter_assignments(
         b" ENCUT = 520; EDIFF = 1E-6; ISPIN = 2; NCORE = 4; LWAVE = F\n"
