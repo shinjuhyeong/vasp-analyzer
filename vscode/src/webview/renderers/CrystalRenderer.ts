@@ -52,6 +52,14 @@ export interface VectorGlyph {
   readonly strongestValue: number | null;
 }
 
+export interface ComparisonScene {
+  readonly initialFrame: CrystalFrame;
+  readonly targetFrame: CrystalFrame;
+  readonly displacements: readonly VectorGlyph[];
+  readonly displacementScale: number;
+  readonly cellDeltas: readonly CellAxis[];
+}
+
 export interface ConstraintGlyph {
   readonly siteIndex: number;
   readonly origin: Vec3;
@@ -75,6 +83,7 @@ export interface CrystalScene {
   readonly forceScale: number;
   readonly constraints: readonly ConstraintGlyph[];
   readonly supercell: SupercellRepeat;
+  readonly comparison: ComparisonScene | null;
 }
 
 export interface CrystalRenderer {

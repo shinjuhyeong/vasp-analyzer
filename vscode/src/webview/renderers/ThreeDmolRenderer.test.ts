@@ -76,6 +76,22 @@ const scene = (crystalFrame: CrystalFrame, force: number): CrystalScene => ({
   forceScale: 1,
   constraints: [],
   supercell: [1, 1, 1],
+  comparison: null,
+});
+
+const comparisonScene = (): CrystalScene => ({
+  ...scene(movedFrame, 9),
+  comparison: {
+    initialFrame: frame,
+    targetFrame: movedFrame,
+    displacements: [{ siteIndex: 1, origin: [1.5, 1, 1.5], vector: [1, 0, 0], strongestAxis: null, strongestValue: null }],
+    displacementScale: 2,
+    cellDeltas: [
+      { label: "a", start: [0, 0, 0], end: [2, 0, 0] },
+      { label: "b", start: [0, 0, 0], end: [0, 1, 0] },
+      { label: "c", start: [0, 0, 0], end: [0, 0, 1] },
+    ],
+  },
 });
 
 function fakeAnimationFrames() {
@@ -130,6 +146,32 @@ function fakeViewer() {
 
 describe("ThreeDmolRenderer adapter", () => {
   beforeEach(() => vi.clearAllMocks());
+  it("renders explicit comparison overlays and removes them when toggled off", () => {
+    const viewer = fakeViewer();
+    const renderer = new ThreeDmolRenderer(viewer as unknown as GLViewer, document.createElement("div"));
+    const selected = vi.fn();
+    renderer.onSelectSite(selected);
+    renderer.setScene(comparisonScene());
+
+    const clickable = viewer.addSphere.mock.calls.filter(([spec]) => spec.clickable).map(([spec]) => spec);
+    expect(clickable).toHaveLength(2);
+    expect(clickable[0]).toMatchObject({ opacity: 0.35 });
+    expect(clickable[1]).toMatchObject({ opacity: 1 });
+    clickable[0].callback();
+    clickable[1].callback();
+    expect(selected).toHaveBeenNthCalledWith(1, 1);
+    expect(selected).toHaveBeenNthCalledWith(2, 1);
+    expect(viewer.addCylinder).toHaveBeenCalledWith(expect.objectContaining({ dashed: true, opacity: 0.35 }));
+    expect(viewer.addCylinder).toHaveBeenCalledWith(expect.objectContaining({ dashed: false, opacity: 1 }));
+    expect(viewer.addArrow).toHaveBeenCalledWith(expect.objectContaining({ start: { x: 1.5, y: 1, z: 1.5 }, end: { x: 3.5, y: 1, z: 1.5 }, color: 0x00bcd4 }));
+    expect(viewer.addArrow).toHaveBeenCalledWith(expect.objectContaining({ start: { x: 0, y: 0, z: 0 }, color: 0xff8c00 }));
+    expect(viewer.addArrow).not.toHaveBeenCalledWith(expect.objectContaining({ end: { x: 20.5, y: 1, z: 1.5 } }));
+
+    const shapesBefore = viewer.removeAllShapes.mock.calls.length;
+    renderer.setScene(scene(frame, 1));
+    expect(viewer.removeAllShapes.mock.calls.length).toBeGreaterThan(shapesBefore);
+    expect(viewer.addSphere.mock.calls.slice(clickable.length).some(([spec]) => spec.opacity === 0.35 && spec.clickable)).toBe(false);
+  });
   it("uses white-on-dark atom labels while preserving colored transparent axis labels", () => {
     const viewer = fakeViewer();
     const renderer = new ThreeDmolRenderer(

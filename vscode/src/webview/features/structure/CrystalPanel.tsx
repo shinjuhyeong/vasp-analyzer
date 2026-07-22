@@ -250,6 +250,7 @@ export function CrystalPanel({
           forceScale,
           constraints,
           supercell: repeat,
+          comparison: null,
         });
       else {
         instance.setStructure(frame);

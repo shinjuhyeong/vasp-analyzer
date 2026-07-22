@@ -1,6 +1,7 @@
 import type { Mat3, Vec3 } from "../../core/contracts.js";
 import type {
   CellAxis,
+  ComparisonScene,
   CrystalFrame,
   DirectionSemantics,
   LatticeImage,
@@ -9,6 +10,7 @@ import type {
   RenderSite,
   SupercellRepeat,
 } from "../../renderers/CrystalRenderer.js";
+import type { StructureComparison } from "./comparison.js";
 
 export interface SceneSiteInput {
   readonly siteIndex: number;
@@ -455,6 +457,39 @@ export function buildCrystalFrame(
     cellEdges: edges,
     axes,
     bonds,
+  });
+}
+
+export function buildComparisonScene(
+  initialInputs: readonly SceneSiteInput[],
+  targetInputs: readonly SceneSiteInput[],
+  initialLattice: Mat3,
+  targetLattice: Mat3,
+  comparison: StructureComparison,
+  repeat: SupercellRepeat,
+  displacementScale: number,
+): ComparisonScene {
+  const bySite = new Map(comparison.sites.map((site) => [site.siteIndex, site]));
+  const alignedTargets = targetInputs.map((input) => {
+    const site = bySite.get(input.siteIndex);
+    if (!site) throw new Error(`Comparison is missing siteIndex ${input.siteIndex}`);
+    return Object.freeze({ ...input, cartesianPosition: site.alignedTargetCartesian });
+  });
+  const origin: Vec3 = Object.freeze([0, 0, 0]);
+  return Object.freeze({
+    initialFrame: buildCrystalFrame(initialInputs, initialLattice, repeat),
+    targetFrame: buildCrystalFrame(alignedTargets, targetLattice, repeat),
+    displacements: Object.freeze(comparison.sites.map((site) => Object.freeze({
+      siteIndex: site.siteIndex,
+      origin: site.initialCartesian,
+      vector: site.displacement,
+      strongestAxis: null,
+      strongestValue: null,
+    }))),
+    displacementScale: Number.isFinite(displacementScale) ? Math.max(0, displacementScale) : 1,
+    cellDeltas: Object.freeze(comparison.cellDeltas.map((delta, axis) => Object.freeze({
+      label: (["a", "b", "c"] as const)[axis]!, start: origin, end: delta,
+    }))),
   });
 }
 

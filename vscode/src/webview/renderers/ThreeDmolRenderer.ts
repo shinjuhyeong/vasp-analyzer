@@ -3,6 +3,7 @@ import { createViewer, type GLViewer } from "3dmol";
 import type { Vec3 } from "../core/contracts.js";
 import type {
   ConstraintGlyph,
+  ComparisonScene,
   CrystalFrame,
   CrystalRenderer,
   CrystalScene,
@@ -361,6 +362,8 @@ export class ThreeDmolRenderer implements CrystalRenderer {
   private transitionDurationMs = 0;
   private transitionFrame: number | null = null;
   private transitionGeneration = 0;
+  private comparison: ComparisonScene | null = null;
+  private targetComparison: ComparisonScene | null = null;
 
   constructor(
     private viewer: GLViewer | null,
@@ -373,12 +376,15 @@ export class ThreeDmolRenderer implements CrystalRenderer {
     const geometryChanged =
       this.targetFrame !== scene.frame ||
       this.targetForces !== scene.forces ||
-      this.targetForceScale !== scene.forceScale;
+      this.targetForceScale !== scene.forceScale ||
+      this.targetComparison !== scene.comparison;
     const sourceConstraints = this.constraints;
     this.constraints = scene.constraints;
     this.targetFrame = scene.frame;
     this.targetForces = scene.forces;
     this.targetForceScale = scene.forceScale;
+    this.targetComparison = scene.comparison;
+    this.comparison = scene.comparison;
     if (!geometryChanged) {
       this.draw();
       return;
@@ -543,6 +549,7 @@ export class ThreeDmolRenderer implements CrystalRenderer {
     this.frame = this.targetFrame;
     this.forces = this.targetForces;
     this.forceScale = this.targetForceScale;
+    this.comparison = this.targetComparison;
     this.draw();
   }
 
@@ -570,6 +577,11 @@ export class ThreeDmolRenderer implements CrystalRenderer {
     if (!viewer || !frame || this.disposed) return;
     viewer.removeAllShapes();
     viewer.removeAllLabels();
+    if (this.comparison) {
+      this.drawComparison(viewer, this.comparison);
+      viewer.render();
+      return;
+    }
     if (this.layers.cell)
       for (const edge of frame.cellEdges)
         viewer.addCylinder({
@@ -742,6 +754,46 @@ export class ThreeDmolRenderer implements CrystalRenderer {
     // Volumetric payload interpretation is deliberately deferred; the typed layer remains isolated here.
     void this.volumetric;
     viewer.render();
+  }
+
+  private drawComparison(viewer: GLViewer, comparison: ComparisonScene): void {
+    const drawFrame = (comparisonFrame: CrystalFrame, initial: boolean): void => {
+      if (this.layers.cell) for (const edge of comparisonFrame.cellEdges)
+        viewer.addCylinder({ start: xyz(edge.start), end: xyz(edge.end), radius: 0.025,
+          color: initial ? 0x8b949e : 0xd1d5db, opacity: initial ? 0.35 : 1, dashed: initial });
+      if (this.layers.bonds) for (const bond of comparisonFrame.bonds)
+        viewer.addCylinder({ start: xyz(bond.start), end: xyz(bond.end), radius: 0.09,
+          color: initial ? 0x8b949e : 0xb7bcc5, opacity: initial ? 0.35 : 1, dashed: initial,
+          fromCap: "round", toCap: "round" });
+      for (const site of comparisonFrame.sites) {
+        const boundary = site.role === "boundary";
+        const baseRadius = Math.min(0.52, Math.max(0.22, (covalentRadius(site.element) ?? 1.2) * 0.25));
+        viewer.addSphere({ center: xyz(site.cartesianPosition), radius: boundary ? baseRadius * 0.78 : baseRadius,
+          color: elementVisual(site.element).color, opacity: initial ? 0.35 : boundary ? 0.42 : 1,
+          clickable: true, callback: () => this.selectCallback(site.siteIndex),
+          hoverable: true, hover_callback: () => {
+            this.hoveredSite = site.siteIndex;
+            this.hoverCallback(site.siteIndex);
+            this.draw();
+          }, unhover_callback: () => {
+            this.hoveredSite = null;
+            this.hoverCallback(null);
+            this.draw();
+          } });
+        if (site.siteIndex === this.selectedSite)
+          viewer.addSphere({ center: xyz(site.cartesianPosition), radius: baseRadius + 0.09,
+            color: 0xffd33d, opacity: 0.25, wireframe: true });
+      }
+    };
+    drawFrame(comparison.initialFrame, true);
+    drawFrame(comparison.targetFrame, false);
+    if (this.layers.forces) for (const glyph of comparison.displacements) {
+      if (!glyph.vector || Math.hypot(...glyph.vector) < 1e-12) continue;
+      const vector = vec3(glyph.vector.map((value) => value * comparison.displacementScale));
+      viewer.addArrow({ start: xyz(glyph.origin), end: xyz(add(glyph.origin, vector)), radius: 0.07, color: 0x00bcd4 });
+    }
+    if (this.layers.axes) for (const delta of comparison.cellDeltas)
+      viewer.addArrow({ start: xyz(delta.start), end: xyz(delta.end), radius: 0.08, color: 0xff8c00 });
   }
 }
 

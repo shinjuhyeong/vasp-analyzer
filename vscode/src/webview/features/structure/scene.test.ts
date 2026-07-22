@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCrystalFrame,
+  buildComparisonScene,
   covalentRadius,
   crystallographicViewVector,
   elementLegend,
   parseIntegerDirection,
   replicateSites,
 } from "./scene.js";
+import { compareStructures } from "./comparison.js";
 
 const skew = [
   [2, 0, 0],
@@ -194,5 +196,27 @@ describe("crystallographic scene", () => {
     expect(parseIntegerDirection("1 -2 3")).toEqual([1, -2, 3]);
     expect(() => parseIntegerDirection("0 0 0")).toThrow(/non-zero/i);
     expect(() => parseIntegerDirection("1 0.5 0")).toThrow(/integers/i);
+  });
+
+  it("builds comparison frames but emits displacements only for primary sites", () => {
+    const initial = { lattice: skew, fractionalPositions: [[0, 0, 0], [0.9, 0, 0]] as const };
+    const target = {
+      lattice: [[2.2, 0, 0], [1, 2.1, 0], [0, 0, 3.2]] as const,
+      fractionalPositions: [[0.05, 0, 0], [0.85, 0, 0]] as const,
+    };
+    const comparison = compareStructures(initial, target);
+    const targetSites = sites.map((site, index) => ({ ...site, fractionalPosition: target.fractionalPositions[index]! }));
+    const result = buildComparisonScene(sites, targetSites, initial.lattice, target.lattice, comparison, [2, 2, 1], 3);
+
+    expect(result.initialFrame.sites.filter(({ role }) => role === "primary")).toHaveLength(8);
+    expect(result.targetFrame.sites.filter(({ role }) => role === "primary")).toHaveLength(8);
+    expect(result.displacements).toHaveLength(2);
+    expect(result.displacements[0]).toMatchObject({ siteIndex: 0, origin: comparison.sites[0]!.initialCartesian, vector: comparison.sites[0]!.displacement });
+    expect(result.displacementScale).toBe(3);
+    expect(result.cellDeltas.map(({ label, start, end }) => [label, start, end])).toEqual([
+      ["a", [0, 0, 0], comparison.cellDeltas[0]],
+      ["b", [0, 0, 0], comparison.cellDeltas[1]],
+      ["c", [0, 0, 0], comparison.cellDeltas[2]],
+    ]);
   });
 });
