@@ -742,7 +742,7 @@ def test_complete_empty_energy_assignment_fails_closed(tmp_path: Path, assignmen
         scan_outcar(path, HOME_BARRIER)
 
 
-def test_non_assignment_equals_separator_is_ignored_in_energy_section(
+def test_non_hyphen_separator_does_not_complete_energy_section(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "OUTCAR"
@@ -753,9 +753,8 @@ def test_non_assignment_equals_separator_is_ignored_in_energy_section(
         + b" General timing and accounting informations for this job:\n"
     )
 
-    scan = scan_outcar(path, HOME_BARRIER)
-
-    assert scan.steps[0].energy_terms == ()
+    with pytest.raises(OutcarFormatError, match="energy block.*closing separator"):
+        scan_outcar(path, HOME_BARRIER)
 
 
 @pytest.mark.parametrize(
@@ -804,6 +803,92 @@ def test_malformed_optimizer_diagnostic_inside_body_fails(tmp_path: Path) -> Non
         scan_outcar(path, HOME_BARRIER)
 
 
+@pytest.mark.parametrize(
+    "markers",
+    [("delta Force",), ("d Force", "delta Force")],
+)
+def test_profile_optimizer_diagnostic_marker_drives_full_row_validation(
+    tmp_path: Path, markers: tuple[str, ...]
+) -> None:
+    details = HOME_BARRIER.profile.outcar.details.model_copy(
+        update={"optimizer_diagnostics": markers}
+    )
+    outcar = HOME_BARRIER.profile.outcar.model_copy(update={"details": details})
+    profile = HOME_BARRIER.profile.model_copy(update={"outcar": outcar})
+    dialect = replace(HOME_BARRIER, profile=profile)
+    path = write_energy_fixture(
+        tmp_path,
+        body=(
+            b" delta Force = 0.359E-03[ 0.351E-03, 0.368E-03]  "
+            b"d Energy = 0.358E-03-0.939E-06\n"
+        ),
+    )
+
+    assert scan_outcar(path, dialect).steps[0].energy_terms == ()
+
+
+def test_profile_optimizer_diagnostic_marker_still_rejects_malformed_row(
+    tmp_path: Path,
+) -> None:
+    details = HOME_BARRIER.profile.outcar.details.model_copy(
+        update={"optimizer_diagnostics": ("delta Force",)}
+    )
+    outcar = HOME_BARRIER.profile.outcar.model_copy(update={"details": details})
+    profile = HOME_BARRIER.profile.model_copy(update={"outcar": outcar})
+    dialect = replace(HOME_BARRIER, profile=profile)
+    path = write_energy_fixture(
+        tmp_path,
+        body=b" delta Force = nope[ 0.351E-03, 0.368E-03] d Energy = 0.358E-03 0.939E-06\n",
+    )
+
+    with pytest.raises(OutcarFormatError, match="optimizer"):
+        scan_outcar(path, dialect)
+
+
+def test_missing_closing_energy_separator_fails_at_next_force_record(
+    tmp_path: Path,
+) -> None:
+    path = write_energy_fixture(
+        tmp_path,
+        body=b" free energy TOTEN = -10.0 eV\n",
+        close=False,
+    )
+    with path.open("ab") as stream:
+        stream.write(
+            b" POSITION TOTAL-FORCE (eV/Angst)\n"
+            b" ----------------------------------------\n"
+            b" 0 0 0 0.1 0 0\n"
+            b" 1 1 1 -0.1 0 0\n"
+        )
+
+    with pytest.raises(OutcarFormatError, match="energy block.*closing separator"):
+        scan_outcar(path, HOME_BARRIER)
+
+
+def test_missing_closing_energy_separator_at_eof_remains_replayable(
+    tmp_path: Path,
+) -> None:
+    path = write_energy_fixture(
+        tmp_path,
+        body=b" free energy TOTEN = -10.0 eV\n",
+        close=False,
+    )
+    first = scan_outcar(path, HOME_BARRIER)
+
+    assert first.checkpoint.replay_provisional is True
+    assert first.steps[0].energy == pytest.approx(-10.0)
+
+    with path.open("ab") as stream:
+        stream.write(
+            b" ---------------------------------------------------\n"
+            b" General timing and accounting informations for this job:\n"
+        )
+    resumed = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+    fresh = scan_outcar(path, HOME_BARRIER)
+
+    assert resumed.steps == fresh.steps
+
+
 def test_unknown_valid_single_energy_assignment_is_preserved(tmp_path: Path) -> None:
     path = write_energy_fixture(tmp_path, body=b" home correction* = 2.5 eV\n")
     assert [(term.key, term.value) for term in scan_outcar(path, HOME_BARRIER).steps[0].energy_terms] == [
@@ -818,6 +903,7 @@ def test_unknown_punctuated_energy_label_is_preserved(tmp_path: Path) -> None:
         + b" FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
         + b" ---------------------------------------------------\n"
         + b" home correction* = 2.5 eV\n"
+        + b" ---------------------------------------------------\n"
         + b" General timing and accounting informations for this job:\n"
     )
 
@@ -840,7 +926,10 @@ def test_truncated_energy_assignment_warns_then_replays(tmp_path: Path) -> None:
 
     first = scan_outcar(path, HOME_BARRIER)
     path.write_bytes(
-        prefix + b" 1.5 eV\n General timing and accounting informations for this job:\n"
+        prefix
+        + b" 1.5 eV\n"
+        + b" ---------------------------------------------------\n"
+        + b" General timing and accounting informations for this job:\n"
     )
     second = scan_outcar(path, HOME_BARRIER, first.checkpoint)
 

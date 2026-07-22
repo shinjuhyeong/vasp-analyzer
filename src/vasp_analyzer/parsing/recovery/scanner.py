@@ -46,15 +46,6 @@ _COMBINED_ENERGY_AGGREGATES = re.compile(
     re.IGNORECASE,
 )
 _SCIENTIFIC_NUMBER = rb"[+-]?(?:\d+(?:\.\d*)?|\.\d+)[EeDd][+-]?\d+"
-_OPTIMIZER_DIAGNOSTIC = re.compile(
-    rb"^\s*d\s+Force\s*=\s*(" + _SCIENTIFIC_NUMBER + rb")\s*"
-    rb"\[\s*(" + _SCIENTIFIC_NUMBER + rb")\s*,\s*(" + _SCIENTIFIC_NUMBER + rb")\s*\]\s*"
-    rb"d\s+(?:Energy|Ewald)\s*=\s*(" + _SCIENTIFIC_NUMBER + rb")\s*"
-    rb"(" + _SCIENTIFIC_NUMBER + rb")\s*$",
-    re.IGNORECASE,
-)
-
-
 class _EnergyPhase(Enum):
     CLOSED = "closed"
     AWAITING_SEPARATOR = "awaiting_separator"
@@ -144,9 +135,28 @@ def _is_optimizer_diagnostic(
     line: bytes, prefixes: tuple[str, ...], *, offset: int
 ) -> bool:
     stripped = line.rstrip(b"\r\n")
-    if not any(stripped.lstrip().lower().startswith(prefix.encode().lower()) for prefix in prefixes):
+    matched_prefix = next(
+        (
+            prefix.encode("ascii")
+            for prefix in prefixes
+            if re.match(
+                rb"^\s*" + re.escape(prefix.encode("ascii")) + rb"(?![A-Za-z0-9_.-])",
+                stripped,
+                re.IGNORECASE,
+            )
+        ),
+        None,
+    )
+    if matched_prefix is None:
         return False
-    match = _OPTIMIZER_DIAGNOSTIC.fullmatch(stripped)
+    diagnostic = re.compile(
+        rb"^\s*" + re.escape(matched_prefix) + rb"\s*=\s*(" + _SCIENTIFIC_NUMBER + rb")\s*"
+        rb"\[\s*(" + _SCIENTIFIC_NUMBER + rb")\s*,\s*(" + _SCIENTIFIC_NUMBER + rb")\s*\]\s*"
+        rb"d\s+(?:Energy|Ewald)\s*=\s*(" + _SCIENTIFIC_NUMBER + rb")\s*"
+        rb"(" + _SCIENTIFIC_NUMBER + rb")\s*$",
+        re.IGNORECASE,
+    )
+    match = diagnostic.fullmatch(stripped)
     if match is None:
         raise OutcarFormatError(f"optimizer diagnostic at byte {offset} is malformed")
     _finite_numbers(
@@ -365,6 +375,10 @@ def scan_outcar(
             nonlocal boundary_geometry_lattice_consumed
             if pending is None:
                 return
+            if stable and energy_phase is not _EnergyPhase.CLOSED:
+                raise OutcarFormatError(
+                    "energy block ended before its closing separator"
+                )
             if stable and stress_target == "pending":
                 raise OutcarFormatError(
                     f"stress block at byte {stress_block_start} ended before a complete tensor"
