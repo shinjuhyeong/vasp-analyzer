@@ -21,3 +21,16 @@ it("shows per-site displacement, drift, ranking, multiplier, and cell summaries"
   expect(screen.getByText(/Delta b vector \[/)).toBeVisible();
   expect(screen.getByText(/Delta c vector \[/)).toBeVisible();
 });
+
+it("shows the accessible global comparison summary before an atom is selected", () => {
+  const target = twoStepDataset.ionicSteps[0]!;
+  const initial = { source: "POSCAR" as const, lattice: target.lattice,
+    fractionalPositions: target.fractionalPositions, cartesianPositions: target.cartesianPositions };
+  const comparison = compareStructures(initial, target);
+  render(<ComparisonInspector site={null} sitePosition={-1} initial={initial}
+    target={target} comparison={comparison} multiplier={25} />);
+  expect(screen.getByRole("heading", { name: "Comparison summary" })).toBeVisible();
+  expect(screen.getByText(/Maximum displacement/)).toBeVisible();
+  expect(screen.getByText(/Removed drift/)).toBeVisible();
+  expect(screen.queryByText(/Initial fractional/)).not.toBeInTheDocument();
+});

@@ -181,6 +181,20 @@ describe("ThreeDmolRenderer adapter", () => {
     expect(viewer.addSphere.mock.calls.slice(clickable.length).some(([spec]) => spec.opacity === 0.35 && spec.clickable)).toBe(false);
   });
 
+  it("keeps comparison displacements and cell deltas visible when forces and axes are off", () => {
+    const viewer = fakeViewer();
+    const renderer = new ThreeDmolRenderer(viewer as unknown as GLViewer, document.createElement("div"));
+    renderer.setLayerVisible("forces", false);
+    renderer.setLayerVisible("axes", false);
+    viewer.addArrow.mockClear();
+
+    renderer.setScene(comparisonScene());
+
+    expect(viewer.addArrow).toHaveBeenCalledWith(expect.objectContaining({ color: 0x00bcd4 }));
+    expect(viewer.addArrow).toHaveBeenCalledWith(expect.objectContaining({ color: 0xff8c00 }));
+    expect(viewer.addArrow).not.toHaveBeenCalledWith(expect.objectContaining({ color: 0xf85149 }));
+  });
+
   it("keeps target boundary atoms solid and replaces comparison through retained handles", () => {
     const viewer = fakeViewer();
     const renderer = new ThreeDmolRenderer(viewer as unknown as GLViewer, document.createElement("div"));

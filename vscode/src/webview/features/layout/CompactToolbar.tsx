@@ -1,4 +1,4 @@
-import type { ReactElement, ReactNode } from "react";
+import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 
 import { ForceScaleControl } from "../controls/ForceScaleControl.js";
 import { IonicStepControl } from "../convergence/IonicStepControl.js";
@@ -37,6 +37,19 @@ export function CompactToolbar({
   initialAvailable = false,
   comparison,
 }: CompactToolbarProps): ReactElement {
+  const [comparisonTargetDraft, setComparisonTargetDraft] = useState(String((comparison?.target ?? 0) + 1));
+  useEffect(() => setComparisonTargetDraft(String((comparison?.target ?? 0) + 1)), [comparison?.target]);
+  const commitComparisonTarget = (): void => {
+    if (!comparison) return;
+    const parsed = Number(comparisonTargetDraft);
+    if (comparisonTargetDraft.trim() === "" || !Number.isFinite(parsed)) {
+      setComparisonTargetDraft(String(comparison.target + 1));
+      return;
+    }
+    const target = Math.max(0, Math.min(totalSteps - 1, Math.trunc(parsed) - 1));
+    setComparisonTargetDraft(String(target + 1));
+    if (target !== comparison.target) comparison.onTargetChange(target);
+  };
   return (
     <header className="workspace-toolbar">
       {title}
@@ -52,7 +65,7 @@ export function CompactToolbar({
         <label className="toolbar-control"><input aria-label="Compare structures" type="checkbox" checked={comparison.enabled} onChange={(event) => comparison.onEnabledChange(event.target.checked)} />Compare</label>
         {comparison.enabled && <>
           <label className="toolbar-control">Compare target slider<input aria-label="Comparison target slider" type="range" min="1" max={totalSteps} step="1" value={comparison.target + 1} onChange={(event) => comparison.onTargetChange(Number(event.target.value) - 1)} /></label>
-          <label className="toolbar-control">Compare target number<input aria-label="Comparison target number" type="number" min="1" max={totalSteps} value={comparison.target + 1} onChange={(event) => comparison.onTargetChange(Math.max(0, Math.min(totalSteps - 1, Number(event.target.value) - 1)))} /></label>
+          <label className="toolbar-control">Compare target number<input aria-label="Comparison target number" type="number" min="1" max={totalSteps} value={comparisonTargetDraft} onChange={(event) => setComparisonTargetDraft(event.target.value)} onBlur={commitComparisonTarget} onKeyDown={(event) => { if (event.key === "Enter") commitComparisonTarget(); }} /></label>
           <ForceScaleControl value={comparison.displacementScale} onChange={comparison.onDisplacementScaleChange} label="Displacement arrow multiplier" />
         </>}
       </>}

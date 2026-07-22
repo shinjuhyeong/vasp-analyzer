@@ -470,7 +470,7 @@ export function CrystalPanel({
           onCollapsedChange={onInspectorCollapsedChange}
           inspector={
             selectedSite ? (
-              comparison && initialStructure && comparisonTarget ? <ComparisonInspector site={selectedSite} sitePosition={sites.findIndex((site) => site.siteIndex === selectedSite.siteIndex)} initial={initialStructure} target={comparisonTarget} comparison={comparison} multiplier={displacementScale} /> : <AtomDetail
+              comparison && initialStructure && comparisonTarget ? <ComparisonInspector site={selectedSite} sitePosition={sites.findIndex((site) => site.siteIndex === selectedSite.siteIndex)} initial={initialStructure} target={comparisonTarget} comparison={comparison} multiplier={displacementScale} mode="detail" /> : <AtomDetail
                 site={selectedSite}
                 sitePosition={sites.findIndex(
                   (site) => site.siteIndex === selectedSite.siteIndex,
@@ -481,6 +481,9 @@ export function CrystalPanel({
           }
           splitterHidden={structureFullScreen}
         >
+          {comparison && initialStructure && comparisonTarget && (
+            <ComparisonInspector site={null} sitePosition={-1} initial={initialStructure} target={comparisonTarget} comparison={comparison} multiplier={displacementScale} mode="summary" />
+          )}
           {(selectedStep.externalPressureKb !== null
             || selectedStep.pulayStressKb !== null
             || selectedStep.cellVolume !== null) && (

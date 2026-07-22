@@ -288,6 +288,8 @@ def scan_outcar(
     last_verified_offset = resumed_from
     pending: dict[str, object] | None = None
     next_details = _empty_details()
+    if geometry_section_open and geometry_volume_consumed and header_volume is not None:
+        next_details["cell_volume"] = header_volume
     next_detail_start: int | None = None
     upcoming_volume_crossed_lattice = False
     post_force_detail_mode = False
@@ -819,6 +821,7 @@ def scan_outcar(
                             "consumed geometry-section volume"
                         )
                     geometry_volume_consumed = True
+                    header_volume = volume
                 target = volume_target(line_start)
                 target["cell_volume"] = volume
                 if target is pending:
@@ -903,7 +906,11 @@ def scan_outcar(
         resumable_active_iteration = (
             current_ionic_iteration is not None
             and pending is None
-            and next_detail_start is None
+            and (
+                next_detail_start is None
+                or geometry_section_open
+                and geometry_lattice_consumed
+            )
             and stress_target is None
         )
         if resumable_active_iteration:

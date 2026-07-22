@@ -269,6 +269,35 @@ def test_append_resume_replays_lattice_before_volume_order_once(tmp_path: Path) 
     assert second.parameters == ()
 
 
+def test_append_resume_after_complete_third_lattice_row_matches_fresh_parse(
+    tmp_path: Path,
+) -> None:
+    complete = (
+        b"NIONS = 1 ions\nIteration 1(1)\nVOLUME and BASIS-vectors are now\n"
+        b"volume of cell : 373.248\n"
+        b"direct lattice vectors reciprocal lattice vectors\n"
+        b"7.2 0 0 0.138889 0 0\n0 7.2 0 0 0.138889 0\n0 0 7.2 0 0 0.138889\n"
+        b"POSITION TOTAL-FORCE\n--------------------\n0 0 0 0.2 0 0\n"
+    )
+    third_row = b"0 0 7.2 0 0 0.138889\n"
+    cut = complete.index(third_row) + len(third_row)
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(complete[:cut])
+
+    first = scan_outcar(path, HOME_BARRIER)
+    assert first.checkpoint.geometry_lattice_consumed is True
+    assert first.checkpoint.last_lattice == (
+        (7.2, 0.0, 0.0),
+        (0.0, 7.2, 0.0),
+        (0.0, 0.0, 7.2),
+    )
+
+    path.write_bytes(complete)
+    resumed = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+    fresh = scan_outcar(path, HOME_BARRIER)
+    assert resumed.steps == fresh.steps[len(first.steps) :]
+
+
 def test_append_resume_replays_pre_lattice_volume_once(tmp_path: Path) -> None:
     truncated = (FIXTURES / "detail-pre-lattice-truncated.OUTCAR").read_bytes()
     complete = (FIXTURES / "detail-pre-lattice-two-step.OUTCAR").read_bytes()

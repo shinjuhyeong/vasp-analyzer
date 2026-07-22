@@ -828,12 +828,12 @@ export class ThreeDmolRenderer implements CrystalRenderer {
         label(viewer.addLabel(axisLabel, { position: xyz(end), fontColor: color,
           backgroundOpacity: 0, fontSize: 13 }));
       }
-    if (this.layers.forces) for (const glyph of comparison.displacements) {
+    for (const glyph of comparison.displacements) {
       if (!glyph.vector || Math.hypot(...glyph.vector) < 1e-12) continue;
       const vector = vec3(glyph.vector.map((value) => value * comparison.displacementScale));
       shape(this.comparisonGroups.displacements, viewer.addArrow({ start: xyz(glyph.origin), end: xyz(add(glyph.origin, vector)), radius: 0.07, color: 0x00bcd4 }));
     }
-    if (this.layers.axes) for (const delta of comparison.cellDeltas)
+    for (const delta of comparison.cellDeltas)
       shape(this.comparisonGroups.cellDeltas, viewer.addArrow({ start: xyz(delta.start), end: xyz(delta.end), radius: 0.08, color: 0xff8c00 }));
   }
 

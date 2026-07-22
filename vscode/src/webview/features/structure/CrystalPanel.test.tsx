@@ -437,4 +437,14 @@ describe("CrystalPanel", () => {
     expect(await screen.findByRole("table", { name: "Atomic positions and forces" })).toBeVisible();
     expect(screen.getByText(/Comparison is missing siteIndex 10/)).toBeVisible();
   });
+
+  it("renders the comparison summary on entry before an atom is selected", () => {
+    const target = twoStepDataset.ionicSteps[0]!;
+    render(<CrystalPanel sites={twoStepDataset.sites}
+      selectedStep={{ ...target, index: -1 }} selectedSite={null} forceMode="free" forceScale={1}
+      initialStructure={{ source: "POSCAR", lattice: target.lattice, fractionalPositions: target.fractionalPositions, cartesianPositions: target.cartesianPositions }}
+      comparisonTarget={target} displacementScale={10} onSelectSite={vi.fn()} rendererFactory={() => new FakeRenderer()} />);
+    expect(screen.getByRole("heading", { name: "Comparison summary" })).toBeVisible();
+    expect(screen.queryByLabelText("Selected atom comparison details")).not.toBeInTheDocument();
+  });
 });
