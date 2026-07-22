@@ -38,6 +38,31 @@ def test_installed_stdio_smoke_requires_step_1_scf_iterations() -> None:
         )
 
 
+def test_installed_stdio_smoke_requires_exact_step_count_and_all_scf_iterations() -> None:
+    validate_stdio_output(
+        '{"id":1,"result":{"schemaVersion":3,"initialStructure":null,'
+        '"ionicSteps":[{"scfIterations":1},{"scfIterations":2}]}}\n',
+        expect_initial_structure=False,
+        expected_steps=2,
+    )
+
+    with pytest.raises(InstalledWheelSmokeError, match="2 ionic steps"):
+        validate_stdio_output(
+            '{"id":1,"result":{"schemaVersion":3,"initialStructure":null,'
+            '"ionicSteps":[{"scfIterations":1}]}}\n',
+            expect_initial_structure=False,
+            expected_steps=2,
+        )
+
+    with pytest.raises(InstalledWheelSmokeError, match="SCF iterations"):
+        validate_stdio_output(
+            '{"id":1,"result":{"schemaVersion":3,"initialStructure":null,'
+            '"ionicSteps":[{"scfIterations":1},{"scfIterations":null}]}}\n',
+            expect_initial_structure=False,
+            expected_steps=2,
+        )
+
+
 def test_installed_stdio_smoke_requires_poscar_initial_structure() -> None:
     validate_stdio_output(
         '{"id":1,"result":{"schemaVersion":3,'
