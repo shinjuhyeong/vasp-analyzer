@@ -34,13 +34,13 @@ export interface StructureComparison {
   readonly summary: ComparisonSummary;
 }
 
-const SINGULAR_EPSILON = 1e-12;
-const SEARCH_RADIUS = 2;
+const RELATIVE_SINGULAR_EPSILON = 1e-12;
 
 const vec = (x: number, y: number, z: number): Vec3 => [x, y, z];
 const subtract = (a: Vec3, b: Vec3): Vec3 => vec(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const normSquared = (value: Vec3): number => value[0] ** 2 + value[1] ** 2 + value[2] ** 2;
 const norm = (value: Vec3): number => Math.sqrt(normSquared(value));
+const canonicalInteger = (value: number): number => value === 0 ? 0 : value;
 
 function determinant(matrix: Mat3): number {
   const [a, b, c] = matrix;
@@ -57,16 +57,6 @@ function fractionalToCartesian(fractional: Vec3, lattice: Mat3): Vec3 {
   );
 }
 
-function cartesianToFractional(cartesian: Vec3, lattice: Mat3): Vec3 {
-  const [a, b, c] = lattice;
-  const det = determinant(lattice);
-  return vec(
-    (cartesian[0] * (b[1] * c[2] - b[2] * c[1]) + cartesian[1] * (b[2] * c[0] - b[0] * c[2]) + cartesian[2] * (b[0] * c[1] - b[1] * c[0])) / det,
-    (cartesian[0] * (c[1] * a[2] - c[2] * a[1]) + cartesian[1] * (c[2] * a[0] - c[0] * a[2]) + cartesian[2] * (c[0] * a[1] - c[1] * a[0])) / det,
-    (cartesian[0] * (a[1] * b[2] - a[2] * b[1]) + cartesian[1] * (a[2] * b[0] - a[0] * b[2]) + cartesian[2] * (a[0] * b[1] - a[1] * b[0])) / det,
-  );
-}
-
 function assertValid(structure: ComparisonStructure, label: string): void {
   for (const row of structure.lattice) {
     for (const value of row) if (!Number.isFinite(value)) throw new Error(`${label} lattice must be finite`);
@@ -74,37 +64,80 @@ function assertValid(structure: ComparisonStructure, label: string): void {
   for (const position of structure.fractionalPositions) {
     for (const value of position) if (!Number.isFinite(value)) throw new Error(`${label} positions must be finite`);
   }
-  if (Math.abs(determinant(structure.lattice)) < SINGULAR_EPSILON) throw new Error(`${label} lattice is singular`);
+  const lengths = structure.lattice.map(norm);
+  if (lengths.some((length) => !Number.isFinite(length) || length === 0)) throw new Error(`${label} lattice is singular or overflows`);
+  const unit: Mat3 = structure.lattice.map((row, index) => vec(row[0] / lengths[index]!, row[1] / lengths[index]!, row[2] / lengths[index]!)) as unknown as Mat3;
+  if (Math.abs(determinant(unit)) < RELATIVE_SINGULAR_EPSILON) throw new Error(`${label} lattice is singular or ill-conditioned`);
 }
 
 function lexicographicallyBefore(a: Vec3, b: Vec3): boolean {
   return a[0] < b[0] || (a[0] === b[0] && (a[1] < b[1] || (a[1] === b[1] && a[2] < b[2])));
 }
 
+function dot(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
 function nearestImage(initialCartesian: Vec3, targetFractional: Vec3, targetLattice: Mat3): { shift: Vec3; cartesian: Vec3 } {
-  const implied = subtract(cartesianToFractional(initialCartesian, targetLattice), targetFractional);
-  const center = vec(Math.round(implied[0]), Math.round(implied[1]), Math.round(implied[2]));
-  let bestShift: Vec3 | undefined;
-  let bestCartesian: Vec3 | undefined;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (let i = -SEARCH_RADIUS; i <= SEARCH_RADIUS; i += 1) {
-    for (let j = -SEARCH_RADIUS; j <= SEARCH_RADIUS; j += 1) {
-      for (let k = -SEARCH_RADIUS; k <= SEARCH_RADIUS; k += 1) {
-        const shift = vec(center[0] + i, center[1] + j, center[2] + k);
-        const cartesian = fractionalToCartesian(vec(
-          targetFractional[0] + shift[0], targetFractional[1] + shift[1], targetFractional[2] + shift[2],
-        ), targetLattice);
-        const distance = normSquared(subtract(cartesian, initialCartesian));
-        const tolerance = Number.EPSILON * 32 * Math.max(1, distance, Number.isFinite(bestDistance) ? bestDistance : 0);
-        if (!bestShift || distance < bestDistance - tolerance || (Math.abs(distance - bestDistance) <= tolerance && lexicographicallyBefore(shift, bestShift))) {
-          bestDistance = distance;
-          bestShift = shift;
-          bestCartesian = cartesian;
-        }
-      }
+  const base = fractionalToCartesian(targetFractional, targetLattice);
+  const wanted = subtract(initialCartesian, base);
+  if (![...base, ...wanted].every(Number.isFinite)) throw new Error("Derived Cartesian coordinates must be finite");
+
+  // QR factorization of the lattice-basis columns. The resulting triangular
+  // closest-vector problem is enumerated exactly inside the Babai sphere.
+  const q: Vec3[] = [];
+  const r = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let column = 0; column < 3; column += 1) {
+    let residual = targetLattice[column]!;
+    for (let row = 0; row < column; row += 1) {
+      r[row]![column] = dot(q[row]!, targetLattice[column]!);
+      residual = subtract(residual, vec(q[row]![0] * r[row]![column]!, q[row]![1] * r[row]![column]!, q[row]![2] * r[row]![column]!));
     }
+    r[column]![column] = norm(residual);
+    if (!Number.isFinite(r[column]![column]) || r[column]![column] === 0) throw new Error("Target lattice is singular or derived QR values are non-finite");
+    q.push(vec(residual[0] / r[column]![column]!, residual[1] / r[column]![column]!, residual[2] / r[column]![column]!));
   }
-  return { shift: bestShift!, cartesian: bestCartesian! };
+  const projected = vec(dot(q[0]!, wanted), dot(q[1]!, wanted), dot(q[2]!, wanted));
+  const current = [0, 0, 0];
+  for (let row = 2; row >= 0; row -= 1) {
+    let known = 0;
+    for (let column = row + 1; column < 3; column += 1) known += r[row]![column]! * current[column]!;
+    current[row] = canonicalInteger(Math.round((projected[row]! - known) / r[row]![row]!));
+    if (!Number.isSafeInteger(current[row])) throw new Error("Periodic image shift overflows the safe integer range");
+  }
+  let bestShift = vec(current[0]!, current[1]!, current[2]!);
+  let bestCartesian = fractionalToCartesian(vec(targetFractional[0] + bestShift[0], targetFractional[1] + bestShift[1], targetFractional[2] + bestShift[2]), targetLattice);
+  let bestDistance = normSquared(subtract(bestCartesian, initialCartesian));
+  if (!Number.isFinite(bestDistance)) throw new Error("Derived nearest-image distance must be finite");
+
+  const enumerate = (row: number, partialDistance: number): void => {
+    if (row < 0) {
+      const candidate = vec(current[0]!, current[1]!, current[2]!);
+      const tolerance = Number.EPSILON * 64 * Math.max(1, bestDistance, partialDistance);
+      if (partialDistance < bestDistance - tolerance || (Math.abs(partialDistance - bestDistance) <= tolerance && lexicographicallyBefore(candidate, bestShift))) {
+        bestShift = candidate;
+        bestDistance = partialDistance;
+      }
+      return;
+    }
+    let known = 0;
+    for (let column = row + 1; column < 3; column += 1) known += r[row]![column]! * current[column]!;
+    const center = (projected[row]! - known) / r[row]![row]!;
+    const radius = Math.sqrt(Math.max(0, bestDistance - partialDistance)) / Math.abs(r[row]![row]!);
+    const lower = Math.ceil(center - radius);
+    const upper = Math.floor(center + radius);
+    if (!Number.isSafeInteger(lower) || !Number.isSafeInteger(upper)) throw new Error("Periodic image enumeration overflows the safe integer range");
+    for (let value = lower; value <= upper; value += 1) {
+      current[row] = canonicalInteger(value);
+      const residual = r[row]![row]! * value + known - projected[row]!;
+      const nextDistance = partialDistance + residual * residual;
+      if (Number.isFinite(nextDistance) && nextDistance <= bestDistance + Number.EPSILON * 64 * Math.max(1, bestDistance)) enumerate(row - 1, nextDistance);
+    }
+  };
+  enumerate(2, 0);
+  bestCartesian = fractionalToCartesian(vec(targetFractional[0] + bestShift[0], targetFractional[1] + bestShift[1], targetFractional[2] + bestShift[2]), targetLattice);
+  if (![...bestCartesian].every(Number.isFinite)) throw new Error("Derived mapped target must be finite");
+  return { shift: bestShift, cartesian: bestCartesian };
 }
 
 function angleDegrees(a: Vec3, b: Vec3): number {
@@ -125,6 +158,7 @@ export function compareStructures(initial: ComparisonStructure, target: Comparis
 
   const rawSites = initial.fractionalPositions.map((fractional, siteIndex) => {
     const initialCartesian = fractionalToCartesian(fractional, initial.lattice);
+    if (![...initialCartesian].every(Number.isFinite)) throw new Error("Derived initial Cartesian coordinates must be finite");
     const mapped = nearestImage(initialCartesian, target.fractionalPositions[siteIndex]!, target.lattice);
     return { siteIndex, imageShift: mapped.shift, initialCartesian, mappedTargetCartesian: mapped.cartesian,
       rawDisplacement: subtract(mapped.cartesian, initialCartesian) };
@@ -140,7 +174,12 @@ export function compareStructures(initial: ComparisonStructure, target: Comparis
   const rankBySite = new Map(ranks.map((site, index) => [site.siteIndex, index + 1]));
   const sites: readonly SiteComparison[] = rawSites.map((site) => {
     const displacement = subtract(site.rawDisplacement, removedDrift);
-    return { ...site, alignedTargetCartesian: subtract(site.mappedTargetCartesian, removedDrift), displacement, rank: rankBySite.get(site.siteIndex)! };
+    const alignedTargetCartesian = vec(
+      site.initialCartesian[0] + displacement[0],
+      site.initialCartesian[1] + displacement[1],
+      site.initialCartesian[2] + displacement[2],
+    );
+    return { ...site, alignedTargetCartesian, displacement, rank: rankBySite.get(site.siteIndex)! };
   });
   const cellDeltas: readonly [Vec3, Vec3, Vec3] = [
     subtract(target.lattice[0], initial.lattice[0]), subtract(target.lattice[1], initial.lattice[1]), subtract(target.lattice[2], initial.lattice[2]),
@@ -159,5 +198,9 @@ export function compareStructures(initial: ComparisonStructure, target: Comparis
     volumeChange,
     relativeVolumeChange: volumeChange / initialVolume,
   };
+  const derived = [removedDrift, ...cellDeltas, ...sites.flatMap((site) => [site.initialCartesian, site.mappedTargetCartesian, site.alignedTargetCartesian, site.rawDisplacement, site.displacement])].flat();
+  if (![...derived, ...Object.values(summary).flatMap((value) => typeof value === "number" ? [value] : [...value])].every(Number.isFinite)) {
+    throw new Error("Comparison arithmetic overflowed to a non-finite result");
+  }
   return { sites, removedDrift, cellDeltas, summary };
 }

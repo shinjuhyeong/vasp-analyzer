@@ -31,6 +31,21 @@ describe("compareStructures", () => {
     expect(tie.sites[0]!.imageShift).toEqual([0, 0, 0]);
   });
 
+  it("finds the exact closest image beyond a fixed neighborhood in an adversarial skew cell", () => {
+    const adversarial: Mat3 = [[1, 0, 0], [100, 0.01, 0], [0, 0, 1]];
+    const result = compareStructures(
+      structure(adversarial, [[0.49, 0.49, 0]]),
+      structure(adversarial, [[0, 0, 0]]),
+    );
+    expect(result.sites[0]!.imageShift).toEqual([49, 0, 0]);
+
+    const changedCell = compareStructures(
+      structure([[101, 0, 0], [0, 0.01, 0], [0, 0, 1]], [[0.49, 0.49, 0]]),
+      structure(adversarial, [[0, 0, 0]]),
+    );
+    expect(changedCell.sites[0]!.imageShift).toEqual([49, 0, 0]);
+  });
+
   it("removes arithmetic-mean drift and makes displayed endpoints equal aligned targets", () => {
     const result = compareStructures(
       structure(cubic, [[0, 0, 0], [0.4, 0, 0], [0.8, 0, 0]]),
@@ -40,9 +55,8 @@ describe("compareStructures", () => {
     expect(result.removedDrift[0]).toBeCloseTo(2 / 3);
     expect(result.sites.reduce((sum, site) => sum + site.displacement[0], 0)).toBeCloseTo(0);
     for (const site of result.sites) {
-      site.initialCartesian.forEach((value, axis) => {
-        expect(value + site.displacement[axis]!).toBeCloseTo(site.alignedTargetCartesian[axis]!);
-      });
+      expect(site.initialCartesian.map((value, axis) => value + site.displacement[axis]!))
+        .toEqual(site.alignedTargetCartesian);
     }
   });
 
@@ -74,5 +88,13 @@ describe("compareStructures", () => {
     expect(() => compareStructures(structure(cubic, []), structure(cubic, [[0, 0, 0]]))).toThrow(/site count/i);
     expect(() => compareStructures(structure(cubic, [[Number.NaN, 0, 0]]), structure(cubic, [[0, 0, 0]]))).toThrow(/finite/i);
     expect(() => compareStructures(structure([[1, 0, 0], [2, 0, 0], [0, 0, 1]], [[0, 0, 0]]), structure(cubic, [[0, 0, 0]]))).toThrow(/singular/i);
+  });
+
+  it("accepts tiny well-conditioned cells and rejects non-finite derived arithmetic", () => {
+    const tiny: Mat3 = [[1e-20, 0, 0], [0, 1e-20, 0], [0, 0, 1e-20]];
+    expect(compareStructures(structure(tiny, [[0, 0, 0]]), structure(tiny, [[0, 0, 0]])).sites).toHaveLength(1);
+
+    const huge: Mat3 = [[1e308, 0, 0], [0, 1e308, 0], [0, 0, 1e308]];
+    expect(() => compareStructures(structure(huge, [[2, 0, 0]]), structure(huge, [[0, 0, 0]]))).toThrow(/finite|overflow/i);
   });
 });
