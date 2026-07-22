@@ -21,6 +21,9 @@ _ANNOTATED_INTEGER = re.compile(
     rb"^(?P<value>[+-]?\d+)[ \t]+(?P<annotation>[A-Za-z][^\r\n]*)$"
 )
 _ANNOTATED_INTEGER_PARAMETERS = frozenset({"kblock", "nblock"})
+_INTEGER_OPTION_LEGEND = re.compile(
+    rb"^(?P<value>[+-]?\d+)[ \t]{2,}(?P<legend>[+-]?\d+=[^\r\n]+)$"
+)
 _UNIT = re.compile(rb"^[A-Za-z][A-Za-z0-9_./^*-]{0,31}$")
 _KNOWN_PARAMETER_UNITS = {
     b"a",
@@ -241,6 +244,9 @@ def _coerce_parameter_value(
     raw: bytes, *, key: str
 ) -> tuple[bool | int | float | str | tuple[float, ...], str | None]:
     text = _decode(raw, context="parameter value").strip()
+    option_legend = _INTEGER_OPTION_LEGEND.fullmatch(raw)
+    if option_legend is not None:
+        return int(option_legend.group("value")), None
     if key in _ANNOTATED_INTEGER_PARAMETERS:
         annotated_integer = _ANNOTATED_INTEGER.fullmatch(raw)
         if annotated_integer is not None:
@@ -303,10 +309,12 @@ def parse_parameter_assignments(
             key in _ANNOTATED_INTEGER_PARAMETERS
             and _ANNOTATED_INTEGER.fullmatch(raw_bytes) is not None
         )
+        option_legend = _INTEGER_OPTION_LEGEND.fullmatch(raw_bytes) is not None
+        recognized_annotation = annotated_integer or option_legend
         if (
             not raw_bytes
-            or b"=" in raw_bytes
-            or (b";" in raw_bytes and not annotated_integer)
+            or (b"=" in raw_bytes and not option_legend)
+            or (b";" in raw_bytes and not recognized_annotation)
         ):
             raise OutcarFormatError("parameter assignment is malformed")
         raw_value = _decode(raw_bytes, context="parameter value").strip()

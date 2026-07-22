@@ -70,3 +70,19 @@ Expected: all tests pass and Ruff reports no errors.
 git add docs/superpowers/specs/2026-07-22-kblock-inline-annotation-design.md docs/superpowers/plans/2026-07-22-kblock-inline-annotation.md tests/unit/parsing/recovery/test_details.py src/vasp_analyzer/parsing/recovery/details.py
 git commit -m "fix: parse annotated KBLOCK parameters"
 ```
+
+### Task 2: Parse Home-Version Integer Option Legends
+
+**Files:**
+- Modify: `src/vasp_analyzer/parsing/recovery/details.py`
+- Test: `tests/unit/parsing/recovery/test_details.py`
+
+**Interfaces:**
+- Consumes: parameter values shaped as `integer + two-or-more spaces + integer=description`.
+- Produces: the leading integer as `ParameterOccurrence.value` while retaining the complete `raw_value`.
+
+- [x] **Step 1: Add exact failing TURBO and IRESTART regression cases**
+- [x] **Step 2: Verify both cases fail with `parameter assignment is malformed`**
+- [x] **Step 3: Add a tag-independent, bounded integer-option-legend grammar**
+- [x] **Step 4: Verify focused parser tests and Ruff**
+- [x] **Step 5: Run the complete Python suite, build and verify a fresh wheel, then publish it**

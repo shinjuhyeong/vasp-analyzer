@@ -255,6 +255,32 @@ def test_parameter_parser_extracts_known_integer_before_inline_annotation() -> N
     assert parsed[1].raw_value == "3000    inner block; outer block"
 
 
+@pytest.mark.parametrize(
+    ("line", "raw_key", "raw_value"),
+    [
+        (
+            b"   TURBO    =      0    0=normal 1=particle mesh\n",
+            "TURBO",
+            "0    0=normal 1=particle mesh",
+        ),
+        (
+            b"   IRESTART =      0    0=no restart 2=restart with 2 vectors\n",
+            "IRESTART",
+            "0    0=no restart 2=restart with 2 vectors",
+        ),
+    ],
+)
+def test_parameter_parser_extracts_integer_before_inline_option_legend(
+    line: bytes, raw_key: str, raw_value: str
+) -> None:
+    parsed = parse_parameter_assignments(line)
+
+    assert len(parsed) == 1
+    assert parsed[0].raw_key == raw_key
+    assert parsed[0].value == 0
+    assert parsed[0].raw_value == raw_value
+
+
 def test_known_parameter_assignments_receive_canonical_interpretation_metadata() -> None:
     parsed = parse_parameter_assignments(
         b" ENCUT = 520; EDIFF = 1E-6; ISPIN = 2; NCORE = 4; LWAVE = F\n"
