@@ -9,3 +9,10 @@ def test_sdist_declares_ignored_webview_as_build_artifact() -> None:
     sdist = configuration["tool"]["hatch"]["build"]["targets"]["sdist"]
 
     assert "/vscode/dist/webview" in sdist["artifacts"]
+
+
+def test_outcar_fixtures_keep_lf_bytes_on_windows_checkouts() -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    attributes = (project_root / ".gitattributes").read_text(encoding="utf8")
+
+    assert "tests/fixtures/outcar/** text eol=lf" in attributes.splitlines()
