@@ -910,6 +910,7 @@ def scan_outcar(
                 next_detail_start is None
                 or geometry_section_open
                 and geometry_lattice_consumed
+                and next_details_are_only_volume()
             )
             and stress_target is None
         )

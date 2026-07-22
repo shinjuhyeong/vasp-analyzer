@@ -273,7 +273,11 @@ def test_append_resume_after_complete_third_lattice_row_matches_fresh_parse(
     tmp_path: Path,
 ) -> None:
     complete = (
-        b"NIONS = 1 ions\nIteration 1(1)\nVOLUME and BASIS-vectors are now\n"
+        b"NIONS = 1 ions\nIteration 1(1)\nIteration 1(9)\n"
+        b"FORCE on cell =-STRESS in cart. coord. units (eV):\n"
+        b"in kB 1 2 3 0.1 0.2 0.3\n"
+        b"external pressure = -6.4 kB Pullay stress = 0.7 kB\n"
+        b"VOLUME and BASIS-vectors are now\n"
         b"volume of cell : 373.248\n"
         b"direct lattice vectors reciprocal lattice vectors\n"
         b"7.2 0 0 0.138889 0 0\n0 7.2 0 0 0.138889 0\n0 0 7.2 0 0 0.138889\n"
@@ -285,17 +289,43 @@ def test_append_resume_after_complete_third_lattice_row_matches_fresh_parse(
     path.write_bytes(complete[:cut])
 
     first = scan_outcar(path, HOME_BARRIER)
-    assert first.checkpoint.geometry_lattice_consumed is True
-    assert first.checkpoint.last_lattice == (
-        (7.2, 0.0, 0.0),
-        (0.0, 7.2, 0.0),
-        (0.0, 0.0, 7.2),
-    )
+    assert first.checkpoint.last_verified_offset == 0
 
     path.write_bytes(complete)
     resumed = scan_outcar(path, HOME_BARRIER, first.checkpoint)
     fresh = scan_outcar(path, HOME_BARRIER)
     assert resumed.steps == fresh.steps[len(first.steps) :]
+    assert resumed.steps[0].stress_tensor_kb == fresh.steps[0].stress_tensor_kb
+    assert resumed.steps[0].external_pressure_kb == pytest.approx(-6.4)
+    assert resumed.steps[0].pulay_stress_kb == pytest.approx(0.7)
+    assert resumed.steps[0].cell_volume == pytest.approx(373.248)
+    assert resumed.steps[0].lattice == (
+        (7.2, 0.0, 0.0),
+        (0.0, 7.2, 0.0),
+        (0.0, 0.0, 7.2),
+    )
+    assert resumed.steps[0].scf_iterations == 9
+
+
+def test_complete_lattice_rewind_after_completed_step_preserves_details(
+    tmp_path: Path,
+) -> None:
+    complete = (FIXTURES / "iteration-volume-basis-two-step.OUTCAR").read_bytes()
+    third_row = b"0 0 7.2 0 0 0.138889\n"
+    cut = complete.rindex(third_row) + len(third_row)
+    path = tmp_path / "OUTCAR"
+    path.write_bytes(complete[:cut])
+
+    first = scan_outcar(path, HOME_BARRIER)
+    assert [step.step_id for step in first.steps] == [0]
+    assert first.checkpoint.replay_provisional is True
+
+    path.write_bytes(complete)
+    resumed = scan_outcar(path, HOME_BARRIER, first.checkpoint)
+    fresh = scan_outcar(path, HOME_BARRIER)
+    assert resumed.resumed_from == first.checkpoint.last_verified_offset
+    assert resumed.resumed_from > 0
+    assert resumed.steps == fresh.steps[1:]
 
 
 def test_append_resume_replays_pre_lattice_volume_once(tmp_path: Path) -> None:

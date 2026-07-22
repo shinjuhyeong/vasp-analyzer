@@ -57,3 +57,25 @@ Exact combined automated test total: **767 passed, 4 skipped, 1 warning**.
 - Four Python tests were skipped as expected: three require `VASP_ANALYZER_CORPUS_DIR`, and one requires symlink support.
 - The single warning is an external Starlette/httpx deprecation warning from `fastapi.testclient`.
 - Git reports the repository's normal LF-to-CRLF checkout warning on Windows; `git diff --check` is clean.
+
+## Parser Re-review: Complete-Lattice Boundary With Scientific Details
+
+### RED
+
+The exact third-lattice-row regression was extended to the approved full sequence: ionic/electronic iteration counters, stress tensor, external and Pulay pressure, geometry banner, cell volume, and three complete lattice rows, followed later by the force block. At the cut, the prior EOF optimization advanced the checkpoint while persisting only lattice/volume/geometry flags. The resumed `StepRecord` therefore had `stress_tensor_kb=None`, `external_pressure_kb=None`, and `pulay_stress_kb=None`, while the fresh parse retained all three.
+
+A second regression cuts the second geometry lattice after one completed ionic record to verify that safe replay starts at the prior verified record boundary and yields exactly `fresh.steps[1:]`.
+
+### GREEN
+
+The no-replay active-iteration boundary is now allowed after a consumed geometry lattice only when `next_details_are_only_volume()` is true. Scientific-detail bundles containing stress or pressure rewind to the existing verified boundary, matching the checkpoint schema instead of silently dropping unpersisted fields. The volume-only exact-cut path remains resumable and continues to restore its representable volume/lattice state.
+
+### Results
+
+- Focused append/resume selection: `8 passed, 81 deselected`.
+- Full recovery scanner/checkpoint suite: `89 passed`.
+- Full Python suite: `436 passed, 4 skipped, 1 warning in 6.95s`.
+- Ruff: `All checks passed!`.
+- `git diff --check`: exit 0.
+
+The skips and warning are unchanged from the prior verification: corpus/symlink environment skips and the external Starlette/httpx deprecation warning.
