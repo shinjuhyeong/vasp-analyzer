@@ -146,9 +146,15 @@ export interface ConvergencePreferences {
   readonly modes: Readonly<Record<AnalysisModuleId, ModuleMode>>;
 }
 
+export type FrameSelection =
+  | Readonly<{ kind: "initial" }>
+  | Readonly<{ kind: "ionic"; index: number }>;
+
 export interface PersistedAnalysisState {
-  readonly version: 3;
-  readonly selectedStep: number;
+  readonly version: 4;
+  readonly selectedFrame: FrameSelection;
+  readonly comparisonTarget: number;
+  readonly displacementScale: number;
   readonly selectedSite: number | null;
   readonly forceMode: "free" | "raw";
   readonly forceScale: number;

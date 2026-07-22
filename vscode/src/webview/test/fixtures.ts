@@ -63,8 +63,10 @@ export class MemoryHost implements AnalysisHost {
       : "version" in state
         ? state
         : {
-            version: 3,
-            selectedStep: state.selectedStep,
+            version: 4,
+            selectedFrame: { kind: "ionic", index: state.selectedStep },
+            comparisonTarget: 0,
+            displacementScale: 10,
             selectedSite: state.selectedSite,
             forceMode: "free",
             forceScale: 10,

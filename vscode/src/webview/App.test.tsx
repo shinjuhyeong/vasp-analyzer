@@ -193,7 +193,8 @@ describe("analysis workspace", () => {
     expect(screen.getByTestId("structure-step")).toHaveTextContent("1");
     expect(screen.getByText("O 2")).toBeVisible();
     await waitFor(() => expect(host.state).toEqual({
-      version: 3, selectedStep: 1, selectedSite: 1, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+      version: 4, selectedFrame: { kind: "ionic", index: 1 }, comparisonTarget: 0, displacementScale: 10,
+      selectedSite: 1, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
       convergence: DEFAULT_CONVERGENCE,
     }));
   });
@@ -204,7 +205,8 @@ describe("analysis workspace", () => {
 
     expect(await screen.findByText("No atom selected")).toBeVisible();
     await waitFor(() => expect(host.state).toEqual({
-      version: 3, selectedStep: 0, selectedSite: null, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+      version: 4, selectedFrame: { kind: "ionic", index: 0 }, comparisonTarget: 0, displacementScale: 10,
+      selectedSite: null, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
       convergence: DEFAULT_CONVERGENCE,
     }));
   });
@@ -221,7 +223,8 @@ describe("analysis workspace", () => {
     await user.click(screen.getByRole("button", { name: "select O" }));
 
     expect(host.state).toEqual({
-      version: 3, selectedStep: 1, selectedSite: 1, forceMode: "free", forceScale: 10,
+      version: 4, selectedFrame: { kind: "ionic", index: 1 }, comparisonTarget: 0, displacementScale: 10,
+      selectedSite: 1, forceMode: "free", forceScale: 10,
       layout: { ...DEFAULT_LAYOUT, inspectorCollapsed: false },
       convergence: DEFAULT_CONVERGENCE,
     });
@@ -268,8 +271,10 @@ describe("analysis workspace", () => {
 
     await waitFor(() =>
       expect(host.state).toMatchObject({
-        version: 3,
-        selectedStep: 1,
+        version: 4,
+        selectedFrame: { kind: "ionic", index: 1 },
+        comparisonTarget: 0,
+        displacementScale: 10,
         selectedSite: null,
         forceMode: "free",
         forceScale: 250,
@@ -398,8 +403,10 @@ describe("analysis workspace", () => {
 
   it("keeps compact controls in structure full-screen and restores layout on Escape", async () => {
     const host = new MemoryHost(twoStepDataset, {
-      version: 3,
-      selectedStep: 0,
+      version: 4,
+      selectedFrame: { kind: "ionic", index: 0 },
+      comparisonTarget: 0,
+      displacementScale: 10,
       selectedSite: 1,
       forceMode: "free",
       forceScale: 10,
@@ -445,7 +452,8 @@ describe("analysis workspace", () => {
     expect(await screen.findByText("O 2")).toBeVisible();
     expect(screen.getByLabelText("Ionic step number")).toHaveValue(1);
     await waitFor(() => expect(hostB.setStateCalls).toEqual([{
-      version: 3, selectedStep: 0, selectedSite: 1, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
+      version: 4, selectedFrame: { kind: "ionic", index: 0 }, comparisonTarget: 0, displacementScale: 10,
+      selectedSite: 1, forceMode: "free", forceScale: 10, layout: DEFAULT_LAYOUT,
       convergence: DEFAULT_CONVERGENCE,
     }]));
   });

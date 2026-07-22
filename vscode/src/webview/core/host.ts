@@ -320,8 +320,18 @@ function protocolError(value: unknown): ProtocolErrorShape | undefined {
 function persistedState(value: unknown): PersistedAnalysisState | undefined {
   if (!isRecord(value)) return undefined;
   const state = value;
-  if (state.version !== undefined && state.version !== 2 && state.version !== 3) return undefined;
-  if (!Number.isSafeInteger(state.selectedStep) || Number(state.selectedStep) < 0) return undefined;
+  if (state.version !== undefined && state.version !== 2 && state.version !== 3 && state.version !== 4) return undefined;
+  const frame = isRecord(state.selectedFrame) ? state.selectedFrame : undefined;
+  const selectedFrame = state.version === 4
+    ? frame?.kind === "initial"
+      ? { kind: "initial" as const }
+      : frame?.kind === "ionic" && Number.isSafeInteger(frame.index) && Number(frame.index) >= 0
+        ? { kind: "ionic" as const, index: Number(frame.index) }
+        : undefined
+    : Number.isSafeInteger(state.selectedStep) && Number(state.selectedStep) >= 0
+      ? { kind: "ionic" as const, index: Number(state.selectedStep) }
+      : undefined;
+  if (!selectedFrame) return undefined;
   if (state.selectedSite !== null && (!Number.isSafeInteger(state.selectedSite) || Number(state.selectedSite) < 0)) {
     return undefined;
   }
@@ -329,13 +339,17 @@ function persistedState(value: unknown): PersistedAnalysisState | undefined {
     ? Math.min(MAX_FORCE_SCALE, Math.max(MIN_FORCE_SCALE, state.forceScale))
     : 10;
   return {
-    version: 3,
-    selectedStep: Number(state.selectedStep),
+    version: 4,
+    selectedFrame,
+    comparisonTarget: Number.isSafeInteger(state.comparisonTarget) && Number(state.comparisonTarget) >= 0
+      ? Number(state.comparisonTarget) : 0,
+    displacementScale: isFiniteNumber(state.displacementScale)
+      ? Math.min(1000, Math.max(1, state.displacementScale)) : 10,
     selectedSite: state.selectedSite === null ? null : Number(state.selectedSite),
     forceMode: state.forceMode === "raw" ? "raw" : "free",
     forceScale,
     layout: normalizeLayout(isRecord(state.layout) ? state.layout as Partial<LayoutPreferences> : DEFAULT_LAYOUT),
-    convergence: state.version === 3 ? normalizeConvergence(state.convergence) : DEFAULT_CONVERGENCE,
+    convergence: state.version === 3 || state.version === 4 ? normalizeConvergence(state.convergence) : DEFAULT_CONVERGENCE,
   };
 }
 

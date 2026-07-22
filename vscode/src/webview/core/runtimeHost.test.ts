@@ -12,8 +12,10 @@ const migratedState = (
   selectedStep: number,
   selectedSite: number | null,
 ): PersistedAnalysisState => ({
-  version: 3,
-  selectedStep,
+  version: 4,
+  selectedFrame: { kind: "ionic", index: selectedStep },
+  comparisonTarget: 0,
+  displacementScale: 10,
   selectedSite,
   forceMode: "free",
   forceScale: 10,

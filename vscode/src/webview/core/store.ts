@@ -3,6 +3,7 @@ import type {
   AnalysisModuleId,
   CalculationDataset,
   ConvergencePreferences,
+  FrameSelection,
   LayoutPreferences,
   ModuleMode,
   PersistedAnalysisState,
@@ -42,7 +43,12 @@ export const DEFAULT_CONVERGENCE: ConvergencePreferences = Object.freeze({
 
 export interface AnalysisState {
   readonly dataset: CalculationDataset | null;
+  readonly selectedFrame: FrameSelection;
+  /** Compatibility projection for the ionic-only UI until frame controls are wired. */
   readonly selectedStep: number;
+  readonly comparisonTarget: number;
+  readonly compareEnabled: boolean;
+  readonly displacementScale: number;
   readonly selectedSite: number | null;
   readonly forceMode: "free" | "raw";
   readonly forceScale: number;
@@ -52,7 +58,11 @@ export interface AnalysisState {
 
 export type AnalysisAction =
   | { readonly type: "datasetLoaded"; readonly dataset: CalculationDataset; readonly persisted?: PersistedAnalysisState }
+  | { readonly type: "selectFrame"; readonly frame: FrameSelection }
   | { readonly type: "selectStep"; readonly step: number }
+  | { readonly type: "setCompareEnabled"; readonly enabled: boolean }
+  | { readonly type: "setComparisonTarget"; readonly target: number }
+  | { readonly type: "setDisplacementScale"; readonly scale: number }
   | { readonly type: "selectSite"; readonly site: number | null }
   | { readonly type: "setForceMode"; readonly mode: "free" | "raw" }
   | { readonly type: "setForceScale"; readonly scale: number }
@@ -64,7 +74,11 @@ export type AnalysisAction =
 
 export const initialAnalysisState: AnalysisState = {
   dataset: null,
+  selectedFrame: { kind: "ionic", index: 0 },
   selectedStep: 0,
+  comparisonTarget: 0,
+  compareEnabled: false,
+  displacementScale: 10,
   selectedSite: null,
   forceMode: "free",
   forceScale: 10,
@@ -86,6 +100,19 @@ function normalizeForceScale(value: number | undefined, fallback = 10): number {
     MIN_FORCE_SCALE,
     MAX_FORCE_SCALE,
   );
+}
+
+function normalizeScale(value: number | undefined, fallback = 10): number {
+  return clamp(finiteOr(value, finiteOr(fallback, 10)), 1, 1000);
+}
+
+function normalizeIonicIndex(dataset: CalculationDataset, value: number): number {
+  return clamp(Number.isSafeInteger(value) ? value : 0, 0, Math.max(0, dataset.ionicSteps.length - 1));
+}
+
+function normalizeFrame(dataset: CalculationDataset, frame: FrameSelection): FrameSelection {
+  if (frame.kind === "initial" && dataset.initialStructure !== null) return { kind: "initial" };
+  return { kind: "ionic", index: normalizeIonicIndex(dataset, frame.kind === "ionic" ? frame.index : 0) };
 }
 
 export function normalizeLayout(
@@ -160,38 +187,63 @@ function isAnalysisModule(module: unknown): module is AnalysisModuleId {
   return ANALYSIS_MODULES.some((candidate) => candidate === module);
 }
 
-function validSite(dataset: CalculationDataset, selectedStep: number, siteIndex: number | null): number | null {
+function validSite(dataset: CalculationDataset, selectedFrame: FrameSelection, siteIndex: number | null): number | null {
   if (siteIndex === null) return null;
   const site = dataset.sites.find((candidate) => candidate.siteIndex === siteIndex);
-  const step = dataset.ionicSteps[selectedStep];
-  return site && step && step.cartesianPositions.length === dataset.sites.length ? siteIndex : null;
+  const positions = selectedFrame.kind === "initial"
+    ? dataset.initialStructure?.cartesianPositions
+    : dataset.ionicSteps[selectedFrame.index]?.cartesianPositions;
+  return site && positions?.length === dataset.sites.length ? siteIndex : null;
 }
 
 export function analysisReducer(state: AnalysisState, action: AnalysisAction): AnalysisState {
   switch (action.type) {
     case "datasetLoaded": {
-      const step = clamp(action.persisted?.selectedStep ?? state.selectedStep, 0, Math.max(0, action.dataset.ionicSteps.length - 1));
+      const selectedFrame = normalizeFrame(action.dataset, action.persisted?.selectedFrame ?? state.selectedFrame);
+      const selectedStep = selectedFrame.kind === "ionic" ? selectedFrame.index : state.selectedStep;
       return {
         ...state,
         dataset: action.dataset,
-        selectedStep: step,
-        selectedSite: validSite(action.dataset, step, action.persisted?.selectedSite ?? state.selectedSite),
+        selectedFrame,
+        selectedStep,
+        comparisonTarget: normalizeIonicIndex(action.dataset, action.persisted?.comparisonTarget ?? state.comparisonTarget),
+        compareEnabled: selectedFrame.kind === "initial" ? state.compareEnabled : false,
+        displacementScale: normalizeScale(action.persisted?.displacementScale, state.displacementScale),
+        selectedSite: validSite(action.dataset, selectedFrame, action.persisted?.selectedSite ?? state.selectedSite),
         forceMode: action.persisted?.forceMode ?? state.forceMode,
         forceScale: normalizeForceScale(action.persisted?.forceScale, state.forceScale),
         layout: action.persisted ? normalizeLayout(action.persisted.layout) : state.layout,
         convergence: action.persisted ? normalizeConvergence(action.persisted.convergence) : state.convergence,
       };
     }
+    case "selectFrame": {
+      const selectedFrame = state.dataset ? normalizeFrame(state.dataset, action.frame) : action.frame;
+      const selectedStep = selectedFrame.kind === "ionic" ? selectedFrame.index : state.selectedStep;
+      return { ...state, selectedFrame, selectedStep,
+        compareEnabled: selectedFrame.kind === "initial" ? state.compareEnabled : false,
+        selectedSite: state.dataset ? validSite(state.dataset, selectedFrame, state.selectedSite) : null };
+    }
     case "selectStep": {
       const selectedStep = clamp(action.step, 0, Math.max(0, (state.dataset?.ionicSteps.length ?? 1) - 1));
+      const selectedFrame = { kind: "ionic", index: selectedStep } as const;
       return {
         ...state,
+        selectedFrame,
         selectedStep,
-        selectedSite: state.dataset ? validSite(state.dataset, selectedStep, state.selectedSite) : null,
+        compareEnabled: false,
+        selectedSite: state.dataset ? validSite(state.dataset, selectedFrame, state.selectedSite) : null,
       };
     }
+    case "setCompareEnabled":
+      return { ...state, compareEnabled: state.selectedFrame.kind === "initial" && action.enabled };
+    case "setComparisonTarget":
+      return { ...state, comparisonTarget: state.dataset
+        ? normalizeIonicIndex(state.dataset, action.target)
+        : Math.max(0, Number.isSafeInteger(action.target) ? action.target : state.comparisonTarget) };
+    case "setDisplacementScale":
+      return { ...state, displacementScale: normalizeScale(action.scale, state.displacementScale) };
     case "selectSite":
-      return { ...state, selectedSite: state.dataset ? validSite(state.dataset, state.selectedStep, action.site) : null };
+      return { ...state, selectedSite: state.dataset ? validSite(state.dataset, state.selectedFrame, action.site) : null };
     case "setForceMode":
       return { ...state, forceMode: action.mode };
     case "setForceScale":

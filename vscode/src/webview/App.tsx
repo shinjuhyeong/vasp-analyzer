@@ -135,8 +135,10 @@ export function App({
   useEffect(() => {
     if (!state.dataset || load.host !== host || load.error !== null) return;
     host.setState({
-      version: 3,
-      selectedStep: state.selectedStep,
+      version: 4,
+      selectedFrame: state.selectedFrame,
+      comparisonTarget: state.comparisonTarget,
+      displacementScale: state.displacementScale,
       selectedSite: state.selectedSite,
       forceMode: state.forceMode,
       forceScale: state.forceScale,

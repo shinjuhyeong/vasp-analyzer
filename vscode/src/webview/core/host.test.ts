@@ -61,8 +61,10 @@ describe("analysis hosts", () => {
     const host = createHost({ selectedStep: 1, selectedSite: 0 });
 
     expect(host.getState()).toEqual({
-      version: 3,
-      selectedStep: 1,
+      version: 4,
+      selectedFrame: { kind: "ionic", index: 1 },
+      comparisonTarget: 0,
+      displacementScale: 10,
       selectedSite: 0,
       forceMode: "free",
       forceScale: 10,
@@ -101,8 +103,10 @@ describe("analysis hosts", () => {
     }, window);
 
     expect(host.getState()).toEqual({
-      version: 3,
-      selectedStep: 1,
+      version: 4,
+      selectedFrame: { kind: "ionic", index: 1 },
+      comparisonTarget: 0,
+      displacementScale: 10,
       selectedSite: 0,
       forceMode: "raw",
       forceScale: 250,
@@ -133,12 +137,14 @@ describe("analysis hosts", () => {
     host.dispose();
   });
 
-  it("rejects persisted state from an unsupported schema version", () => {
+  it("accepts and normalizes version-4 frame state", () => {
     const host = new VsCodeHost({
       postMessage: vi.fn(),
       getState: () => ({
         version: 4,
-        selectedStep: 1,
+        selectedFrame: { kind: "initial" },
+        comparisonTarget: 9,
+        displacementScale: 2000,
         selectedSite: 0,
         forceMode: "raw",
         forceScale: 250,
@@ -154,7 +160,7 @@ describe("analysis hosts", () => {
       setState: vi.fn(),
     }, window);
 
-    expect(host.getState()).toBeUndefined();
+    expect(host.getState()).toMatchObject({ version: 4, selectedFrame: { kind: "initial" }, comparisonTarget: 9, displacementScale: 1000 });
     host.dispose();
   });
 
