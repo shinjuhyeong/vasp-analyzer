@@ -183,6 +183,45 @@ def test_malformed_metadata_is_isolated_with_warning(
     ]
 
 
+def test_missing_pressure_detail_does_not_shift_pulay_to_wrong_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = _calculation(tmp_path / "calc")
+    _write_outcar(
+        root / "OUTCAR",
+        b"external pressure = -4.0 kB Pullay stress = 0.4 kB\n",
+    )
+    def two_steps(_path, sites, provenance):
+        one = _trajectory(sites, provenance)
+        return one.model_copy(
+            update={
+                "step_indices": (0, 1),
+                "energies": (-10.0, -11.0),
+                "energy_components": one.energy_components * 2,
+                "positions": one.positions * 2,
+                "fractional_positions": one.fractional_positions * 2,
+                "forces": one.forces * 2,
+                "cells": one.cells * 2,
+                "stresses": one.stresses * 2,
+                "pressures": one.pressures * 2,
+                "scf_energies": one.scf_energies * 2,
+            }
+        )
+
+    monkeypatch.setattr(
+        dataset_module,
+        "parse_vaspparser_outcar",
+        two_steps,
+    )
+
+    dataset = load_dataset(root)
+
+    assert [step.pulay_stress_kb for step in dataset.ionic_steps] == [None, None]
+    assert len(dataset.warnings) == 1
+    assert dataset.warnings[0].category == "MetadataParseFailure"
+    assert "1 pressure records for 2 ionic steps" in dataset.warnings[0].message
+
+
 def test_outcar_only_sites_take_first_parsed_frame(tmp_path: Path) -> None:
     dataset = load_dataset(_calculation(tmp_path / "calc"))
 

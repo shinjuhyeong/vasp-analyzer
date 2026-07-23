@@ -16,7 +16,10 @@
   bounded metadata reader. It streams OUTCAR once, delegates only individual
   recognized lines to the existing pure parameter/pressure parsers, preserves
   repeated and unknown occurrences in physical line order, and isolates malformed
-  metadata as typed warnings. VaspParser remains the sole trajectory parser.
+  metadata as typed warnings. Pulay values are attached positionally only when
+  the pressure-record count exactly equals the ionic-step count; otherwise every
+  Pulay value remains unavailable and one bounded mismatch warning is emitted.
+  VaspParser remains the sole trajectory parser.
 - Added parser/normalizer definition/hash/change-count/manifest provenance and
   advanced dataset/cache schemas.
 - Cache identity includes the normalizer definition hash and rejects legacy
@@ -50,7 +53,7 @@
 ## Verification
 
 - Relevant calculation/normalizer/adapters/models plus the migrated authoritative
-  dataset integration suite: `216 passed, 3 skipped` (Windows capability skips).
+  dataset integration suite: `217 passed, 3 skipped` (Windows capability skips).
 - Ruff: all checks passed.
 - `git diff --check`: clean.
 - No scanner/ASE/checkpoint references under `src/vasp_analyzer/calculation`.
@@ -66,7 +69,7 @@
 ## Python Gate and Deferred Transport Migration
 
 The Task 5-owned unit and dataset/session integration gate is green. A complete
-Python run reports `599 passed, 6 skipped, 9 failed`; all nine remaining failures
+Python run reports `600 passed, 6 skipped, 9 failed`; all nine remaining failures
 are transport/CLI/web surfaces that still require wire schema 3 and/or synthetic
 `NIONS = 2 ions` fixtures rejected by VaspParser 0.0.7. Their schema and fixture
 migration belongs to planned Task 7. The obsolete scanner-specific dataset

@@ -19,6 +19,7 @@ from vasp_analyzer.core import (
     InitialStructure,
     IonicStep,
     ParserProvenance,
+    ParserWarning,
     SelectiveMask,
     Site,
     SourceFile,
@@ -267,6 +268,21 @@ def _assemble(
             )
             for index, site in enumerate(sites)
         )
+    pressure_count_matches = len(metadata.pressure_details) == len(
+        trajectory.step_indices
+    )
+    metadata_warnings = metadata.warnings
+    if not pressure_count_matches:
+        metadata_warnings += (
+            ParserWarning(
+                category="MetadataParseFailure",
+                message=(
+                    f"OUTCAR metadata has {len(metadata.pressure_details)} pressure "
+                    f"records for {len(trajectory.step_indices)} ionic steps; "
+                    "Pulay stress was left unavailable"
+                ),
+            ),
+        )
     masks = tuple(site.selective_dynamics for site in sites)
     steps: list[IonicStep] = []
     for index in trajectory.step_indices:
@@ -297,7 +313,7 @@ def _assemble(
         cell_volume = abs(float(np.linalg.det(trajectory.cells[index])))
         pulay_stress = (
             metadata.pressure_details[index][1]
-            if index < len(metadata.pressure_details)
+            if pressure_count_matches
             else None
         )
         steps.append(
@@ -360,7 +376,7 @@ def _assemble(
         ionic_steps=ionic_steps,
         parameters=metadata.parameters,
         capabilities=_capabilities(),
-        warnings=metadata.warnings,
+        warnings=metadata_warnings,
         provenance=provenance,
     )
     return dataset, dialect, match, source_after
