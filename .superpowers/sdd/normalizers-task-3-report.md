@@ -183,3 +183,17 @@ mutation audit and cleanup failures.
 
 The two skips remain the previously documented Windows capability limitations;
 they are unrelated to these final findings.
+
+### Final NIONS Conversion Boundary
+
+A 5,000-digit canonical `NIONS` regression first reproduced Python's raw
+integer-string conversion `ValueError`. The transformer now compares digit count
+and, for equal widths, lexicographic value against the canonical
+`MAX_ATOM_COUNT` string before integer conversion. Consequently, conversion only
+receives a short already-bounded value, and oversized metadata raises a mapped
+`OutcarNormalizationError` at the original line.
+
+- RED: 1 failed with raw conversion `ValueError`.
+- Current focused: 47 passed, 2 documented platform skips.
+- Current all normalizers: 99 passed, 2 skips.
+- Ruff and diff checks: clean.

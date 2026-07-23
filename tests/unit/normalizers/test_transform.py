@@ -573,6 +573,22 @@ def test_atom_count_has_a_practical_security_bound(tmp_path: Path) -> None:
         normalize_outcar(source, _home_match())
 
 
+def test_very_long_nions_digits_are_mapped_before_integer_conversion(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_text(
+        "vasp.5.4.1-barrier\n"
+        f"NIONS = {'9' * 5000} ions\n"
+        "POSITION TOTAL-FORCE\n----------\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        OutcarNormalizationError, match=r"atom count.*line 2"
+    ):
+        normalize_outcar(source, _home_match())
+
+
 def test_staged_block_bytes_are_bounded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

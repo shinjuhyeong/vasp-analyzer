@@ -318,12 +318,20 @@ def _transform(
                     raise OutcarNormalizationError(
                         f"repeated NIONS before block at line {line_number}"
                     )
-                atom_count = int(matched_nions.group(1))
-                if atom_count > MAX_ATOM_COUNT:
+                atom_count_digits = matched_nions.group(1)
+                maximum_digits = str(MAX_ATOM_COUNT)
+                if (
+                    len(atom_count_digits) > len(maximum_digits)
+                    or (
+                        len(atom_count_digits) == len(maximum_digits)
+                        and atom_count_digits > maximum_digits
+                    )
+                ):
                     raise OutcarNormalizationError(
                         f"atom count exceeds security bound {MAX_ATOM_COUNT} "
                         f"at line {line_number}"
                     )
+                atom_count = int(atom_count_digits)
 
             rule = next(
                 (
