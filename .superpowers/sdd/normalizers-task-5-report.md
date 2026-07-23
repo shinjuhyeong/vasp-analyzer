@@ -12,6 +12,11 @@
   CONTCAR provides immutable site order and selective-dynamics masks.
 - Maps all eleven VaspParser free-energy components from the final electronic
   iteration into named analyzer energy terms.
+- Restores the public parameter and Pulay-stress contracts through a separate
+  bounded metadata reader. It streams OUTCAR once, delegates only individual
+  recognized lines to the existing pure parameter/pressure parsers, preserves
+  repeated and unknown occurrences in physical line order, and isolates malformed
+  metadata as typed warnings. VaspParser remains the sole trajectory parser.
 - Added parser/normalizer definition/hash/change-count/manifest provenance and
   advanced dataset/cache schemas.
 - Cache identity includes the normalizer definition hash and rejects legacy
@@ -45,24 +50,28 @@
 ## Verification
 
 - Relevant calculation/normalizer/adapters/models plus the migrated authoritative
-  dataset integration suite: `213 passed, 3 skipped` (Windows capability skips).
+  dataset integration suite: `216 passed, 3 skipped` (Windows capability skips).
 - Ruff: all checks passed.
 - `git diff --check`: clean.
 - No scanner/ASE/checkpoint references under `src/vasp_analyzer/calculation`.
 - Real official OUTCAR: `200 steps`, `6 atoms`, `vaspparser`, `standard`,
-  `0 changed lines`, first pressure `-5.99 kB`, first volume `280.63 Å³`.
+  `0 changed lines`, `137 parameters`, first pressure `-5.99 kB`, first Pulay
+  stress `0.0 kB`, first volume `280.63 Å³`.
 - Real home OUTCAR: `35 steps`, `25 atoms`, `vaspparser`, `home-barrier`,
-  `875 changed lines`, first pressure `-14.70 kB`, first volume `356.75 Å³`.
+  `875 changed lines`, `106 parameters`, first pressure `-14.70 kB`, first
+  Pulay stress `0.0 kB`, first volume `356.75 Å³`.
 - Source files were copied to temporary acceptance directories; originals were
   not modified.
 
 ## Python Gate and Deferred Transport Migration
 
 The Task 5-owned unit and dataset/session integration gate is green. A complete
-Python run reports `596 passed, 6 skipped, 9 failed`; all nine remaining failures
+Python run reports `599 passed, 6 skipped, 9 failed`; all nine remaining failures
 are transport/CLI/web surfaces that still require wire schema 3 and/or synthetic
 `NIONS = 2 ions` fixtures rejected by VaspParser 0.0.7. Their schema and fixture
 migration belongs to planned Task 7. The obsolete scanner-specific dataset
 integration assertions were replaced by equivalent authoritative-pipeline
 coverage for discovery, reconciliation, constraints, pressure/volume, cache
-identity/reuse, growing-file retention/recovery, and optional-file exclusion.
+identity/reuse, ordered effective/repeated/unknown parameters, append/replay
+deduplication, Pulay stress, malformed-metadata isolation, growing-file
+retention/recovery, and optional-file exclusion.

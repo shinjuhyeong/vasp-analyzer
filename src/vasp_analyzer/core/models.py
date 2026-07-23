@@ -53,6 +53,7 @@ class ParserWarning(FrozenModel):
         "IncompleteTail",
         "IgnoredCompatibilityMetadata",
         "GrowingFileParseFailure",
+        "MetadataParseFailure",
     ]
     message: str
     byte_offset: int | None = None

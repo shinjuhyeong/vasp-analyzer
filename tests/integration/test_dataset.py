@@ -110,6 +110,79 @@ def test_dataset_preserves_selective_dynamics_energy_pressure_and_volume(
     assert step.scf_iterations == 2
 
 
+def test_dataset_preserves_pulay_stress_and_parameter_occurrence_order(
+    tmp_path: Path,
+) -> None:
+    root = _calculation(tmp_path / "calc", poscar=True)
+    _write_outcar(
+        root / "OUTCAR",
+        b"Startparameter for this Run:\n"
+        b"ENCUT = 400\n"
+        b"ENCUT = 520\n"
+        b"HOME_EFFECTIVE = alpha-beta\n"
+        b"------------------------------\n"
+        b"external pressure = -5.0 kB Pullay stress = 0.75 kB\n",
+    )
+
+    dataset = load_dataset(root)
+
+    assert [item.raw_key for item in dataset.parameters] == [
+        "ENCUT",
+        "ENCUT",
+        "HOME_EFFECTIVE",
+    ]
+    assert [item.ordinal for item in dataset.parameters] == [0, 1, 2]
+    assert dataset.parameters[0].category == "electronic"
+    assert dataset.parameters[2].value == "alpha-beta"
+    assert dataset.ionic_steps[0].pulay_stress_kb == pytest.approx(0.75)
+
+
+def test_parameter_append_replays_full_file_without_duplicate_occurrences(
+    tmp_path: Path,
+) -> None:
+    root = _calculation(tmp_path / "calc")
+    _write_outcar(
+        root / "OUTCAR",
+        b"Startparameter for this Run:\nENCUT = 400\n------------------------------\n",
+    )
+    session = CalculationSession(root, cache=CacheStore(tmp_path / "cache"))
+    first = session.load()
+    with (root / "OUTCAR").open("ab") as stream:
+        stream.write(
+            b"Startparameter for this Run:\nENCUT = 400; ENCUT = 400\n"
+            b"------------------------------\n"
+        )
+
+    refreshed = session.refresh_if_changed()
+
+    assert [item.raw_value for item in first.parameters] == ["400"]
+    assert [item.raw_value for item in refreshed.parameters] == ["400", "400", "400"]
+    assert [item.ordinal for item in refreshed.parameters] == [0, 1, 2]
+    assert refreshed.parameters[1].line_number == refreshed.parameters[2].line_number
+
+
+def test_malformed_metadata_is_isolated_with_warning(
+    tmp_path: Path,
+) -> None:
+    root = _calculation(tmp_path / "calc")
+    _write_outcar(
+        root / "OUTCAR",
+        b"Startparameter for this Run:\n"
+        b"ENCUT = ;\n"
+        b"NSW = 10\n"
+        b"------------------------------\n"
+        b"external pressure = nope kB Pullay stress = 1.0 kB\n",
+    )
+
+    dataset = load_dataset(root)
+
+    assert [item.raw_key for item in dataset.parameters] == ["NSW"]
+    assert [warning.category for warning in dataset.warnings] == [
+        "MetadataParseFailure",
+        "MetadataParseFailure",
+    ]
+
+
 def test_outcar_only_sites_take_first_parsed_frame(tmp_path: Path) -> None:
     dataset = load_dataset(_calculation(tmp_path / "calc"))
 

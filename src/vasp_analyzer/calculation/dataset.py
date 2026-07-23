@@ -32,6 +32,7 @@ from vasp_analyzer.normalizers import (
 from vasp_analyzer.parsing.adapters.poscar_pymatgen import ParsedStructure, parse_poscar
 from vasp_analyzer.parsing.adapters.vaspparser_outcar import parse_vaspparser_outcar
 from vasp_analyzer.parsing.dialects import Dialect, detect_dialect
+from vasp_analyzer.parsing.outcar_metadata import read_outcar_metadata
 from vasp_analyzer.parsing.profiles import CompatibilityProfile
 
 from .discovery import DiscoveredCalculation, discover_calculation
@@ -226,6 +227,7 @@ def _assemble(
     selected = poscar or contcar
     sites = selected.sites if selected else outcar_sites
     match = _select_outcar_normalizer(discovered.outcar)
+    metadata = read_outcar_metadata(discovered.outcar, dialect.profile.outcar)
 
     provenance = ParserProvenance(
         adapter="vaspparser",
@@ -293,6 +295,11 @@ def _assemble(
             else None
         )
         cell_volume = abs(float(np.linalg.det(trajectory.cells[index])))
+        pulay_stress = (
+            metadata.pressure_details[index][1]
+            if index < len(metadata.pressure_details)
+            else None
+        )
         steps.append(
             IonicStep(
                 index=index,
@@ -313,6 +320,7 @@ def _assemble(
                 ),
                 stress_tensor_kb=stress,
                 external_pressure_kb=pressure,
+                pulay_stress_kb=pulay_stress,
                 cell_volume=cell_volume,
                 delta_energy=None,
                 scf_iterations=(
@@ -350,7 +358,9 @@ def _assemble(
         sites=sites,
         initial_structure=initial_structure,
         ionic_steps=ionic_steps,
+        parameters=metadata.parameters,
         capabilities=_capabilities(),
+        warnings=metadata.warnings,
         provenance=provenance,
     )
     return dataset, dialect, match, source_after
