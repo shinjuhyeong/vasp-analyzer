@@ -54,12 +54,18 @@ select {
   border-bottom: 1px solid var(--vscode-panel-border, #343840);
   background: var(--vscode-sideBar-background, #202328);
 }
-.toolbar-primary-row,
 .toolbar-secondary-dock {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 12px;
+}
+.toolbar-primary-grid {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) auto;
+  column-gap: 12px;
+  min-width: 0;
+  align-items: center;
 }
 .toolbar-secondary-dock {
   height: 36px;
@@ -70,10 +76,14 @@ select {
 
 .title-group {
   display: grid;
-  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   gap: 2px;
+}
+.toolbar-primary-grid > .title-group {
+  width: 200px;
+  min-width: 200px;
+  overflow: hidden;
 }
 .title-group strong {
   display: block;
@@ -106,18 +116,19 @@ select {
   accent-color: var(--vscode-focusBorder, #4ca6ea);
 }
 .fullscreen-toggle {
-  flex: 0 0 auto;
   padding: 4px 8px;
   border: 1px solid var(--vscode-button-border, #454a53);
   border-radius: 3px;
   background: var(--vscode-button-secondaryBackground, #31353c);
   white-space: nowrap;
 }
-.toolbar-step-control {
-  flex: 0 1 auto;
+.toolbar-primary-grid > .toolbar-step-control {
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
+}
+.toolbar-primary-grid > .fullscreen-toggle {
+  justify-self: end;
 }
 .toolbar-control,
 .toolbar-control > div {

@@ -89,10 +89,11 @@ describe("Initial comparison flow", () => {
   it("reserves reachable primary-row space for the step and full-screen controls", async () => {
     const styles = await readFile("src/webview/styles.css", "utf8");
 
-    expect(styles).toMatch(/\.title-group\s*{[^}]*flex:\s*1 1 0[^}]*min-width:\s*0[^}]*overflow:\s*hidden/s);
+    expect(styles).toMatch(/\.toolbar-primary-grid\s*{[^}]*display:\s*grid[^}]*grid-template-columns:\s*200px minmax\(0,\s*1fr\) auto[^}]*column-gap:\s*12px/s);
+    expect(styles).toMatch(/\.toolbar-primary-grid > \.title-group\s*{[^}]*width:\s*200px[^}]*min-width:\s*200px[^}]*overflow:\s*hidden/s);
     expect(styles).toMatch(/\.title-group strong\s*{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s);
-    expect(styles).toMatch(/\.toolbar-step-control\s*{[^}]*min-width:\s*0[^}]*overflow-x:\s*auto/s);
-    expect(styles).toMatch(/\.fullscreen-toggle\s*{[^}]*flex:\s*0 0 auto/s);
+    expect(styles).toMatch(/\.toolbar-primary-grid > \.toolbar-step-control\s*{[^}]*min-width:\s*0[^}]*overflow-x:\s*auto[^}]*overflow-y:\s*hidden/s);
+    expect(styles).toMatch(/\.toolbar-primary-grid > \.fullscreen-toggle\s*{[^}]*justify-self:\s*end/s);
   });
 });
 
