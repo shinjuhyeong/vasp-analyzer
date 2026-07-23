@@ -89,7 +89,7 @@ export interface Capability {
 }
 
 export interface ParserWarning {
-  readonly category: "IncompleteTail" | "IgnoredCompatibilityMetadata";
+  readonly category: "IncompleteTail" | "IgnoredCompatibilityMetadata" | "GrowingFileParseFailure" | "MetadataParseFailure";
   readonly message: string;
   readonly byteOffset: number | null;
   readonly lineNumber: number | null;
@@ -102,6 +102,42 @@ export interface ParserProvenance {
   readonly profileId: string | null;
   readonly normalizationRules: readonly string[];
   readonly compatibilityMetadata: readonly string[];
+  readonly normalizerId: string | null;
+  readonly normalizerDisplayName: string | null;
+  readonly normalizerSchemaVersion: number | null;
+  readonly normalizerDefinitionSha256: string | null;
+  readonly normalizationChangedLineCount: number;
+  readonly normalizationManifestReference: string | null;
+  readonly normalizationWarnings: readonly string[];
+}
+
+export interface NormalizationChange {
+  readonly sourceLine: number;
+  readonly ruleId: string;
+  readonly originalExcerpt: string;
+  readonly emittedExcerpt: string;
+}
+
+export interface NormalizationManifest {
+  readonly manifestReference: string;
+  readonly normalizerId: string;
+  readonly displayName: string;
+  readonly schemaVersion: number;
+  readonly definitionSha256: string;
+  readonly sourceSha256: string;
+  readonly sourceSize: number;
+  readonly sourceMtimeNs: number;
+  readonly changedLineCount: number;
+  readonly firstChangedLine: number | null;
+  readonly lastChangedLine: number | null;
+  readonly ruleChangedLineCounts: Readonly<Record<string, number>>;
+  readonly warnings: readonly string[];
+  readonly changes: readonly NormalizationChange[];
+}
+
+export interface NormalizedOutcar {
+  readonly manifestReference: string;
+  readonly content: string;
 }
 
 export interface CalculationDataset {
@@ -117,8 +153,8 @@ export interface CalculationDataset {
   readonly provenance: ParserProvenance | null;
 }
 
-export type AnalysisMethod = "getDataset" | "getStep";
-export type AnalysisResult = CalculationDataset | IonicStep;
+export type AnalysisMethod = "getDataset" | "getStep" | "getNormalizationManifest" | "getNormalizedOutcar";
+export type AnalysisResult = CalculationDataset | IonicStep | NormalizationManifest | NormalizedOutcar;
 
 export interface LayoutPreferences {
   readonly structurePercent: number;

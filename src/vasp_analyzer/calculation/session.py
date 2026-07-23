@@ -1,16 +1,21 @@
 """Whole-fingerprint refresh sessions for immutable calculation snapshots."""
 
 from pathlib import Path
+from hashlib import sha256
+from dataclasses import dataclass
 
 from vasp_analyzer.core import (
     AnalyzerError,
     CalculationDataset,
     DatasetConsistencyError,
     FrozenModel,
+    NormalizationSessionError,
     ParserWarning,
     SourceFile,
 )
 from vasp_analyzer.normalizers import OutcarNormalizationError
+from vasp_analyzer.normalizers.manifest import NormalizationManifest
+from vasp_analyzer.normalizers.transform import normalize_outcar
 from vasp_analyzer.parsing.profiles import CompatibilityProfile
 
 from .cache import CacheStore, CachedCalculation, cache_key
@@ -22,11 +27,20 @@ from .dataset import (
 )
 from .discovery import discover_calculation
 
+_MAX_NORMALIZED_TRANSPORT_BYTES = 64 * 1024 * 1024
+
 
 class SessionLoadEvidence(FrozenModel):
     cache_reused: bool
     resumed_from: int | None = None
     previous_verified_offset: int | None = None
+
+
+@dataclass(frozen=True)
+class NormalizationArtifact:
+    manifest_reference: str
+    manifest: NormalizationManifest
+    content: str | None
 
 
 class CalculationSession:
@@ -129,5 +143,61 @@ class CalculationSession:
         self._last_evidence = SessionLoadEvidence(cache_reused=cache_reused)
         return dataset
 
+    def normalization_artifact(
+        self, manifest_reference: str, *, include_content: bool = False
+    ) -> NormalizationArtifact:
+        """Recreate a normalized view owned by this live calculation session."""
 
-__all__ = ["CalculationSession", "SessionLoadEvidence"]
+        dataset = self.refresh_if_changed()
+        provenance = dataset.provenance
+        if (
+            provenance is None
+            or provenance.normalization_manifest_reference != manifest_reference
+        ):
+            raise NormalizationSessionError(
+                "Normalization report is missing, expired, or belongs to another session"
+            )
+        discovered = discover_calculation(self.path)
+        outcar_source = next(
+            (item for item in dataset.source_files if Path(item.path) == discovered.outcar.resolve()),
+            None,
+        )
+        if outcar_source is None:
+            raise NormalizationSessionError("Normalization source is no longer available")
+        match = _select_outcar_normalizer(discovered.outcar)
+        with normalize_outcar(discovered.outcar, match) as normalized:
+            manifest = normalized.manifest
+            expected_reference = sha256(
+                (
+                    f"{manifest.source_sha256}\0"
+                    f"{manifest.definition_sha256}\0{manifest.changed_line_count}"
+                ).encode("ascii")
+            ).hexdigest()
+            if (
+                manifest.source_sha256 != outcar_source.fingerprint
+                or expected_reference != manifest_reference
+            ):
+                raise NormalizationSessionError(
+                    "Normalization source changed; reload the calculation"
+                )
+            content: str | None = None
+            if include_content:
+                raw_content = normalized.parser_bytes(_MAX_NORMALIZED_TRANSPORT_BYTES)
+                if len(raw_content) > _MAX_NORMALIZED_TRANSPORT_BYTES:
+                    raise NormalizationSessionError(
+                        "Normalized OUTCAR exceeds the 64 MiB viewer limit"
+                    )
+                try:
+                    content = raw_content.decode("utf-8", errors="strict")
+                except UnicodeError as error:
+                    raise NormalizationSessionError(
+                        "Normalized OUTCAR is not valid UTF-8"
+                    ) from error
+        return NormalizationArtifact(
+            manifest_reference=manifest_reference,
+            manifest=manifest,
+            content=content,
+        )
+
+
+__all__ = ["CalculationSession", "NormalizationArtifact", "SessionLoadEvidence"]

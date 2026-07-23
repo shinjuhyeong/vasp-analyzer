@@ -143,11 +143,11 @@ def _schema_surfaces(index: str, schema_version: int = 2):
 
 
 def test_packaged_webview_schema_contract_accepts_bound_schema_3_bundle() -> None:
-    verify_webview_schema_contract(_schema_surfaces("schemaVersion!==3", schema_version=3))
+    verify_webview_schema_contract(_schema_surfaces("schemaVersion!==4", schema_version=4))
 
 
 def test_packaged_webview_schema_contract_rejects_mutated_bundle() -> None:
-    surfaces = _schema_surfaces("schemaVersion!==3", schema_version=3)
+    surfaces = _schema_surfaces("schemaVersion!==4", schema_version=4)
     surfaces[PurePosixPath("extension/dist/webview/index.js")] = "schemaVersion!==2"
 
     with pytest.raises(ReleaseVerificationError, match="fingerprint"):
@@ -155,7 +155,7 @@ def test_packaged_webview_schema_contract_rejects_mutated_bundle() -> None:
 
 
 def test_packaged_webview_schema_contract_rejects_schema_2_manifest() -> None:
-    with pytest.raises(ReleaseVerificationError, match="schema 3"):
+    with pytest.raises(ReleaseVerificationError, match="schema 4"):
         verify_webview_schema_contract(
             _schema_surfaces("schemaVersion!==2", schema_version=2)
         )

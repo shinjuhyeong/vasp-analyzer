@@ -243,6 +243,21 @@ class NormalizedOutcarSession:
         self._source.seek(0)
         return prefix
 
+    def parser_bytes(self, maximum_bytes: int) -> bytes:
+        """Read a bounded parser view without reopening the pinned standard source."""
+
+        if self._closed:
+            raise OutcarNormalizationError("normalization session is closed")
+        if maximum_bytes < 0:
+            raise ValueError("maximum_bytes must be nonnegative")
+        if self._temporary_directory is None:
+            self._source.seek(0)
+            content = self._source.read(maximum_bytes + 1)
+            self._source.seek(0)
+            return content
+        with self.parser_path.open("rb") as parser_stream:
+            return parser_stream.read(maximum_bytes + 1)
+
     def close(self) -> None:
         if self._closed:
             return

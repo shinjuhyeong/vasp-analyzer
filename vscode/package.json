@@ -16,12 +16,20 @@
   "categories": ["Visualization", "Other"],
   "extensionKind": ["workspace"],
   "main": "./dist/extension.cjs",
-  "activationEvents": ["onStartupFinished", "onCommand:vaspAnalyzer.open"],
+  "activationEvents": ["onStartupFinished", "onCommand:vaspAnalyzer.open", "onCommand:vaspAnalyzer.openNormalizedOutcar", "onCommand:vaspAnalyzer.compareNormalizedOutcar"],
   "contributes": {
     "commands": [
       {
         "command": "vaspAnalyzer.open",
         "title": "VASP Analyzer: Open Calculation"
+      },
+      {
+        "command": "vaspAnalyzer.openNormalizedOutcar",
+        "title": "VASP Analyzer: Open Normalized OUTCAR"
+      },
+      {
+        "command": "vaspAnalyzer.compareNormalizedOutcar",
+        "title": "VASP Analyzer: Compare Original and Normalized OUTCAR"
       }
     ],
     "menus": {

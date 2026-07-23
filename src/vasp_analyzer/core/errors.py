@@ -50,3 +50,7 @@ class IncompleteTail(AnalyzerError):
 
 class DatasetConsistencyError(AnalyzerError):
     code = "dataset_consistency"
+
+
+class NormalizationSessionError(AnalyzerError):
+    code = "normalization_session_expired"

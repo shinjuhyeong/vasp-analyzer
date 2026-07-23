@@ -1,1 +1,1 @@
-export const DATASET_SCHEMA_VERSION = 3 as const;
+export const DATASET_SCHEMA_VERSION = 4 as const;

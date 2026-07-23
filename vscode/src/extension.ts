@@ -56,6 +56,7 @@ const SAFE_PROTOCOL_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   capability_unavailable: "Requested analysis capability is unavailable.",
   step_not_found: "The requested ionic step is unavailable.",
   invalid_request: "The analyzer rejected the request.",
+  normalization_session_expired: "The normalization report expired because the OUTCAR changed. Reload the calculation and try again.",
 });
 
 function safeAnalyzerRequestFailure(error: unknown): SafeRequestFailure {
@@ -112,7 +113,8 @@ function isWebviewRequest(value: unknown): value is WebviewRequest {
   return (
     request.type === "request" &&
     Number.isSafeInteger(request.requestId) &&
-    (request.method === "getDataset" || request.method === "getStep" || request.method === "getVolumetric") &&
+    (request.method === "getDataset" || request.method === "getStep" || request.method === "getVolumetric"
+      || request.method === "getNormalizationManifest" || request.method === "getNormalizedOutcar") &&
     !!request.params &&
     typeof request.params === "object" &&
     !Array.isArray(request.params)
@@ -125,6 +127,12 @@ function activationPlan(context: vscode.ExtensionContext): {
 } {
   const panels = new Map<string, vscode.WebviewPanel>();
   const processes = new Map<vscode.WebviewPanel, AnalyzerProcess>();
+  const calculations = new Map<vscode.WebviewPanel, ResolvedCalculation & { readonly profilePath: string | null }>();
+  const virtualContent = new Map<string, string>();
+  let activePanel: vscode.WebviewPanel | undefined;
+  const normalizedProvider: vscode.TextDocumentContentProvider = {
+    provideTextDocumentContent: (uri) => virtualContent.get(uri.toString()) ?? "",
+  };
 
   const openCanonicalCalculation = async (
     calculation: ResolvedCalculation & { readonly profilePath: string | null },
@@ -138,6 +146,7 @@ function activationPlan(context: vscode.ExtensionContext): {
     if (existing) {
       requireActive(activationSignal, requestSignal);
       existing.reveal();
+      activePanel = existing;
       return;
     }
 
@@ -161,6 +170,8 @@ function activationPlan(context: vscode.ExtensionContext): {
     }
     panels.set(panelKey, panel);
     processes.set(panel, analyzer);
+    calculations.set(panel, calculation);
+    activePanel = panel;
     const bundle = vscode.Uri.joinPath(webviewRoot, "index.js");
     const stylesheet = vscode.Uri.joinPath(webviewRoot, "index.css");
     panel.webview.html = webviewHtml(panel.webview, bundle, stylesheet);
@@ -190,7 +201,9 @@ function activationPlan(context: vscode.ExtensionContext): {
       () => {
         analyzer.dispose();
         processes.delete(panel);
+        calculations.delete(panel);
         panels.delete(panelKey);
+        if (activePanel === panel) activePanel = undefined;
       },
       undefined,
       context.subscriptions,
@@ -217,12 +230,70 @@ function activationPlan(context: vscode.ExtensionContext): {
       }),
     install: (endpoint, activationSignal) => {
       requireActive(activationSignal);
-      let command: vscode.Disposable | undefined;
+      const commands: vscode.Disposable[] = [];
       let cleaned = false;
+      const provider = vscode.workspace.registerTextDocumentContentProvider(
+        "vasp-analyzer-normalized",
+        normalizedProvider,
+      );
+      const closedDocument = vscode.workspace.onDidCloseTextDocument((document) => {
+        if (document.uri.scheme === "vasp-analyzer-normalized") {
+          virtualContent.delete(document.uri.toString());
+        }
+      });
+      const normalizedView = async (diff: boolean, manifestReference?: string): Promise<void> => {
+        const panel = activePanel;
+        const analyzer = panel ? processes.get(panel) : undefined;
+        const calculation = panel ? calculations.get(panel) : undefined;
+        if (!panel || !analyzer || !calculation) {
+          void vscode.window.showErrorMessage("Open a VASP Analyzer calculation first.");
+          return;
+        }
+        const dataset = await analyzer.request("getDataset", {}) as {
+          provenance?: {
+            normalizationChangedLineCount?: number;
+            normalizationManifestReference?: string | null;
+          };
+        };
+        if ((dataset.provenance?.normalizationChangedLineCount ?? 0) === 0) {
+          void vscode.window.showErrorMessage(
+            "This OUTCAR already uses the standard format; there is no normalized view to open.",
+          );
+          return;
+        }
+        const reference = manifestReference
+          ?? dataset.provenance?.normalizationManifestReference
+          ?? undefined;
+        if (!reference) {
+          void vscode.window.showErrorMessage("No normalization report is available for this calculation.");
+          return;
+        }
+        const result = await analyzer.request("getNormalizedOutcar", {
+          manifestReference: reference,
+        }) as { manifestReference: string; content: string };
+        const uri = vscode.Uri.parse(
+          `vasp-analyzer-normalized:/OUTCAR?session=${encodeURIComponent(result.manifestReference)}`,
+        );
+        virtualContent.set(uri.toString(), result.content);
+        if (diff) {
+          await vscode.commands.executeCommand(
+            "vscode.diff",
+            vscode.Uri.file(calculation.calculationPath),
+            uri,
+            "OUTCAR ↔ Normalized OUTCAR",
+          );
+        } else {
+          const document = await vscode.workspace.openTextDocument(uri);
+          await vscode.window.showTextDocument(document, { preview: true });
+        }
+      };
       const cleanup = () => {
         if (cleaned) return;
         cleaned = true;
-        command?.dispose();
+        for (const command of commands) command.dispose();
+        provider.dispose();
+        closedDocument.dispose();
+        virtualContent.clear();
         context.environmentVariableCollection.delete("VASP_ANALYZER_ENDPOINT");
         context.environmentVariableCollection.delete("VASP_ANALYZER_TOKEN");
         for (const panel of [...panels.values()]) panel.dispose();
@@ -234,7 +305,7 @@ function activationPlan(context: vscode.ExtensionContext): {
         context.environmentVariableCollection.replace("VASP_ANALYZER_ENDPOINT", endpoint.address);
         context.environmentVariableCollection.replace("VASP_ANALYZER_TOKEN", endpoint.token);
         requireActive(activationSignal);
-        command = vscode.commands.registerCommand(
+        commands.push(vscode.commands.registerCommand(
           "vaspAnalyzer.open",
           async (resource?: vscode.Uri) => {
             try {
@@ -248,8 +319,16 @@ function activationPlan(context: vscode.ExtensionContext): {
               void vscode.window.showErrorMessage(calculationOpenMessage(error));
             }
           },
-        );
-        context.subscriptions.push(command);
+        ));
+        commands.push(vscode.commands.registerCommand(
+          "vaspAnalyzer.openNormalizedOutcar",
+          async (manifestReference?: string) => await normalizedView(false, manifestReference),
+        ));
+        commands.push(vscode.commands.registerCommand(
+          "vaspAnalyzer.compareNormalizedOutcar",
+          async (manifestReference?: string) => await normalizedView(true, manifestReference),
+        ));
+        context.subscriptions.push(...commands, provider, closedDocument);
         return cleanup;
       } catch (error) {
         cleanup();

@@ -20,6 +20,8 @@ import { ConvergencePanel } from "./features/convergence/ConvergencePanel.js";
 import { AnalysisTabs } from "./features/analysis/AnalysisTabs.js";
 import { CompactToolbar } from "./features/layout/CompactToolbar.js";
 import { ParametersPanel } from "./features/parameters/ParametersPanel.js";
+import { NormalizationReport } from "./features/normalization/NormalizationReport.js";
+import { NormalizationStatus } from "./features/normalization/NormalizationStatus.js";
 import type { PalettePosition } from "./features/layout/DraggableCrystalPalette.js";
 import { ResizableWorkspace } from "./features/layout/ResizableWorkspace.js";
 import { CrystalPanel } from "./features/structure/CrystalPanel.js";
@@ -100,6 +102,7 @@ export function App({
     Readonly<{ host: AnalysisHost | null; error: string | null }>
   >({ host: null, error: null });
   const [fullScreen, setFullScreen] = useState(false);
+  const [normalizationReportOpen, setNormalizationReportOpen] = useState(false);
   const fullScreenSnapshot = useRef<Readonly<{
     structurePercent: number;
     inspectorWidth: number;
@@ -111,7 +114,7 @@ export function App({
     setLoad({ host: null, error: null });
     void host.request("getDataset", {}).then(
       (result) => {
-        if (active && "schemaVersion" in result) {
+        if (active && "root" in result) {
           const persisted = host.getState();
           dispatch(
             persisted
@@ -297,6 +300,17 @@ export function App({
           fullScreen={fullScreen}
           onFullScreenChange={changeFullScreen}
         />
+        <NormalizationStatus
+          provenance={state.dataset.provenance}
+          onOpenReport={() => setNormalizationReportOpen(true)}
+        />
+        {normalizationReportOpen && state.dataset.provenance?.normalizationManifestReference ? (
+          <NormalizationReport
+            host={host}
+            manifestReference={state.dataset.provenance.normalizationManifestReference}
+            onClose={() => setNormalizationReportOpen(false)}
+          />
+        ) : null}
         <div className="structure-canvas">
           {Structure ? (
             <Structure {...regionProps} />

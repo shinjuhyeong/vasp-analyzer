@@ -154,6 +154,42 @@ select {
     var(--vscode-editor-background, #17191d) 64%
   );
 }
+.normalization-status {
+  z-index: 3;
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border, #343840);
+  color: var(--vscode-descriptionForeground, #a9afb8);
+  font-size: 11px;
+}
+.normalization-status [role="alert"] {
+  color: var(--vscode-notificationsWarningIcon-foreground, #cca700);
+}
+.normalization-status button {
+  margin-left: auto;
+}
+.normalization-report {
+  z-index: 5;
+  position: absolute;
+  inset: 90px 12px 12px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--vscode-widget-border, #454a53);
+  background: var(--vscode-editorWidget-background, #25282e);
+  box-shadow: 0 4px 18px #0008;
+}
+.normalization-report header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.normalization-report code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .empty-slot {
   display: grid;
   height: 100%;

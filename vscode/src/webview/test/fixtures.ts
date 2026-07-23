@@ -30,7 +30,7 @@ const step = (index: number): IonicStep => ({
 });
 
 export const twoStepDataset: CalculationDataset = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   root: "/calculation",
   sourceFiles: [],
   sites: [

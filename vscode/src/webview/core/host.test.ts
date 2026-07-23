@@ -19,6 +19,9 @@ function detailedDatasetResult(): any {
   result.provenance = {
     adapter: "ase", adapterVersion: "1", dialect: "stock", profileId: null,
     normalizationRules: [], compatibilityMetadata: [],
+    normalizerId: "standard", normalizerDisplayName: "Standard", normalizerSchemaVersion: 1,
+    normalizerDefinitionSha256: "a".repeat(64), normalizationChangedLineCount: 0,
+    normalizationManifestReference: "b".repeat(64), normalizationWarnings: [],
   };
   result.ionicSteps = result.ionicSteps.map((item: any) => ({
     ...item,
@@ -51,6 +54,29 @@ function vscodeHarness() {
 }
 
 describe("analysis hosts", () => {
+  it("validates lazy normalization manifest responses and excerpt bounds", async () => {
+    const { host, messages } = vscodeHarness();
+    const pending = host.request("getNormalizationManifest", { manifestReference: "a".repeat(64) });
+    const manifest = {
+      manifestReference: "a".repeat(64), normalizerId: "home-barrier", displayName: "Home",
+      schemaVersion: 1, definitionSha256: "b".repeat(64), sourceSha256: "c".repeat(64),
+      sourceSize: 10, sourceMtimeNs: 20, changedLineCount: 1, firstChangedLine: 2,
+      lastChangedLine: 2, ruleChangedLineCounts: { named: 1 }, warnings: [],
+      changes: [{ sourceLine: 2, ruleId: "named", originalExcerpt: "old", emittedExcerpt: "new" }],
+    };
+    window.dispatchEvent(new MessageEvent("message", { data: {
+      type: "response", requestId: messages[0]!.requestId, result: manifest,
+    } }));
+    await expect(pending).resolves.toEqual(manifest);
+
+    const oversized = host.request("getNormalizationManifest", { manifestReference: "a".repeat(64) });
+    window.dispatchEvent(new MessageEvent("message", { data: {
+      type: "response", requestId: messages[1]!.requestId,
+      result: { ...manifest, changes: [{ ...manifest.changes[0], originalExcerpt: "x".repeat(513) }] },
+    } }));
+    await expect(oversized).rejects.toMatchObject({ code: "invalid_response" });
+    host.dispose();
+  });
   it.each([
     ["VS Code", (state: unknown) => new VsCodeHost({ postMessage: vi.fn(), getState: () => state, setState: vi.fn() }, window)],
     ["HTTP", (state: unknown) => new HttpHost("http://local", vi.fn(), {

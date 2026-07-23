@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 
-export type Method = "getDataset" | "getStep" | "getVolumetric";
+export type Method = "getDataset" | "getStep" | "getVolumetric" | "getNormalizationManifest" | "getNormalizedOutcar";
 
 export class AnalyzerProtocolError extends Error {
   override readonly name = "AnalyzerProtocolError";

@@ -5,6 +5,8 @@ import type {
   CalculationDataset,
   IonicStep,
   LayoutPreferences,
+  NormalizationManifest,
+  NormalizedOutcar,
   PersistedAnalysisState,
 } from "./contracts.js";
 import {
@@ -248,13 +250,54 @@ function isWarning(value: unknown): boolean {
 function isProvenance(value: unknown): boolean {
   return isRecordWith(value, [
     "adapter", "adapterVersion", "dialect", "profileId", "normalizationRules", "compatibilityMetadata",
+    "normalizerId", "normalizerDisplayName", "normalizerSchemaVersion", "normalizerDefinitionSha256",
+    "normalizationChangedLineCount", "normalizationManifestReference", "normalizationWarnings",
   ])
     && typeof value.adapter === "string"
     && typeof value.adapterVersion === "string"
     && typeof value.dialect === "string"
     && (value.profileId === null || typeof value.profileId === "string")
     && isStringArray(value.normalizationRules)
-    && isStringArray(value.compatibilityMetadata);
+    && isStringArray(value.compatibilityMetadata)
+    && isNullable(value.normalizerId, (item): item is string => typeof item === "string")
+    && isNullable(value.normalizerDisplayName, (item): item is string => typeof item === "string")
+    && isNullable(value.normalizerSchemaVersion, isNonNegativeInteger)
+    && isNullable(value.normalizerDefinitionSha256, (item): item is string => typeof item === "string")
+    && isNonNegativeInteger(value.normalizationChangedLineCount)
+    && isNullable(value.normalizationManifestReference, (item): item is string => typeof item === "string")
+    && isStringArray(value.normalizationWarnings);
+}
+
+function isNormalizationChange(value: unknown): boolean {
+  return isRecordWith(value, ["sourceLine", "ruleId", "originalExcerpt", "emittedExcerpt"])
+    && isNonNegativeInteger(value.sourceLine)
+    && typeof value.ruleId === "string"
+    && typeof value.originalExcerpt === "string" && value.originalExcerpt.length <= 512
+    && typeof value.emittedExcerpt === "string" && value.emittedExcerpt.length <= 512;
+}
+
+function isNormalizationManifest(value: unknown): value is NormalizationManifest {
+  if (!isRecordWith(value, [
+    "manifestReference", "normalizerId", "displayName", "schemaVersion", "definitionSha256",
+    "sourceSha256", "sourceSize", "sourceMtimeNs", "changedLineCount", "firstChangedLine",
+    "lastChangedLine", "ruleChangedLineCounts", "warnings", "changes",
+  ])) return false;
+  return typeof value.manifestReference === "string"
+    && typeof value.normalizerId === "string" && typeof value.displayName === "string"
+    && isNonNegativeInteger(value.schemaVersion)
+    && typeof value.definitionSha256 === "string" && typeof value.sourceSha256 === "string"
+    && isNonNegativeInteger(value.sourceSize) && isNonNegativeInteger(value.sourceMtimeNs)
+    && isNonNegativeInteger(value.changedLineCount)
+    && isNullable(value.firstChangedLine, isNonNegativeInteger)
+    && isNullable(value.lastChangedLine, isNonNegativeInteger)
+    && isRecord(value.ruleChangedLineCounts)
+    && Object.values(value.ruleChangedLineCounts).every(isNonNegativeInteger)
+    && isStringArray(value.warnings) && isArrayOf(value.changes, isNormalizationChange);
+}
+
+function isNormalizedOutcar(value: unknown): value is NormalizedOutcar {
+  return isRecordWith(value, ["manifestReference", "content"])
+    && typeof value.manifestReference === "string" && typeof value.content === "string";
 }
 
 function isCalculationDataset(value: unknown): value is CalculationDataset {
@@ -283,6 +326,8 @@ function isCalculationDataset(value: unknown): value is CalculationDataset {
 function validatedResult(method: AnalysisMethod, value: unknown): AnalysisResult {
   if (method === "getDataset" && isCalculationDataset(value)) return value;
   if (method === "getStep" && isIonicStep(value)) return value;
+  if (method === "getNormalizationManifest" && isNormalizationManifest(value)) return value;
+  if (method === "getNormalizedOutcar" && isNormalizedOutcar(value)) return value;
   throw invalidResponse();
 }
 

@@ -58,9 +58,9 @@ def test_web_fallback_uses_the_shared_typed_protocol(tmp_path: Path) -> None:
     )
 
     dataset_result = dataset.json()["result"]
-    assert dataset_result["schemaVersion"] == 3
+    assert dataset_result["schemaVersion"] == 4
     assert dataset_result["ionicSteps"][0]["energyTerms"][0]["rawLabel"] == (
-        "free energy TOTEN"
+        "alpha Z PSCENC"
     )
     assert "stressTensorKb" in dataset_result["ionicSteps"][0]
     assert dataset_result["parameters"] == []

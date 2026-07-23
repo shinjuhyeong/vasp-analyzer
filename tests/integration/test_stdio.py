@@ -35,10 +35,10 @@ def test_stdio_returns_camel_case_dataset(tmp_path: Path) -> None:
     )[0]
 
     assert response["id"] == 1
-    assert response["result"]["schemaVersion"] == 3
+    assert response["result"]["schemaVersion"] == 4
     assert response["result"]["ionicSteps"][0]["cartesianPositions"]
     assert response["result"]["ionicSteps"][0]["energyTerms"][0]["rawLabel"] == (
-        "free energy TOTEN"
+        "alpha Z PSCENC"
     )
     assert "stressTensorKb" in response["result"]["ionicSteps"][0]
     assert response["result"]["parameters"] == []

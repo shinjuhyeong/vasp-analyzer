@@ -4,14 +4,21 @@
  ions per type = 2
  POTCAR:    PAW_PBE H 01Jan2000
  POTCAR:    PAW_PBE H 01Jan2000
- NIONS = 2 ions
+ NIONS = 2
  Startparameter for this Run:
  ENCUT = 520
  EDIFFG = -0.02
  HOME_EFFECTIVE = alpha-beta
  -----------------------------------------------------------------------------
- NIONS = 2 ions
+ NIONS = 2
+ NGX = 1 NGY = 1 NGZ = 1
+ Broyden mesh summary
+ gives a total of 1 points
  Iteration    1(   1)
+ VOLUME and BASIS-vectors are now :
+ -----------------------------------------------------------------------------
+  energy-cutoff  : 500.00
+  volume of cell : 27.00
  direct lattice vectors                 reciprocal lattice vectors
    3.000000 0.000000 0.000000  0.333333 0.000000 0.000000
    0.000000 3.000000 0.000000  0.000000 0.333333 0.000000
@@ -20,6 +27,21 @@
  -----------------------------------------------------------------------------------
    0.000000 0.000000 0.000000  0.100000 0.000000 0.000000
    1.500000 1.500000 1.500000 -0.100000 0.000000 0.000000
+ Free energy of the ion-electron system (eV)
+ ---------------------------------------------------
+ alpha Z PSCENC = 0.0
+ Ewald energy TEWEN = 0.0
+ -Hartree energ DENC = 0.0
+ -exchange EXHF = 0.0
+ -V(xc)+E(xc) XCENC = 0.0
+ PAW double counting = 0.0 0.0
+ entropy T*S EENTRO = 0.0
+ eigenvalues EBANDS = 0.0
+ atomic energy EATOM = 0.0
+ Solvation Ediel_sol = 0.0
+ ---------------------------------------------------
+ free energy TOTEN = -10.000000 eV
+ energy without entropy = -9.800000 energy(sigma->0) = -9.900000
  FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)
  ---------------------------------------------------
  free energy TOTEN =       -10.000000 eV

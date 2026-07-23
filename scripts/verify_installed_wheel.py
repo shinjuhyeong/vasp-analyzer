@@ -47,8 +47,8 @@ def validate_stdio_output(
     if not isinstance(envelope, dict) or "error" in envelope:
         raise InstalledWheelSmokeError("installed stdio smoke returned an error")
     result = envelope.get("result") if isinstance(envelope, dict) else None
-    if not isinstance(result, dict) or result.get("schemaVersion") != 3:
-        raise InstalledWheelSmokeError("installed stdio smoke did not return schema 3")
+    if not isinstance(result, dict) or result.get("schemaVersion") != 4:
+        raise InstalledWheelSmokeError("installed stdio smoke did not return schema 4")
     ionic_steps = result.get("ionicSteps")
     if not isinstance(ionic_steps, list) or not ionic_steps:
         raise InstalledWheelSmokeError(

@@ -4,6 +4,7 @@ import { CALCULATION_OPEN_DIALOG_OPTIONS } from "../openCalculation.js";
 
 const mocks = vi.hoisted(() => ({
   command: undefined as undefined | ((resource?: { fsPath: string }) => Promise<void>),
+  commands: new Map<string, (...args: unknown[]) => Promise<unknown>>(),
   endpointOnOpen: undefined as undefined | ((
     calculation: { readonly root: string; readonly calculationPath: string; readonly profilePath: string | null },
     signal: AbortSignal,
@@ -18,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   showErrorMessage: vi.fn(),
   resolveCalculation: vi.fn(),
   spawnAnalyzer: vi.fn(),
+  executeCommand: vi.fn(),
+  showTextDocument: vi.fn(),
 }));
 
 vi.mock("vscode", () => ({
@@ -26,16 +29,21 @@ vi.mock("vscode", () => ({
     joinPath: (base: { fsPath: string }, ...parts: string[]) => ({
       fsPath: [base.fsPath, ...parts].join("/"),
     }),
+    parse: (value: string) => ({ scheme: "vasp-analyzer-normalized", toString: () => value }),
+    file: (fsPath: string) => ({ fsPath, scheme: "file", toString: () => `file:${fsPath}` }),
   },
   commands: {
-    registerCommand: vi.fn((_name: string, command: (resource?: { fsPath: string }) => Promise<void>) => {
-      mocks.command = command;
+    registerCommand: vi.fn((name: string, command: (...args: unknown[]) => Promise<unknown>) => {
+      mocks.commands.set(name, command);
+      if (name === "vaspAnalyzer.open") mocks.command = command as typeof mocks.command;
       return { dispose: vi.fn() };
     }),
+    executeCommand: mocks.executeCommand,
   },
   window: {
     showErrorMessage: mocks.showErrorMessage,
     showOpenDialog: mocks.showOpenDialog,
+    showTextDocument: mocks.showTextDocument,
     createWebviewPanel: vi.fn(() => {
       let onDispose: (() => void) | undefined;
       let onMessage: (message: unknown) => Promise<void> = async () => undefined;
@@ -76,6 +84,9 @@ vi.mock("vscode", () => ({
     getConfiguration: vi.fn(() => ({
       get: vi.fn((key: string, fallback?: unknown) => fallback ?? (key === "executablePath" ? "analyzer" : undefined)),
     })),
+    registerTextDocumentContentProvider: vi.fn(() => ({ dispose: vi.fn() })),
+    onDidCloseTextDocument: vi.fn(() => ({ dispose: vi.fn() })),
+    openTextDocument: vi.fn(async (uri: unknown) => ({ uri })),
   },
 }));
 
@@ -122,6 +133,7 @@ function extensionContext() {
 
 beforeEach(() => {
   mocks.command = undefined;
+  mocks.commands.clear();
   mocks.endpointOnOpen = undefined;
   mocks.panels.length = 0;
   mocks.showOpenDialog.mockReset();
@@ -129,6 +141,8 @@ beforeEach(() => {
   mocks.resolveCalculation.mockReset();
   mocks.resolveCalculation.mockImplementation(async (candidate: string) => ({ root: candidate, calculationPath: candidate }));
   mocks.spawnAnalyzer.mockReset();
+  mocks.executeCommand.mockReset();
+  mocks.showTextDocument.mockReset();
   mocks.spawnAnalyzer.mockImplementation(() => ({ request: vi.fn(), dispose: vi.fn() }));
 });
 
@@ -237,5 +251,28 @@ describe("VASP Analyzer extension wiring", () => {
     });
     expect(JSON.stringify(mocks.panels[0]?.messages)).not.toContain(sentinel);
     expect(mocks.showErrorMessage).not.toHaveBeenCalled();
+  });
+
+  it("opens normalized content read-only and diffs it against the original OUTCAR", async () => {
+    const request = vi.fn(async (method: string) => method === "getDataset"
+      ? { provenance: { normalizationChangedLineCount: 1, normalizationManifestReference: "a".repeat(64) } }
+      : { manifestReference: "a".repeat(64), content: "normalized OUTCAR" });
+    mocks.spawnAnalyzer.mockReturnValue({ request, dispose: vi.fn() });
+    await activate(extensionContext() as never);
+    await mocks.command?.({ fsPath: "/work/calc/OUTCAR" });
+
+    await mocks.commands.get("vaspAnalyzer.openNormalizedOutcar")?.();
+    expect(mocks.showTextDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ uri: expect.objectContaining({ scheme: "vasp-analyzer-normalized" }) }),
+      { preview: true },
+    );
+
+    await mocks.commands.get("vaspAnalyzer.compareNormalizedOutcar")?.();
+    expect(mocks.executeCommand).toHaveBeenCalledWith(
+      "vscode.diff",
+      expect.objectContaining({ fsPath: "/work/calc/OUTCAR" }),
+      expect.objectContaining({ scheme: "vasp-analyzer-normalized" }),
+      expect.any(String),
+    );
   });
 });
