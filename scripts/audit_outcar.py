@@ -6,9 +6,7 @@ import argparse
 import hashlib
 import json
 import math
-import shutil
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -34,15 +32,7 @@ def audit_outcar(path: Path) -> dict[str, Any]:
 
     path = Path(path).resolve(strict=True)
     before = _sha256(path)
-    if path.name.casefold() == "outcar":
-        dataset = load_dataset(path)
-    else:
-        # Acceptance inputs may carry descriptive names. Parse an exact byte-for-byte
-        # copy named OUTCAR so calculation discovery follows the production path.
-        with tempfile.TemporaryDirectory(prefix="vasp-analyzer-audit-") as temp:
-            parser_path = Path(temp) / "OUTCAR"
-            shutil.copyfile(path, parser_path)
-            dataset = load_dataset(parser_path)
+    dataset = load_dataset(path)
     after = _sha256(path)
     provenance = dataset.provenance
     if provenance is None:

@@ -66,11 +66,60 @@ Documented skips:
 ## Artifacts
 
 - wheel SHA-256:
-  `67a69028dbb8273f4789520c426491b22ca9dc3cc9d551f53199ab37f1048e55`
+  `5b8ac98548e6a92a4d66f24a15ec8f36ffe546e974f535227fb4081d88a676eb`
 - sdist SHA-256:
-  `6bcd84d80245a4c4b8f98ef4351e51e76fe708e1e8ee8f5c99f328e95f02e0e0`
+  `334e8db56b81f2a317e58a01d70274208f07ff586d9dc34caad6ac8454347ea4`
 - VSIX SHA-256:
-  `83f3f8f9d462101e13b1aea01acd6118f6a52ab1e8e1fdbe7b1677de89852428`
+  `41b899b2fa7da790ada06ee06be11a047d5b0a56673d06f971df186d156b6714`
 
 The VSIX was built and inspected but was not installed into the user's live
 VS Code environment. Generated release artifacts remain untracked.
+
+## Important-review fix: no-copy audit fallback
+
+The initial private-corpus test used a temporary hard link and skipped if
+`os.link` failed. That could hide an acceptance failure on a platform without
+hard-link support.
+
+RED:
+
+```text
+python -m pytest -q tests/unit/test_discovery.py tests/unit/test_audit_outcar.py
+3 failed, 7 passed
+```
+
+The failures proved that descriptive `OUTCAR_official`/`OUTCAR_homever` paths
+could not be loaded directly.
+
+GREEN:
+
+- Discovery now treats an explicitly selected existing file whose basename
+  starts case-insensitively with `OUTCAR` as the exact OUTCAR path.
+- Directory discovery and arbitrary selected-file sibling lookup are unchanged.
+- `audit_outcar` parses the exact source path without copying, linking, or
+  creating a temporary OUTCAR.
+- The private test monkeypatches `os.link` to always raise and still runs both
+  complete audits, typed-parameter checks, and before/after source hashes.
+
+```text
+python -m pytest -q tests/unit/test_discovery.py tests/unit/test_audit_outcar.py tests/integration/test_dataset.py
+28 passed
+
+python -m pytest -q
+641 passed, 7 skipped
+
+python -m ruff check src tests scripts
+All checks passed!
+
+python -m build
+Successfully built vasp_analyzer-0.1.0.tar.gz and vasp_analyzer-0.1.0-py3-none-any.whl
+
+pnpm --dir vscode run package
+Packaged vasp-analyzer-0.1.0.vsix
+
+python scripts/verify_release_artifacts.py --wheel ... --sdist ... --vsix ...
+release artifact contracts passed
+
+python scripts/verify_installed_wheel.py --fixture tests/fixtures/outcar/ase-complete-one-step.OUTCAR
+installed wheel CLI, stdio, and no-browser smokes passed
+```

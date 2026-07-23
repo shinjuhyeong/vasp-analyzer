@@ -26,7 +26,7 @@ def discover_calculation(path: Path) -> DiscoveredCalculation:
     root = selected.parent if selected.is_file() else selected
     outcar = (
         selected
-        if selected.is_file() and selected.name.casefold() == "outcar"
+        if selected.is_file() and selected.name.casefold().startswith("outcar")
         else root / "OUTCAR"
     )
     if not outcar.is_file():

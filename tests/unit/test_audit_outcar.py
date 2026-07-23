@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import hashlib
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -72,7 +71,7 @@ def test_audit_command_exits_nonzero_on_parser_error(tmp_path: Path) -> None:
     ],
 )
 def test_private_audit_outcars_have_clean_effective_parameter_metadata(
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     filename: str,
     expected_steps: int,
     expected_atoms: int,
@@ -81,15 +80,18 @@ def test_private_audit_outcars_have_clean_effective_parameter_metadata(
     source = PRIVATE_AUDIT_ROOT / filename
     if not source.is_file():
         pytest.skip(f"private audit input is absent: {source}")
-    linked = tmp_path / "OUTCAR"
-    try:
-        os.link(source, linked)
-    except OSError as error:
-        pytest.skip(f"private audit input cannot be hard-linked without copying: {error}")
+    monkeypatch.setattr(
+        "os.link",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disabled for test")),
+    )
     before = _sha256(source)
 
-    dataset = load_dataset(linked)
+    report = audit_outcar(source)
+    dataset = load_dataset(source)
 
+    assert report["steps"] == expected_steps
+    assert report["atomCount"] == expected_atoms
+    assert report["sourceUnchanged"] is True
     assert len(dataset.ionic_steps) == expected_steps
     assert len(dataset.sites) == expected_atoms
     effective = {parameter.key: parameter for parameter in dataset.parameters}
