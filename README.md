@@ -84,29 +84,40 @@ fail closed with CLI exit status 2.
 The complete public vocabulary is below. JSON property names are
 case-sensitive. Unknown properties are rejected.
 
-| Path/property | JSON type | Required value or constraint |
-|---|---|---|
-| `schemaVersion` | integer | Exactly `1` (not `1.0`, `true`, or `"1"`) |
-| `id` | string | 1-64 lowercase ASCII identifier characters |
-| `displayName` | string | 1-128 characters |
-| `priority` | integer | `-10000` through `10000`; booleans rejected |
-| `detect` | object | Required detection object |
-| `detect.all` | array of strings | Every printable-ASCII literal must occur in the first 1 MiB |
-| `detect.any` | array of strings | Empty, or at least one literal must occur |
-| `detect.none` | array of strings | No listed literal may occur |
-| `rules` | array | Zero or more projection rules with unique IDs |
-| `rules[].id` | string | Unique bounded identifier |
-| `rules[].scope.start.containsAll` | nonempty array of strings | Every literal must occur on the block header line |
-| `rules[].scope.after.type` | string | Exactly `"dashedSeparator"` |
-| `rules[].scope.rowCount.source` | string | Exactly `"atomCount"`; obtained from validated `NIONS` |
-| `rules[].input.tokenizer` | string | Exactly `"whitespace"` |
-| `rules[].input.columns` | nonempty array | Ordered, uniquely named typed input columns |
-| `columns[].name` | string | Bounded lower-camel or supported snake-case field name |
-| `columns[].type` | string | One of the five column types below |
-| `elementLabel.allowedSuffixes` | array of strings | Optional unique suffixes using ASCII letters, digits, `_`, `+`, `-` |
-| `literal.value` | string | Required single non-whitespace token |
-| `rules[].output.emit` | nonempty array of strings | Unique declared non-`text` columns; an OUTCAR projection emits exactly six `finiteFloat` fields |
-| `rules[].output.separator` | string | Exactly two spaces, `"  "` |
+| Path/property | JSON type | Presence/default | Exact value or constraint |
+|---|---|---|---|
+| `schemaVersion` | integer | Required | Exactly `1` (not `1.0`, `true`, or `"1"`) |
+| `id` | string | Required | Length 1-64; `^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$` |
+| `displayName` | string | Required | Length 1-128 |
+| `priority` | integer | Required | `-10000` through `10000`; booleans rejected |
+| `detect` | object | Required | Strict object containing only `all`, `any`, and `none` |
+| `detect.all` | array of strings | Optional; default `[]` | Unique, nonempty printable ASCII (`0x20`-`0x7e`) literals; every literal must occur in the first 1 MiB |
+| `detect.any` | array of strings | Optional; default `[]` | Same literal rules; empty passes, otherwise at least one must occur |
+| `detect.none` | array of strings | Optional; default `[]` | Same literal rules; no listed literal may occur |
+| `rules` | array | Required; may be `[]` | Projection rules with unique `id` values |
+| `rules[].id` | string | Required | Length 1-64; `^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$` |
+| `rules[].scope` | object | Required | Strict `start`/`after`/`rowCount` object |
+| `rules[].scope.start.containsAll` | array of strings | Required; at least one | Unique, nonempty printable ASCII literals; every literal must occur on the block header line |
+| `rules[].scope.after.type` | string | Required | Exactly `"dashedSeparator"` |
+| `rules[].scope.rowCount.source` | string | Required | Exactly `"atomCount"`; obtained from validated `NIONS` |
+| `rules[].input` | object | Required | Strict `tokenizer`/`columns` object |
+| `rules[].input.tokenizer` | string | Required | Exactly `"whitespace"` |
+| `rules[].input.columns` | array | Required; at least one | Ordered typed columns with unique names |
+| `columns[].name` | string | Required | Length 1-64; `^[a-z][A-Za-z0-9]*(?:_[a-z0-9]+)*$` |
+| `columns[].type` | string | Required | One of the five column types below |
+| `elementLabel.allowedSuffixes` | array of strings | Optional; default `[]` | Unique nonempty values matching `^[A-Za-z0-9_+-]+$` |
+| `literal.value` | string | Required for `literal` | Length 1-128 and exactly one non-whitespace token (`^\S+$`) |
+| `rules[].output` | object | Required | Strict `emit`/`separator` object |
+| `rules[].output.emit` | array of strings | Required; at least one | Unique names matching the column-name grammar and referencing declared non-`text` columns; runtime OUTCAR projection requires exactly six `finiteFloat` fields |
+| `rules[].output.separator` | string | Optional; default `"  "` | Exactly two spaces |
+
+All definition, detection, rule, scope, input, output, and column objects are
+strict: properties not listed above are errors. Arrays have no additional
+maximum item count beyond the stated minimum/uniqueness rules. Detection and
+`containsAll` literals have no additional maximum string length; suffix values
+have no additional maximum length. There are no implicit defaults other than
+the three empty detection arrays, empty `allowedSuffixes`, and the two-space
+output separator shown above.
 
 Column types are interpreted by the analyzer, not invented by each JSON file:
 
@@ -187,11 +198,20 @@ locations, warnings, source-hash verification, and temporary-cleanup status.
 Warnings are never hidden; errors go to stderr and return status 2.
 
 The source OUTCAR is opened read-only as one pinned regular-file identity.
-Symlinks and non-regular files are rejected. The source is hashed before and
-after normalization, a changed identity or content aborts the operation, and
-specialized output exists only in a private temporary directory that is
-removed on success and failure. The standard normalizer parses the original
-path without copying it. No normalizer edits an OUTCAR in place.
+Detection reads its bounded prefix from that same descriptor. Symlinks and
+non-regular files are rejected. The source is hashed through the pinned
+descriptor before and after normalization; a changed path identity or content
+aborts the command before any result is returned. Specialized output exists
+only in a private temporary directory that is removed on success and failure.
+No normalizer edits an OUTCAR in place.
+
+VaspParser 0.0.7 accepts a path rather than an existing descriptor. For a
+no-copy definition (including the packaged standard normalizer in ordinary
+analysis), it therefore opens the original path while the pinned descriptor
+remains the audit authority. If the pathname is replaced or its content is
+mutated during that parse, the final descriptor hash/path-identity audit fails
+closed and the parsed result is discarded. A projection-rule definition gives
+VaspParser only the analyzer-owned temporary normalized path.
 
 To develop a custom normalizer without polluting the active registry:
 

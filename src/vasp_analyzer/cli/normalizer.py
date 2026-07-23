@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping
 from importlib.metadata import version
@@ -25,7 +24,6 @@ from vasp_analyzer.normalizers import (
 from vasp_analyzer.parsing.adapters.vaspparser_outcar import parse_vaspparser_outcar
 
 _PREFIX_BYTES = 1024 * 1024
-_HASH_CHUNK_BYTES = 1024 * 1024
 
 
 def _json(payload: object) -> str:
@@ -68,14 +66,6 @@ def _standard_match() -> NormalizerMatch:
         definition,
         NormalizerSource(str(resource), True),
     )
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(_HASH_CHUNK_BYTES):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def list_normalizers(
@@ -137,48 +127,51 @@ def validate_normalizer(
 
 def test_normalizer(path: Path, outcar: Path) -> str:
     candidate = _read_definition(path)
+    if candidate.definition.id == "standard":
+        raise NormalizerDefinitionError(
+            "reserved packaged normalizer ID 'standard' cannot be tested as a candidate"
+        )
     standard = _standard_match()
-    registry = (
-        (candidate,)
-        if candidate.definition.id == "standard"
-        else (standard, candidate)
-    )
-    with outcar.open("rb") as stream:
-        prefix = stream.read(_PREFIX_BYTES)
-    selected = select_normalizer(prefix, registry)
-    if selected.definition.id != candidate.definition.id:
-        raise NormalizerDefinitionError(
-            f"normalizer {candidate.definition.id!r} did not match the OUTCAR prefix"
-        )
-    sites = _header_sites(prefix)
-    provenance = ParserProvenance(
-        adapter="vaspparser",
-        adapter_version=version("vaspparser"),
-        dialect="normalizer-test",
-        normalizer_id=candidate.definition.id,
-        normalizer_display_name=candidate.definition.display_name,
-        normalizer_schema_version=candidate.definition.schema_version,
-        normalizer_definition_sha256=candidate.definition_hash,
-    )
+    registry = (standard, candidate)
     temporary_path: Path | None = None
-    with normalize_outcar(outcar, candidate) as normalized:
-        temporary_path = (
-            normalized.parser_path
-            if normalized.parser_path != outcar.absolute()
-            else None
-        )
-        trajectory = parse_vaspparser_outcar(
-            normalized.parser_path,
-            sites,
-            provenance,
-        )
-        manifest = normalized.manifest
-    source_sha256 = _sha256(outcar)
-    source_hash_verified = source_sha256 == manifest.source_sha256
-    if not source_hash_verified:
-        raise NormalizerDefinitionError(
-            "OUTCAR source hash changed after the normalization test"
-        )
+    try:
+        with normalize_outcar(outcar, candidate) as normalized:
+            prefix = normalized.source_prefix(_PREFIX_BYTES)
+            selected = select_normalizer(prefix, registry)
+            if selected.definition.id != candidate.definition.id:
+                raise NormalizerDefinitionError(
+                    f"normalizer {candidate.definition.id!r} did not match "
+                    "the OUTCAR prefix"
+                )
+            sites = _header_sites(prefix)
+            provenance = ParserProvenance(
+                adapter="vaspparser",
+                adapter_version=version("vaspparser"),
+                dialect="normalizer-test",
+                normalizer_id=candidate.definition.id,
+                normalizer_display_name=candidate.definition.display_name,
+                normalizer_schema_version=candidate.definition.schema_version,
+                normalizer_definition_sha256=candidate.definition_hash,
+            )
+            temporary_path = (
+                normalized.parser_path
+                if normalized.parser_path != outcar.absolute()
+                else None
+            )
+            trajectory = parse_vaspparser_outcar(
+                normalized.parser_path,
+                sites,
+                provenance,
+            )
+            manifest = normalized.manifest
+    except Exception as error:
+        notes = getattr(error, "__notes__", ())
+        if notes:
+            raise NormalizerDefinitionError(
+                "; ".join((str(error), *notes))
+            ) from error
+        raise
+    source_hash_verified = True
     temporary_cleaned = temporary_path is None or not temporary_path.exists()
     if not temporary_cleaned:
         raise NormalizerDefinitionError(

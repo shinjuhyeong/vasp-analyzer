@@ -231,6 +231,18 @@ class NormalizedOutcarSession:
     _temporary_directory: tempfile.TemporaryDirectory[str] | None = None
     _closed: bool = False
 
+    def source_prefix(self, maximum_bytes: int) -> bytes:
+        """Read a bounded prefix from the pinned, audited source descriptor."""
+
+        if self._closed:
+            raise OutcarNormalizationError("normalization session is closed")
+        if maximum_bytes < 0:
+            raise ValueError("maximum_bytes must be nonnegative")
+        self._source.seek(0)
+        prefix = self._source.read(maximum_bytes)
+        self._source.seek(0)
+        return prefix
+
     def close(self) -> None:
         if self._closed:
             return
