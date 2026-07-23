@@ -24,6 +24,31 @@ def test_installed_stdio_smoke_requires_schema_4_result() -> None:
         )
 
 
+def test_installed_stdio_smoke_requires_clean_typed_parameter_metadata() -> None:
+    output = (
+        '{"id":1,"result":{"schemaVersion":4,'
+        + PROVENANCE
+        + '"initialStructure":null,'
+        '"ionicSteps":[{"scfIterations":1}],'
+        '"parameters":['
+        '{"key":"encut","rawValue":"600.0 eV 44.10 Ry",'
+        '"value":600.0,"unit":"eV"}]}}\n'
+    )
+
+    validate_stdio_output(
+        output,
+        expect_initial_structure=False,
+        expected_parameters={"encut": (600.0, "eV")},
+    )
+
+    with pytest.raises(InstalledWheelSmokeError, match="parameter encut"):
+        validate_stdio_output(
+            output,
+            expect_initial_structure=False,
+            expected_parameters={"encut": ("600.0 eV 44.10 Ry", "eV")},
+        )
+
+
 def test_installed_stdio_smoke_rejects_error_envelopes() -> None:
     with pytest.raises(InstalledWheelSmokeError, match="error"):
         validate_stdio_output(

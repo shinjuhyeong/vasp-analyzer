@@ -56,7 +56,19 @@ Convergence starts with **Energy** only. Select **Energy**, **Force**, and **Cel
 
 Module selection, metric selection, and Graph/Table modes are restored after reopening. The initial or normalized-empty state remains Energy-only.
 
-The **Parameters** analysis tab has interpreted and raw views of effective values echoed by OUTCAR. Interpreted mode categorizes recognized keys and uses the last repeated occurrence as the effective value. EDIFFG is interpreted conservatively by its parsed scalar sign: positive values are energy-change criteria in eV, negative values are force criteria in eV/angstrom, zero is disabled, and untyped values receive no asserted unit. Raw mode retains every ordered occurrence, including repeated or unknown home-version keys. It does not claim whether a value was explicitly present in INCAR or chosen by a VASP default.
+The **Parameters** analysis tab is optional metadata supplied by an
+analyzer-owned OUTCAR reader; VaspParser remains the sole parser for trajectory
+structures, forces, energies, cells, and stresses. Interpreted mode categorizes
+recognized keys, uses the final repeated occurrence as the effective value,
+converts supported values to booleans/numbers/tuples, and normalizes known
+units. EDIFFG is interpreted conservatively by its parsed scalar sign: positive
+values are energy-change criteria in eV, negative values are force criteria in
+eV/angstrom, zero is disabled, and untyped values receive no asserted unit.
+Raw mode retains every source occurrence, including its annotated text and
+repeated or unknown home-version keys. Neither view claims whether a value was
+explicitly present in INCAR or chosen by a VASP default. A malformed or
+unreadable parameter record produces a warning (and may leave Parameters empty)
+but never blocks an otherwise valid OUTCAR trajectory from opening.
 
 ## JSON OUTCAR normalizers
 

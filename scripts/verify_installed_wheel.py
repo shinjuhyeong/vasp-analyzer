@@ -29,6 +29,13 @@ Direct
 0.5 0.5 0.5
 """
 
+_ANNOTATED_PARAMETERS = (
+    b"Startparameter for this Run:\n"
+    b"ENCUT = 600.0 eV  44.10 Ry    installed smoke annotation\n"
+    b"ISPIN = 1    spin polarized calculation?\n"
+    b"------------------------------\n"
+)
+
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -83,6 +90,7 @@ def validate_stdio_output(
     *,
     expect_initial_structure: bool,
     expected_steps: int | None = None,
+    expected_parameters: dict[str, tuple[object, str | None]] | None = None,
 ) -> None:
     lines = [line for line in output.splitlines() if line.strip()]
     if len(lines) != 1:
@@ -132,6 +140,27 @@ def validate_stdio_output(
         raise InstalledWheelSmokeError(
             "installed stdio smoke returned Initial data for an OUTCAR-only calculation"
         )
+    if expected_parameters is not None:
+        parameters = result.get("parameters")
+        if not isinstance(parameters, list):
+            raise InstalledWheelSmokeError(
+                "installed stdio smoke omitted parameter metadata"
+            )
+        effective = {
+            item.get("key"): item
+            for item in parameters
+            if isinstance(item, dict) and isinstance(item.get("key"), str)
+        }
+        for key, (value, unit) in expected_parameters.items():
+            parameter = effective.get(key)
+            if (
+                not isinstance(parameter, dict)
+                or parameter.get("value") != value
+                or parameter.get("unit") != unit
+            ):
+                raise InstalledWheelSmokeError(
+                    f"installed stdio smoke did not type parameter {key}"
+                )
 
 
 def validate_no_browser_result(returncode: int, output: str) -> None:
@@ -181,7 +210,10 @@ def verify_installed_wheel(
         with_poscar.mkdir()
         without_poscar.mkdir()
         for calculation in (with_poscar, without_poscar):
-            shutil.copyfile(fixture, calculation / "OUTCAR")
+            with (calculation / "OUTCAR").open("wb") as stream:
+                stream.write(_ANNOTATED_PARAMETERS)
+                with fixture.open("rb") as source:
+                    shutil.copyfileobj(source, stream)
         (with_poscar / "POSCAR").write_text(_CURATED_POSCAR, encoding="utf-8")
 
         location = subprocess.run(
@@ -306,6 +338,10 @@ def verify_installed_wheel(
             validate_stdio_output(
                 stdio_result.stdout,
                 expect_initial_structure=expect_initial_structure,
+                expected_parameters={
+                    "encut": (600.0, "eV"),
+                    "ispin": (1, None),
+                },
             )
 
         for index, (audit_source, expected_steps) in enumerate(audit_outcars):

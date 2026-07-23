@@ -15,6 +15,28 @@ const parameters: readonly ParameterOccurrence[] = [
 ];
 
 describe("ParametersPanel", () => {
+  it("shows clean final typed values while preserving annotated raw text", async () => {
+    render(<ParametersPanel parameters={[
+      { key: "encut", rawKey: "ENCUT", rawValue: "400 eV old cutoff", value: 400, unit: "eV", category: "electronic", description: "Plane-wave cutoff", ordinal: 0, lineNumber: 10 },
+      { key: "encut", rawKey: "ENCUT", rawValue: "600.0 eV 44.10 Ry", value: 600, unit: "eV", category: "electronic", description: "Plane-wave cutoff", ordinal: 1, lineNumber: 20 },
+    ]} />);
+
+    expect(screen.queryByRole("cell", { name: "400" })).not.toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "600" })).toBeVisible();
+    expect(screen.getByRole("cell", { name: "eV" })).toBeVisible();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Raw parameters" }));
+    expect(screen.getByText("400 eV old cutoff")).toBeVisible();
+    expect(screen.getByText("600.0 eV 44.10 Ry")).toBeVisible();
+  });
+
+  it("explains that unavailable parameter metadata does not disable other analysis", () => {
+    render(<ParametersPanel parameters={[]} />);
+
+    expect(screen.getByText(
+      /parameter metadata is unavailable.*other OUTCAR analysis remains usable/i,
+    )).toBeVisible();
+  });
+
   it("preserves standard effective values and an unknown home occurrence from transport", async () => {
     const transported: readonly ParameterOccurrence[] = [
       { key: "encut", rawKey: "ENCUT", rawValue: "520", value: 520, unit: "eV", category: "electronic", description: "Plane-wave cutoff energy", ordinal: 0, lineNumber: 8 },

@@ -180,7 +180,11 @@ export function ParametersPanel({ parameters }: ParametersPanelProps): ReactElem
         </div>
       )}
       {(view === "raw" ? raw : interpreted).length === 0 && (
-        <p className="empty-detail">No parameters match the current view.</p>
+        <p className="empty-detail">
+          {parameters.length === 0
+            ? "Parameter metadata is unavailable; other OUTCAR analysis remains usable."
+            : "No parameters match the current view."}
+        </p>
       )}
     </section>
   );
