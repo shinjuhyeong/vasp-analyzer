@@ -16,7 +16,7 @@ from .manifest import LineChange, NormalizationManifest, bounded_excerpt
 from .models import ProjectionRule
 from .registry import NormalizerMatch
 
-_NIONS = re.compile(r"^\s*NIONS\s*=\s*([1-9][0-9]*)\s+ions\s*$")
+_NIONS = re.compile(r"(?<![A-Za-z0-9_])NIONS\s*=\s*([0-9]+)(?=\s|$)")
 _HASH_CHUNK_SIZE = 64 * 1024
 _MIN_DASHES = 10
 MAX_LOGICAL_ROW_BYTES = 1024 * 1024
@@ -151,6 +151,35 @@ def _validate_rules(rules: tuple[ProjectionRule, ...]) -> None:
             raise OutcarNormalizationError(
                 f"rule {rule.id!r} must emit exactly six finiteFloat fields"
             )
+
+
+def _extract_atom_count(text: str, line_number: int) -> int | None:
+    if "NIONS" not in text:
+        return None
+    matches = tuple(_NIONS.finditer(text))
+    if len(matches) != 1:
+        qualifier = "ambiguous" if len(matches) > 1 else "invalid"
+        raise OutcarNormalizationError(
+            f"{qualifier} NIONS metadata at line {line_number}"
+        )
+    atom_count_digits = matches[0].group(1)
+    if atom_count_digits.startswith("0"):
+        raise OutcarNormalizationError(
+            f"invalid NIONS metadata at line {line_number}"
+        )
+    maximum_digits = str(MAX_ATOM_COUNT)
+    if (
+        len(atom_count_digits) > len(maximum_digits)
+        or (
+            len(atom_count_digits) == len(maximum_digits)
+            and atom_count_digits > maximum_digits
+        )
+    ):
+        raise OutcarNormalizationError(
+            f"atom count exceeds security bound {MAX_ATOM_COUNT} "
+            f"at line {line_number}"
+        )
+    return int(atom_count_digits)
 
 
 def _audit_source(
@@ -308,30 +337,13 @@ def _transform(
         for line_number, line in lines:
             content, _ = _split_newline(line)
             text = _decode(content, line_number)
-            if "NIONS" in text:
-                matched_nions = _NIONS.fullmatch(text)
-                if matched_nions is None:
-                    raise OutcarNormalizationError(
-                        f"invalid NIONS metadata at line {line_number}"
-                    )
+            parsed_atom_count = _extract_atom_count(text, line_number)
+            if parsed_atom_count is not None:
                 if atom_count is not None:
                     raise OutcarNormalizationError(
                         f"repeated NIONS before block at line {line_number}"
                     )
-                atom_count_digits = matched_nions.group(1)
-                maximum_digits = str(MAX_ATOM_COUNT)
-                if (
-                    len(atom_count_digits) > len(maximum_digits)
-                    or (
-                        len(atom_count_digits) == len(maximum_digits)
-                        and atom_count_digits > maximum_digits
-                    )
-                ):
-                    raise OutcarNormalizationError(
-                        f"atom count exceeds security bound {MAX_ATOM_COUNT} "
-                        f"at line {line_number}"
-                    )
-                atom_count = int(atom_count_digits)
+                atom_count = parsed_atom_count
 
             rule = next(
                 (

@@ -12,18 +12,20 @@ from pathlib import Path
 
 from vasp_analyzer.core import CalculationDataset, FrozenModel, SourceFile
 from vasp_analyzer.parsing.profiles import CompatibilityProfile
-from vasp_analyzer.parsing.recovery import ParserCheckpoint
-
-_CACHE_SCHEMA_VERSION = 4
+_CACHE_SCHEMA_VERSION = 5
 _WRITE_LOCK = threading.Lock()
 
 
 class CachedCalculation(FrozenModel):
     dataset: CalculationDataset
-    checkpoint: ParserCheckpoint
 
 
-def cache_key(source: SourceFile, dialect_id: str, profile: CompatibilityProfile) -> str:
+def cache_key(
+    source: SourceFile,
+    dialect_id: str,
+    profile: CompatibilityProfile,
+    normalizer_definition_sha256: str = "",
+) -> str:
     profile_json = json.dumps(
         profile.model_dump(mode="json", by_alias=False),
         sort_keys=True,
@@ -38,6 +40,7 @@ def cache_key(source: SourceFile, dialect_id: str, profile: CompatibilityProfile
             "source": source.model_dump(mode="json", by_alias=False),
             "dialect": dialect_id,
             "profile_sha256": sha256(profile_json.encode()).hexdigest(),
+            "normalizer_definition_sha256": normalizer_definition_sha256,
         },
         sort_keys=True,
         separators=(",", ":"),

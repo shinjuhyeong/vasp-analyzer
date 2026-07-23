@@ -49,7 +49,11 @@ class ForceComponent(FrozenModel):
 
 
 class ParserWarning(FrozenModel):
-    category: Literal["IncompleteTail", "IgnoredCompatibilityMetadata"]
+    category: Literal[
+        "IncompleteTail",
+        "IgnoredCompatibilityMetadata",
+        "GrowingFileParseFailure",
+    ]
     message: str
     byte_offset: int | None = None
     line_number: int | None = None
@@ -62,6 +66,13 @@ class ParserProvenance(FrozenModel):
     profile_id: str | None = None
     normalization_rules: tuple[str, ...] = ()
     compatibility_metadata: tuple[str, ...] = ()
+    normalizer_id: str | None = None
+    normalizer_display_name: str | None = None
+    normalizer_schema_version: int | None = None
+    normalizer_definition_sha256: str | None = None
+    normalization_changed_line_count: int = 0
+    normalization_manifest_reference: str | None = None
+    normalization_warnings: tuple[str, ...] = ()
 
 
 class EnergyTerm(FrozenModel):
@@ -206,7 +217,7 @@ class InitialStructure(FrozenModel):
 
 
 class CalculationDataset(FrozenModel):
-    schema_version: Literal[3] = 3
+    schema_version: Literal[4] = 4
     root: str
     source_files: tuple[SourceFile, ...]
     sites: tuple[Site, ...]

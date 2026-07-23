@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from vasp_analyzer.calculation import cache as cache_module
-from vasp_analyzer.calculation.cache import CacheStore, cache_key
-from vasp_analyzer.core import SourceFile
+from vasp_analyzer.calculation.cache import CacheStore, CachedCalculation, cache_key
+from vasp_analyzer.core import CalculationDataset, SourceFile
 from vasp_analyzer.parsing.profiles import CompatibilityProfile
 
 
@@ -41,13 +41,35 @@ def test_cache_atomic_writers_do_not_share_tmp_name(tmp_path: Path) -> None:
     assert not list(store.root.glob("*.tmp"))
 
 
-def test_cache_schema_4_uses_a_new_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cache_schema_5_and_normalizer_definition_use_a_new_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     source = SourceFile(path="/calc", size=10, mtime_ns=20, fingerprint="abc")
     profile = CompatibilityProfile(schema_version=1, id="standard", display_name="Standard")
-    assert cache_module._CACHE_SCHEMA_VERSION == 4
-    monkeypatch.setattr(cache_module, "_CACHE_SCHEMA_VERSION", 3)
-    legacy = cache_key(source, "standard", profile)
+    assert cache_module._CACHE_SCHEMA_VERSION == 5
     monkeypatch.setattr(cache_module, "_CACHE_SCHEMA_VERSION", 4)
+    legacy = cache_key(source, "standard", profile)
+    monkeypatch.setattr(cache_module, "_CACHE_SCHEMA_VERSION", 5)
     current = cache_key(source, "standard", profile)
 
     assert current != legacy
+    assert cache_key(source, "standard", profile, "definition-a") != cache_key(
+        source, "standard", profile, "definition-b"
+    )
+
+
+def test_cache_fails_old_dataset_schema_closed(tmp_path: Path) -> None:
+    store = CacheStore(tmp_path / "cache")
+    payload = CachedCalculation(
+        dataset=CalculationDataset(
+            root="/calc",
+            source_files=(),
+            sites=(),
+            initial_structure=None,
+            ionic_steps=(),
+            capabilities=(),
+        )
+    ).model_dump_json()
+    store.put_raw("old", payload.replace('"schemaVersion":4', '"schemaVersion":3'))
+
+    assert store.get("old") is None

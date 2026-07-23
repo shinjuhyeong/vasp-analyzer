@@ -46,7 +46,7 @@ def test_source_files_are_deeply_immutable(tmp_path: Path) -> None:
         dataset.source_files = ()
 
 
-def test_dataset_v3_preserves_energy_stress_and_parameter_occurrences() -> None:
+def test_dataset_v4_preserves_energy_stress_and_parameter_occurrences() -> None:
     term = EnergyTerm(
         key="ewald",
         raw_label="Ewald energy",
@@ -96,10 +96,10 @@ def test_dataset_v3_preserves_energy_stress_and_parameter_occurrences() -> None:
         capabilities=(),
     )
 
-    assert dataset.schema_version == 3
+    assert dataset.schema_version == 4
     assert dataset.ionic_steps[0].energy_terms[0].raw_label == "Ewald energy"
     assert dataset.parameters[0].value == 520.0
-    assert dataset.model_dump(mode="json")["schemaVersion"] == 3
+    assert dataset.model_dump(mode="json")["schemaVersion"] == 4
     assert dataset.model_dump(mode="json")["initialStructure"] is None
 
 
@@ -158,7 +158,7 @@ def test_initial_structure_rejects_finite_singular_lattice() -> None:
 
 def test_calculation_dataset_requires_explicit_nullable_initial_structure() -> None:
     payload = {
-        "schemaVersion": 3,
+        "schemaVersion": 4,
         "root": "/calculation",
         "sourceFiles": [],
         "sites": [],

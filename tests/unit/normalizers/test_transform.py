@@ -174,6 +174,26 @@ def test_specialized_projection_is_line_and_newline_preserving(tmp_path: Path) -
     assert _sha(source) == source_hash
 
 
+def test_specialized_projection_accepts_standard_dimension_line_nions_assignment(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_text(
+        "vasp.5.4.1-barrier\n"
+        "number of dos NEDOS = 301 number of ions NIONS = 2\n"
+        "POSITION TOTAL-FORCE\n"
+        "--------------------\n"
+        "H_ 1 0 0 0 1 2 3\n"
+        "H_ 2 1 1 1 4 5 6\n",
+        encoding="utf-8",
+    )
+
+    with normalize_outcar(source, _home_match()) as session:
+        assert "0  0  0  1  2  3" in session.parser_path.read_text(
+            encoding="utf-8"
+        )
+
+
 def test_standard_session_returns_source_without_copy(tmp_path: Path) -> None:
     source = tmp_path / "OUTCAR"
     source.write_bytes(b"ordinary\r\nOUTCAR\n")
@@ -306,8 +326,8 @@ def test_lone_cr_lines_and_no_final_newline_are_preserved(tmp_path: Path) -> Non
         "NIONS = -1 ions",
         "NIONS = +1 ions",
         "NIONS = 01 ions",
-        "prefix NIONS = 1 ions",
-        "NIONS = 1 ions trailing",
+        "prefix XNIONS = 1 ions",
+        "NIONS = 1 NIONS = 2",
         "NIONS = one ions",
     ],
 )
