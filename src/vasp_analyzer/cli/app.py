@@ -25,6 +25,7 @@ from vasp_analyzer.transport.handoff import (
 from vasp_analyzer.transport.stdio import serve_stdio
 
 from .corpus import validate_corpus
+from .normalizer import list_normalizers, test_normalizer, validate_normalizer
 
 
 class WebLaunchRequest(FrozenModel):
@@ -121,8 +122,10 @@ def create_app(
     )
     corpus_app = typer.Typer()
     dialect_app = typer.Typer()
+    normalizer_app = typer.Typer()
     application.add_typer(corpus_app, name="corpus")
     application.add_typer(dialect_app, name="dialect")
+    application.add_typer(normalizer_app, name="normalizer")
 
     @application.callback()
     def root(
@@ -195,6 +198,29 @@ def create_app(
             selected_profile = load_profile(profile) if profile is not None else None
             result = validate_path_dialect(path, selected_profile)
             typer.echo(result.model_dump_json(by_alias=True, indent=2))
+        except (AnalyzerError, OSError, ValueError) as exc:
+            _emit_error(exc)
+
+    @normalizer_app.command("list")
+    def normalizer_list() -> None:
+        try:
+            environment = os.environ if environ is None else environ
+            typer.echo(list_normalizers(environment, Path.home()))
+        except (AnalyzerError, OSError, ValueError) as exc:
+            _emit_error(exc)
+
+    @normalizer_app.command("validate")
+    def normalizer_validate(path: Path) -> None:
+        try:
+            environment = os.environ if environ is None else environ
+            typer.echo(validate_normalizer(path, environment, Path.home()))
+        except (AnalyzerError, OSError, ValueError) as exc:
+            _emit_error(exc)
+
+    @normalizer_app.command("test")
+    def normalizer_test(path: Path, outcar: Path) -> None:
+        try:
+            typer.echo(test_normalizer(path, outcar))
         except (AnalyzerError, OSError, ValueError) as exc:
             _emit_error(exc)
 

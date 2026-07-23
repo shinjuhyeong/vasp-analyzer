@@ -58,6 +58,165 @@ Module selection, metric selection, and Graph/Table modes are restored after reo
 
 The **Parameters** analysis tab has interpreted and raw views of effective values echoed by OUTCAR. Interpreted mode categorizes recognized keys and uses the last repeated occurrence as the effective value. EDIFFG is interpreted conservatively by its parsed scalar sign: positive values are energy-change criteria in eV, negative values are force criteria in eV/angstrom, zero is disabled, and untyped values receive no asserted unit. Raw mode retains every ordered occurrence, including repeated or unknown home-version keys. It does not claim whether a value was explicitly present in INCAR or chosen by a VASP default.
 
+## JSON OUTCAR normalizers
+
+VASP Analyzer uses `vaspparser==0.0.7` as its authoritative OUTCAR parser. A
+normalizer is a strict, data-only JSON definition for a home VASP build whose
+OUTCAR adds columns that standard VaspParser does not accept. It may project a
+recognized whitespace-delimited position/force row into VASP's six numeric
+columns; it cannot execute code, run regular expressions, delete arbitrary
+text, or redefine analyzer domain types.
+
+Packaged definitions are loaded first from
+`vasp_analyzer/normalizers/definitions/*.json`. Add personal definitions as
+individual `.json` files in:
+
+- `$XDG_CONFIG_HOME/vasp-analyzer/normalizers/` when `XDG_CONFIG_HOME` is set;
+- otherwise `~/.config/vasp-analyzer/normalizers/`.
+
+Files and packaged resources are sorted by filename. Duplicate IDs are fatal;
+a user file never silently replaces a packaged definition. Invalid JSON,
+unknown fields, unsupported schema versions, bad types, and registry conflicts
+fail closed with CLI exit status 2.
+
+### Definition schema
+
+The complete public vocabulary is below. JSON property names are
+case-sensitive. Unknown properties are rejected.
+
+| Path/property | JSON type | Required value or constraint |
+|---|---|---|
+| `schemaVersion` | integer | Exactly `1` (not `1.0`, `true`, or `"1"`) |
+| `id` | string | 1-64 lowercase ASCII identifier characters |
+| `displayName` | string | 1-128 characters |
+| `priority` | integer | `-10000` through `10000`; booleans rejected |
+| `detect` | object | Required detection object |
+| `detect.all` | array of strings | Every printable-ASCII literal must occur in the first 1 MiB |
+| `detect.any` | array of strings | Empty, or at least one literal must occur |
+| `detect.none` | array of strings | No listed literal may occur |
+| `rules` | array | Zero or more projection rules with unique IDs |
+| `rules[].id` | string | Unique bounded identifier |
+| `rules[].scope.start.containsAll` | nonempty array of strings | Every literal must occur on the block header line |
+| `rules[].scope.after.type` | string | Exactly `"dashedSeparator"` |
+| `rules[].scope.rowCount.source` | string | Exactly `"atomCount"`; obtained from validated `NIONS` |
+| `rules[].input.tokenizer` | string | Exactly `"whitespace"` |
+| `rules[].input.columns` | nonempty array | Ordered, uniquely named typed input columns |
+| `columns[].name` | string | Bounded lower-camel or supported snake-case field name |
+| `columns[].type` | string | One of the five column types below |
+| `elementLabel.allowedSuffixes` | array of strings | Optional unique suffixes using ASCII letters, digits, `_`, `+`, `-` |
+| `literal.value` | string | Required single non-whitespace token |
+| `rules[].output.emit` | nonempty array of strings | Unique declared non-`text` columns; an OUTCAR projection emits exactly six `finiteFloat` fields |
+| `rules[].output.separator` | string | Exactly two spaces, `"  "` |
+
+Column types are interpreted by the analyzer, not invented by each JSON file:
+
+| Type | Meaning |
+|---|---|
+| `elementLabel` | A chemical element symbol, optionally followed by one declared suffix |
+| `positiveInteger` | A base-10 integer greater than zero |
+| `finiteFloat` | A finite VASP-style numeric token; NaN and infinity are rejected |
+| `literal` | One exact token equal to the column's `value` |
+| `text` | A consumed token that cannot be emitted |
+
+Detection is an exact, case-sensitive byte-literal check over at most the first
+1 MiB. Of the matching non-standard definitions, the unique highest
+`priority` wins. Equal highest priorities are an ambiguity error. If none
+matches, the packaged `standard` normalizer is selected and copies nothing.
+
+The built-in home-barrier definition is:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "home-barrier",
+  "displayName": "Home VASP Barrier",
+  "priority": 100,
+  "detect": {
+    "all": ["vasp.5.4.1-barrier"],
+    "any": ["POSITION", "TOTAL-FORCE"],
+    "none": []
+  },
+  "rules": [
+    {
+      "id": "named-position-force-row",
+      "scope": {
+        "start": {"containsAll": ["POSITION", "TOTAL-FORCE"]},
+        "after": {"type": "dashedSeparator"},
+        "rowCount": {"source": "atomCount"}
+      },
+      "input": {
+        "tokenizer": "whitespace",
+        "columns": [
+          {"name": "species", "type": "elementLabel", "allowedSuffixes": ["_"]},
+          {"name": "localIndex", "type": "positiveInteger"},
+          {"name": "x", "type": "finiteFloat"},
+          {"name": "y", "type": "finiteFloat"},
+          {"name": "z", "type": "finiteFloat"},
+          {"name": "fx", "type": "finiteFloat"},
+          {"name": "fy", "type": "finiteFloat"},
+          {"name": "fz", "type": "finiteFloat"}
+        ]
+      },
+      "output": {
+        "emit": ["x", "y", "z", "fx", "fy", "fz"],
+        "separator": "  "
+      }
+    }
+  ]
+}
+```
+
+### Inspect, validate, and test
+
+All three commands print deterministic JSON. `list` includes the canonical
+definition hash and the actual packaged or user source path:
+
+```text
+analyzer normalizer list
+analyzer normalizer validate ~/.config/vasp-analyzer/normalizers/my-home.json
+analyzer normalizer test ~/.config/vasp-analyzer/normalizers/my-home.json /path/to/OUTCAR
+```
+
+`validate` checks the supplied file and conflicts against the active packaged
+and user registry. `test` is deliberately isolated: it loads only the supplied
+definition plus the packaged standard fallback, applies it to the named
+OUTCAR, invokes the real VaspParser adapter, and verifies step/atom/array
+invariants. Its JSON includes the parser summary, source and definition
+SHA-256 values, changed-line counts per rule, bounded first/last changed-line
+locations, warnings, source-hash verification, and temporary-cleanup status.
+Warnings are never hidden; errors go to stderr and return status 2.
+
+The source OUTCAR is opened read-only as one pinned regular-file identity.
+Symlinks and non-regular files are rejected. The source is hashed before and
+after normalization, a changed identity or content aborts the operation, and
+specialized output exists only in a private temporary directory that is
+removed on success and failure. The standard normalizer parses the original
+path without copying it. No normalizer edits an OUTCAR in place.
+
+To develop a custom normalizer without polluting the active registry:
+
+```text
+mkdir -p /tmp/vasp-normalizer-work
+cp /path/to/example/OUTCAR /tmp/vasp-normalizer-work/OUTCAR
+cp ~/.config/vasp-analyzer/normalizers/my-home.json \
+  /tmp/vasp-normalizer-work/candidate.json
+analyzer normalizer validate /tmp/vasp-normalizer-work/candidate.json
+analyzer normalizer test \
+  /tmp/vasp-normalizer-work/candidate.json \
+  /tmp/vasp-normalizer-work/OUTCAR
+mkdir -p ~/.config/vasp-analyzer/normalizers
+cp /tmp/vasp-normalizer-work/candidate.json \
+  ~/.config/vasp-analyzer/normalizers/my-home.json
+analyzer normalizer list
+```
+
+Start by copying the full home-barrier JSON above, choose a unique ID and
+specific detection literals, then describe every input token in order. Keep
+the candidate outside the active directory until both `validate` and `test`
+succeed. A JSON normalizer is intentionally limited to safe row projection; a
+home format requiring semantic reconstruction needs an analyzer release with
+a new typed transformation, not an executable hook.
+
 ## Declarative compatibility profiles
 
 Profiles are data-only TOML, schema-versioned, snake_case, strict, and fail closed. Unknown keys, aliases, types, versions, executable hooks, regex deletion, or partial normalization rules are rejected. Supported 0.1.0 fields are shown completely here:
