@@ -6,11 +6,15 @@ from io import BytesIO
 import pytest
 
 from vasp_analyzer.calculation import dataset as dataset_module
+from vasp_analyzer.calculation import session as session_module
 from vasp_analyzer.calculation.cache import CacheStore
+from vasp_analyzer.calculation.cache import cache_key
 from vasp_analyzer.calculation.dataset import load_dataset
 from vasp_analyzer.calculation.session import CalculationSession
 from vasp_analyzer.core import OutcarFormatError
 from vasp_analyzer.parsing.adapters.vaspparser_outcar import ParsedTrajectory
+from vasp_analyzer.normalizers import NormalizerMatch
+from vasp_analyzer.normalizers.models import NormalizerDefinition
 
 
 def _write_poscar(root: Path) -> None:
@@ -35,6 +39,8 @@ def _trajectory(
     provenance,
     energy: float = -1.0,
     energy_components=None,
+    pressures=None,
+    stresses=None,
 ) -> ParsedTrajectory:
     return ParsedTrajectory(
         step_indices=(0,),
@@ -46,8 +52,8 @@ def _trajectory(
         fractional_positions=(((0.0, 0.0, 0.0), (0.5, 0.5, 0.5)),),
         forces=(((1.0, 2.0, 3.0), (4.0, 5.0, 6.0)),),
         cells=(((3.0, 0.0, 0.0), (0.0, 3.0, 0.0), (0.0, 0.0, 3.0)),),
-        stresses=None,
-        pressures=None,
+        stresses=stresses,
+        pressures=pressures,
         scf_energies=None,
         fermi_level=None,
         fermi_levels=None,
@@ -155,6 +161,31 @@ def test_energy_components_use_final_electronic_iteration(
     assert step.energy_terms[5].key == "paw_double_counting_1"
 
 
+def test_pressure_vector_maps_to_hydrostatic_kb_and_cell_volume(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = _calculation(tmp_path / "calc")
+    monkeypatch.setattr(
+        dataset_module,
+        "parse_vaspparser_outcar",
+        lambda _path, sites, provenance: _trajectory(
+            sites,
+            provenance,
+            pressures=((0.100, 0.200, 0.300),),
+            stresses=(
+                ((0.001, 0.009, 0.008), (0.009, 0.002, 0.007), (0.008, 0.007, 0.003)),
+            ),
+        ),
+    )
+
+    step = load_dataset(root).ionic_steps[0]
+
+    assert step.external_pressure_kb == pytest.approx(
+        0.002 * dataset_module._EV_PER_ANGSTROM3_TO_KB
+    )
+    assert step.cell_volume == pytest.approx(27.0)
+
+
 def test_session_retains_success_skips_same_failed_fingerprint_and_recovers(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -203,3 +234,87 @@ def test_session_without_success_propagates_parser_failure(
     session = CalculationSession(root, cache=CacheStore(tmp_path / "cache"))
     with pytest.raises(OutcarFormatError, match="bad initial file"):
         session.load()
+
+
+def _standard_like_match(identifier: str) -> NormalizerMatch:
+    return NormalizerMatch.from_definition(
+        NormalizerDefinition.model_validate(
+            {
+                "schemaVersion": 1,
+                "id": identifier,
+                "displayName": identifier,
+                "priority": 0,
+                "detect": {"all": [], "any": [], "none": []},
+                "rules": [],
+            }
+        )
+    )
+
+
+def test_session_caches_under_definition_selected_by_successful_assembly(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = _calculation(tmp_path / "calc")
+    first = _standard_like_match("standard")
+    assembled = _standard_like_match("assembled")
+    matches = iter((first, assembled, assembled))
+    monkeypatch.setattr(
+        dataset_module, "_select_outcar_normalizer", lambda _path: next(matches)
+    )
+    monkeypatch.setattr(
+        session_module, "_select_outcar_normalizer", lambda _path: next(matches)
+    )
+    monkeypatch.setattr(
+        dataset_module,
+        "parse_vaspparser_outcar",
+        lambda _path, sites, provenance: _trajectory(sites, provenance),
+    )
+    cache = CacheStore(tmp_path / "cache")
+    session = CalculationSession(root, cache=cache)
+
+    session.load()
+
+    source = dataset_module.inspect_calculation(
+        dataset_module.discover_calculation(root)
+    )
+    dialect = dataset_module.detect_path_dialect(
+        dataset_module.discover_calculation(root)
+    )
+    expected = cache_key(source, dialect.id, dialect.profile, assembled.definition_hash)
+    assert (cache.root / f"{expected}.json").is_file()
+
+
+def test_source_change_during_identity_is_not_cached_under_old_fingerprint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = _calculation(tmp_path / "calc")
+    match = _standard_like_match("standard")
+    calls = 0
+
+    def mutate_once(path: Path):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            path.write_bytes(path.read_bytes() + b"changed between identity and assembly\n")
+        return match
+
+    monkeypatch.setattr(dataset_module, "_select_outcar_normalizer", mutate_once)
+    monkeypatch.setattr(session_module, "_select_outcar_normalizer", mutate_once)
+    monkeypatch.setattr(
+        dataset_module,
+        "parse_vaspparser_outcar",
+        lambda _path, sites, provenance: _trajectory(sites, provenance),
+    )
+    cache = CacheStore(tmp_path / "cache")
+    before = dataset_module.inspect_calculation(dataset_module.discover_calculation(root))
+
+    dataset = CalculationSession(root, cache=cache).load()
+
+    after = dataset_module.inspect_calculation(dataset_module.discover_calculation(root))
+    assert after != before
+    dialect = dataset_module.detect_path_dialect(dataset_module.discover_calculation(root))
+    expected = cache_key(after, dialect.id, dialect.profile, match.definition_hash)
+    stale = cache_key(before, dialect.id, dialect.profile, match.definition_hash)
+    assert (cache.root / f"{expected}.json").is_file()
+    assert not (cache.root / f"{stale}.json").exists()
+    assert dataset.ionic_steps

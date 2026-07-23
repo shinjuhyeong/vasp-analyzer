@@ -5,6 +5,7 @@ from pathlib import Path
 from vasp_analyzer.core import (
     AnalyzerError,
     CalculationDataset,
+    DatasetConsistencyError,
     FrozenModel,
     ParserWarning,
     SourceFile,
@@ -58,23 +59,47 @@ class CalculationSession:
         key = cache_key(source, dialect.id, dialect.profile, match.definition_hash)
         return source, key
 
+    def _stable_snapshot(self) -> tuple[CalculationDataset, SourceFile, bool]:
+        for _attempt in range(2):
+            source, key = self._identity()
+            cached = self.cache.get(key)
+            if cached is not None:
+                verified_source, verified_key = self._identity()
+                if (verified_source, verified_key) == (source, key):
+                    return cached.dataset, source, True
+                continue
+            try:
+                dataset, dialect, match, assembled_source = _assemble(
+                    self.path, self.profile
+                )
+            except DatasetConsistencyError as error:
+                if str(error) == "calculation changed during parsing":
+                    continue
+                raise
+            assembled_key = cache_key(
+                assembled_source,
+                dialect.id,
+                dialect.profile,
+                match.definition_hash,
+            )
+            verified_source, verified_key = self._identity()
+            if (verified_source, verified_key) != (assembled_source, assembled_key):
+                continue
+            self.cache.put(assembled_key, CachedCalculation(dataset=dataset))
+            return dataset, assembled_source, False
+        raise DatasetConsistencyError("calculation changed repeatedly during parsing")
+
     def load(self) -> CalculationDataset:
-        source, key = self._identity()
-        cached = self.cache.get(key)
-        cache_reused = cached is not None
-        if cached is None:
-            dataset, _dialect, _match = _assemble(self.path, self.profile)
-            cached = CachedCalculation(dataset=dataset)
-            self.cache.put(key, cached)
-        self._dataset = cached.dataset
+        dataset, source, cache_reused = self._stable_snapshot()
+        self._dataset = dataset
         self._source = source
         self._failed_source = None
         self._retained_after_failure = None
         self._last_evidence = SessionLoadEvidence(cache_reused=cache_reused)
-        return cached.dataset
+        return dataset
 
     def refresh_if_changed(self) -> CalculationDataset:
-        source, key = self._identity()
+        source, _key = self._identity()
         if self._dataset is not None and source == self._source:
             self._last_evidence = SessionLoadEvidence(cache_reused=True)
             return self._dataset
@@ -83,15 +108,8 @@ class CalculationSession:
             return self._retained_after_failure
         if self._dataset is None:
             return self.load()
-        cached = self.cache.get(key)
         try:
-            if cached is not None:
-                dataset = cached.dataset
-                cache_reused = True
-            else:
-                dataset, _dialect, _match = _assemble(self.path, self.profile)
-                self.cache.put(key, CachedCalculation(dataset=dataset))
-                cache_reused = False
+            dataset, source, cache_reused = self._stable_snapshot()
         except (AnalyzerError, OutcarNormalizationError) as error:
             warning = ParserWarning(
                 category="GrowingFileParseFailure",

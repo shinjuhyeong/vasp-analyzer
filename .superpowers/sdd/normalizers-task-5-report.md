@@ -19,6 +19,14 @@
 - Refresh retains the last successful immutable dataset after an analyzer-owned
   parse/normalization failure, avoids re-parsing an unchanged failed fingerprint,
   and retries after the next change. Initial failures propagate.
+- Cache reads are verified against a second source/normalizer identity, and new
+  entries are keyed only from the source fingerprint and definition hash returned
+  by a successful, stable assembly. Two bounded attempts handle concurrent file
+  growth without ever storing a new dataset under a stale key.
+- Converts VaspParser stress tensors from eV/Å³ to kB. Its `(steps, 3)`
+  pressure array contains stress-row means; the scalar UI pressure is therefore
+  computed as the physically hydrostatic `trace(stress)/3`, excluding shear.
+  Cell volume is `abs(det(cell))` in Å³.
 
 ## TDD Evidence
 
@@ -36,21 +44,25 @@
 
 ## Verification
 
-- Relevant calculation/normalizer/adapters/models:
-  `200 passed, 3 skipped` (Windows capability skips).
+- Relevant calculation/normalizer/adapters/models plus the migrated authoritative
+  dataset integration suite: `213 passed, 3 skipped` (Windows capability skips).
 - Ruff: all checks passed.
 - `git diff --check`: clean.
 - No scanner/ASE/checkpoint references under `src/vasp_analyzer/calculation`.
 - Real official OUTCAR: `200 steps`, `6 atoms`, `vaspparser`, `standard`,
-  `0 changed lines`.
+  `0 changed lines`, first pressure `-5.99 kB`, first volume `280.63 Å³`.
 - Real home OUTCAR: `35 steps`, `25 atoms`, `vaspparser`, `home-barrier`,
-  `875 changed lines`.
+  `875 changed lines`, first pressure `-14.70 kB`, first volume `356.75 Å³`.
 - Source files were copied to temporary acceptance directories; originals were
   not modified.
 
-## Deferred Existing Tests
+## Python Gate and Deferred Transport Migration
 
-Full unit collection with importlib mode has three transport-only failures.
-Those tests still require wire schema 3 and synthetic `NIONS = 2 ions` fixtures
-that VaspParser 0.0.7 rejects. Transport schema/fixture migration belongs to
-planned Task 7; Task 5 relevant suites are green.
+The Task 5-owned unit and dataset/session integration gate is green. A complete
+Python run reports `596 passed, 6 skipped, 9 failed`; all nine remaining failures
+are transport/CLI/web surfaces that still require wire schema 3 and/or synthetic
+`NIONS = 2 ions` fixtures rejected by VaspParser 0.0.7. Their schema and fixture
+migration belongs to planned Task 7. The obsolete scanner-specific dataset
+integration assertions were replaced by equivalent authoritative-pipeline
+coverage for discovery, reconciliation, constraints, pressure/volume, cache
+identity/reuse, growing-file retention/recovery, and optional-file exclusion.

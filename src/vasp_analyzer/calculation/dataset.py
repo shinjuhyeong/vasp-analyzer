@@ -8,6 +8,8 @@ from hashlib import sha256
 from importlib.metadata import version
 from pathlib import Path
 
+import numpy as np
+
 from vasp_analyzer.convergence import energy_deltas, force_metrics
 from vasp_analyzer.core import (
     CalculationDataset,
@@ -35,6 +37,7 @@ from vasp_analyzer.parsing.profiles import CompatibilityProfile
 from .discovery import DiscoveredCalculation, discover_calculation
 
 _NORMALIZER_PREFIX_BYTES = 1024 * 1024
+_EV_PER_ANGSTROM3_TO_KB = 1602.176634
 _VRHFIN = re.compile(rb"VRHFIN\s*=\s*([A-Z][a-z]?)\s*:")
 _IONS_PER_TYPE = re.compile(rb"ions per type\s*=\s*((?:[1-9][0-9]*\s*)+)")
 _ENERGY_COMPONENTS = (
@@ -72,8 +75,9 @@ def _source_files(discovered: DiscoveredCalculation) -> tuple[SourceFile, ...]:
     return tuple(inspect_source(path) for path in paths)
 
 
-def inspect_calculation(discovered: DiscoveredCalculation) -> SourceFile:
-    sources = _source_files(discovered)
+def _calculation_source(
+    discovered: DiscoveredCalculation, sources: tuple[SourceFile, ...]
+) -> SourceFile:
     payload = "\0".join(
         f"{item.path}\0{item.size}\0{item.mtime_ns}\0{item.fingerprint}" for item in sources
     )
@@ -83,6 +87,10 @@ def inspect_calculation(discovered: DiscoveredCalculation) -> SourceFile:
         mtime_ns=max(item.mtime_ns for item in sources),
         fingerprint=sha256(payload.encode()).hexdigest(),
     )
+
+
+def inspect_calculation(discovered: DiscoveredCalculation) -> SourceFile:
+    return _calculation_source(discovered, _source_files(discovered))
 
 
 def _read_normalizer_prefix(path: Path) -> bytes:
@@ -206,8 +214,10 @@ def _energy_terms(
 def _assemble(
     path: Path,
     profile: CompatibilityProfile | None = None,
-) -> tuple[CalculationDataset, Dialect, NormalizerMatch]:
+) -> tuple[CalculationDataset, Dialect, NormalizerMatch, SourceFile]:
     discovered = discover_calculation(path)
+    source_files_before = _source_files(discovered)
+    source_before = _calculation_source(discovered, source_files_before)
     dialect = detect_path_dialect(discovered, profile)
     poscar, contcar = _parse_structures(discovered, dialect)
     prefix = _read_normalizer_prefix(discovered.outcar)
@@ -259,7 +269,30 @@ def _assemble(
     steps: list[IonicStep] = []
     for index in trajectory.step_indices:
         metrics = force_metrics(trajectory.forces[index], masks, trajectory.cells[index])
-        stress = trajectory.stresses[index] if trajectory.stresses is not None else None
+        raw_stress = (
+            trajectory.stresses[index] if trajectory.stresses is not None else None
+        )
+        stress = (
+            tuple(
+                tuple(value * _EV_PER_ANGSTROM3_TO_KB for value in row)
+                for row in raw_stress
+            )
+            if raw_stress is not None
+            else None
+        )
+        # VaspParser's (steps, 3) ``pressures`` are row means of its stress
+        # tensor in eV/Å³. The UI model is the physical hydrostatic scalar in
+        # kB, so use trace(stress)/3; summing row means would include shear.
+        pressure = (
+            (
+                (raw_stress[0][0] + raw_stress[1][1] + raw_stress[2][2])
+                / 3.0
+                * _EV_PER_ANGSTROM3_TO_KB
+            )
+            if trajectory.pressures is not None and raw_stress is not None
+            else None
+        )
+        cell_volume = abs(float(np.linalg.det(trajectory.cells[index])))
         steps.append(
             IonicStep(
                 index=index,
@@ -279,6 +312,8 @@ def _assemble(
                     index,
                 ),
                 stress_tensor_kb=stress,
+                external_pressure_kb=pressure,
+                cell_volume=cell_volume,
                 delta_energy=None,
                 scf_iterations=(
                     len(trajectory.scf_energies[index])
@@ -305,22 +340,32 @@ def _assemble(
         if poscar is not None
         else None
     )
+    source_files_after = _source_files(discovered)
+    source_after = _calculation_source(discovered, source_files_after)
+    if source_after != source_before:
+        raise DatasetConsistencyError("calculation changed during parsing")
     dataset = CalculationDataset(
         root=str(discovered.root),
-        source_files=_source_files(discovered),
+        source_files=source_files_after,
         sites=sites,
         initial_structure=initial_structure,
         ionic_steps=ionic_steps,
         capabilities=_capabilities(),
         provenance=provenance,
     )
-    return dataset, dialect, match
+    return dataset, dialect, match, source_after
 
 
 def load_dataset(
     path: Path, profile: CompatibilityProfile | None = None
 ) -> CalculationDataset:
-    return _assemble(path, profile)[0]
+    for _attempt in range(2):
+        try:
+            return _assemble(path, profile)[0]
+        except DatasetConsistencyError as error:
+            if str(error) != "calculation changed during parsing":
+                raise
+    raise DatasetConsistencyError("calculation changed repeatedly during parsing")
 
 
 __all__ = [
