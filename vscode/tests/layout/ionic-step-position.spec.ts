@@ -31,8 +31,12 @@ for (const width of [1280, 640]) {
     const x = async (): Promise<number> =>
       slider.evaluate((node) => node.getBoundingClientRect().x);
     const row = page.getByTestId("structure-toolbar-primary");
+    const titleBounds = await page.locator(".toolbar-primary-grid > .title-group").boundingBox();
+    expect(titleBounds).not.toBeNull();
+    expect.soft(titleBounds!.width).toBe(200);
     const initialX = await x();
     const initialHeight = await row.evaluate((node) => node.getBoundingClientRect().height);
+    expect.soft(initialHeight).toBe(38);
 
     await page.getByRole("button", { name: "Select Initial" }).click();
     const selectedInitialX = await x();
@@ -41,7 +45,7 @@ for (const width of [1280, 640]) {
     await page.getByLabel("Compare structures").check();
     const comparisonX = await x();
     expect.soft(comparisonX).toBe(initialX);
-    expect(await row.evaluate((node) => node.getBoundingClientRect().height)).toBe(initialHeight);
+    expect(await row.evaluate((node) => node.getBoundingClientRect().height)).toBe(38);
 
     const expandBounds = await page.getByRole("button", { name: "Enter structure full-screen" }).boundingBox();
     expect(expandBounds).not.toBeNull();
@@ -53,6 +57,7 @@ for (const width of [1280, 640]) {
       initialX,
       selectedInitialX,
       comparisonX,
+      titleWidth: titleBounds!.width,
       primaryRowHeight: initialHeight,
       expandRight: expandBounds!.x + expandBounds!.width,
     }));

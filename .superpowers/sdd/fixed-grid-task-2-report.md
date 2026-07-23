@@ -35,3 +35,52 @@ The slider coordinate and primary-row height remain exact across both state tran
 - `pnpm --dir vscode test`: 32 files passed, 334 tests passed.
 - `pnpm --dir vscode typecheck`: exit 0.
 - `pnpm --dir vscode build`: exit 0.
+
+## Review follow-up: rendered geometry mutation check
+
+The coordinate spec now reads Chromium `boundingBox()` geometry at both
+viewports and asserts:
+
+- `.toolbar-primary-grid > .title-group` renders at exactly `200px` wide.
+- The primary toolbar row renders at exactly `38px` high before and after the
+  Initial/Compare state transitions, proving that the primary row does not wrap.
+
+### Mutation RED
+
+Temporary, uncommitted production CSS mutations changed the title
+`width`/`min-width` from `200px` to `201px` and the toolbar
+`grid-template-rows` primary value from `38px` to `40px`.
+
+Exact command:
+
+```powershell
+$env:PATH='C:\Users\tlswn\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin;C:\Users\tlswn\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\fallback;'+$env:PATH; pnpm --dir vscode test:layout
+```
+
+Result: exit `1`; 2 tests failed. At both `1280` and `640`, Chromium reported:
+
+```text
+Expected: 200
+Received: 201
+Expected: 38
+Received: 40
+```
+
+The post-transition row-height assertion also reported `Expected: 38`,
+`Received: 40` at both widths. The CSS mutations were then restored and are
+absent from the committed diff.
+
+### Restored GREEN
+
+Exact command:
+
+```powershell
+$env:PATH='C:\Users\tlswn\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin;C:\Users\tlswn\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\fallback;'+$env:PATH; pnpm --dir vscode test:layout
+```
+
+Result: exit `0`; 2 tests passed.
+
+```json
+{"width":1280,"initialX":339.046875,"selectedInitialX":339.046875,"comparisonX":339.046875,"titleWidth":200,"primaryRowHeight":38,"expandRight":1270}
+{"width":640,"initialX":339.046875,"selectedInitialX":339.046875,"comparisonX":339.046875,"titleWidth":200,"primaryRowHeight":38,"expandRight":630}
+```
