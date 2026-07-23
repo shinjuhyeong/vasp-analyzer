@@ -19,6 +19,9 @@ from .registry import NormalizerMatch
 _NIONS = re.compile(r"^\s*NIONS\s*=\s*([1-9][0-9]*)\s+ions\s*$")
 _HASH_CHUNK_SIZE = 64 * 1024
 _MIN_DASHES = 10
+MAX_LOGICAL_ROW_BYTES = 1024 * 1024
+MAX_ATOM_COUNT = 100_000
+MAX_STAGED_BLOCK_BYTES = 64 * 1024 * 1024
 
 
 class OutcarNormalizationError(ValueError):
@@ -36,32 +39,54 @@ def _hash_handle(source: BinaryIO) -> str:
 
 def _logical_lines(source: BinaryIO) -> Iterator[bytes]:
     source.seek(0)
-    pending = bytearray()
-    eof = False
-    while not eof:
-        chunk = source.read(_HASH_CHUNK_SIZE)
-        eof = not chunk
-        pending.extend(chunk)
-        start = 0
-        index = 0
-        while index < len(pending):
-            byte = pending[index]
-            if byte == 0x0A:
-                yield bytes(pending[start : index + 1])
-                start = index + 1
-            elif byte == 0x0D:
-                if index + 1 == len(pending) and not eof:
+    content = bytearray()
+    line_number = 1
+    pending_cr = False
+
+    def append_bounded(segment: bytes) -> None:
+        if len(content) + len(segment) > MAX_LOGICAL_ROW_BYTES:
+            raise OutcarNormalizationError(
+                f"logical row exceeds {MAX_LOGICAL_ROW_BYTES} bytes at line "
+                f"{line_number}"
+            )
+        content.extend(segment)
+
+    while chunk := source.read(_HASH_CHUNK_SIZE):
+        if pending_cr:
+            if chunk.startswith(b"\n"):
+                yield bytes(content) + b"\r\n"
+                chunk = chunk[1:]
+            else:
+                yield bytes(content) + b"\r"
+            content.clear()
+            line_number += 1
+            pending_cr = False
+        while chunk:
+            cr_index = chunk.find(b"\r")
+            lf_index = chunk.find(b"\n")
+            indexes = [index for index in (cr_index, lf_index) if index >= 0]
+            if not indexes:
+                append_bounded(chunk)
+                break
+            ending_index = min(indexes)
+            append_bounded(chunk[:ending_index])
+            ending = chunk[ending_index : ending_index + 1]
+            chunk = chunk[ending_index + 1 :]
+            if ending == b"\r":
+                if not chunk:
+                    pending_cr = True
                     break
-                end = index + 2 if pending[index + 1 : index + 2] == b"\n" else index + 1
-                yield bytes(pending[start:end])
-                start = end
-                index = end - 1
-            index += 1
-        if start:
-            del pending[:start]
-        if eof and pending:
-            yield bytes(pending)
-            pending.clear()
+                if chunk.startswith(b"\n"):
+                    ending = b"\r\n"
+                    chunk = chunk[1:]
+            yield bytes(content) + ending
+            content.clear()
+            line_number += 1
+    if pending_cr:
+        yield bytes(content) + b"\r"
+        content.clear()
+    elif content:
+        yield bytes(content)
     source.seek(0)
 
 
@@ -205,7 +230,9 @@ class NormalizedOutcarSession:
                 audit_error.add_note(f"temporary cleanup also failed: {cleanup_error!r}")
             raise audit_error
         if cleanup_error is not None:
-            raise OutcarNormalizationError("temporary cleanup failed") from cleanup_error
+            raise OutcarNormalizationError(
+                f"temporary cleanup failed: {cleanup_error!r}"
+            ) from cleanup_error
 
     def __enter__(self) -> NormalizedOutcarSession:
         return self
@@ -216,7 +243,16 @@ class NormalizedOutcarSession:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self.close()
+        try:
+            self.close()
+        except BaseException as close_error:
+            if exc_value is None:
+                raise
+            exc_value.add_note(
+                f"normalization session close failed: {close_error!r}"
+            )
+            for note in getattr(close_error, "__notes__", ()):
+                exc_value.add_note(note)
 
 
 def _manifest(
@@ -283,6 +319,11 @@ def _transform(
                         f"repeated NIONS before block at line {line_number}"
                     )
                 atom_count = int(matched_nions.group(1))
+                if atom_count > MAX_ATOM_COUNT:
+                    raise OutcarNormalizationError(
+                        f"atom count exceeds security bound {MAX_ATOM_COUNT} "
+                        f"at line {line_number}"
+                    )
 
             rule = next(
                 (
@@ -316,6 +357,7 @@ def _transform(
 
             staged_rows: list[bytes] = []
             staged_changes: list[LineChange] = []
+            staged_bytes = 0
             for _ in range(atom_count):
                 try:
                     row_number, row = next(lines)
@@ -328,6 +370,12 @@ def _transform(
                 projected, change = _project_row(
                     row_content, row_newline, rule, row_number
                 )
+                staged_bytes += len(projected)
+                if staged_bytes > MAX_STAGED_BLOCK_BYTES:
+                    raise OutcarNormalizationError(
+                        f"staged block exceeds {MAX_STAGED_BLOCK_BYTES} bytes "
+                        f"at line {row_number}"
+                    )
                 staged_rows.append(projected)
                 staged_changes.append(change)
             output_stream.write(separator_line)

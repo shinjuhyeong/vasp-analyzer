@@ -525,3 +525,100 @@ def test_open_rejects_descriptor_identity_race(
     monkeypatch.setattr(transform.os, "fstat", mismatched_fstat)
     with pytest.raises(OutcarNormalizationError, match="identity changed"):
         normalize_outcar(source, _standard_match())
+
+
+def test_logical_row_exact_byte_limit_is_accepted(tmp_path: Path) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_bytes(
+        b"x" * transform.MAX_LOGICAL_ROW_BYTES
+        + b"\nvasp.5.4.1-barrier\nNIONS = 1 ions\nPOSITION TOTAL-FORCE\n"
+        b"----------\nO_ 1 0 1 2 3 4 5\n"
+    )
+    with normalize_outcar(source, _home_match()):
+        pass
+
+
+@pytest.mark.parametrize("ending", [b"\n", b""])
+def test_oversized_logical_row_is_rejected_with_mapped_line(
+    tmp_path: Path, ending: bytes
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_bytes(
+        b"first\n" + b"x" * (transform.MAX_LOGICAL_ROW_BYTES + 1) + ending
+    )
+    with pytest.raises(OutcarNormalizationError, match=r"logical row.*line 2"):
+        normalize_outcar(source, _home_match())
+
+
+def test_oversized_row_crossing_read_chunks_is_rejected_before_full_growth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_bytes(b"x" * 33 + b"\r\n")
+    monkeypatch.setattr(transform, "_HASH_CHUNK_SIZE", 8)
+    monkeypatch.setattr(transform, "MAX_LOGICAL_ROW_BYTES", 32)
+    with pytest.raises(OutcarNormalizationError, match=r"logical row.*line 1"):
+        normalize_outcar(source, _home_match())
+
+
+def test_atom_count_has_a_practical_security_bound(tmp_path: Path) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_text(
+        "vasp.5.4.1-barrier\n"
+        f"NIONS = {transform.MAX_ATOM_COUNT + 1} ions\n"
+        "POSITION TOTAL-FORCE\n----------\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(OutcarNormalizationError, match="atom count"):
+        normalize_outcar(source, _home_match())
+
+
+def test_staged_block_bytes_are_bounded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_text(
+        "vasp.5.4.1-barrier\nNIONS = 2 ions\nPOSITION TOTAL-FORCE\n"
+        "----------\nO_ 1 0 1 2 3 4 5\nY 1 6 7 8 9 10 11\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(transform, "MAX_STAGED_BLOCK_BYTES", 20)
+    with pytest.raises(OutcarNormalizationError, match="staged block"):
+        normalize_outcar(source, _home_match())
+
+
+def test_body_exception_remains_primary_when_cleanup_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_bytes((FIXTURES / "home-small.OUTCAR").read_bytes())
+    with pytest.raises(RuntimeError, match="parser body") as caught:
+        with normalize_outcar(source, _home_match()) as session:
+            assert session._temporary_directory is not None
+            monkeypatch.setattr(
+                session._temporary_directory,
+                "cleanup",
+                lambda: (_ for _ in ()).throw(OSError("cleanup injected")),
+            )
+            raise RuntimeError("parser body")
+    assert any("cleanup injected" in note for note in caught.value.__notes__)
+
+
+def test_body_exception_remains_primary_with_audit_and_cleanup_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_bytes((FIXTURES / "home-small.OUTCAR").read_bytes())
+    with pytest.raises(RuntimeError, match="parser body") as caught:
+        with normalize_outcar(source, _home_match()) as session:
+            assert session._temporary_directory is not None
+            monkeypatch.setattr(
+                session._temporary_directory,
+                "cleanup",
+                lambda: (_ for _ in ()).throw(OSError("cleanup injected")),
+            )
+            source.write_bytes(source.read_bytes() + b"mutation\n")
+            raise RuntimeError("parser body")
+    notes = "\n".join(caught.value.__notes__)
+    assert "source content changed" in notes
+    assert "cleanup injected" in notes

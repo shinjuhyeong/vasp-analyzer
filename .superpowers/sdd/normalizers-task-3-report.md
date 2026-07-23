@@ -132,3 +132,54 @@ privilege, so the real symlink test is capability-skipped; non-regular rejection
 runs. Windows also prevents replacing this pinned open source file, so that real
 replacement test is skipped. A portable injected `fstat` mismatch still exercises
 descriptor identity-race rejection. Both real tests run on permitting platforms.
+
+---
+
+## Final Memory-Bound and Context-Exit Remediation
+
+The earlier pass counts above are retained as historical RED/GREEN evidence. The
+current final verification numbers are recorded at the end of this section.
+
+### Bounded Memory
+
+- Logical-row content is capped at `1 MiB`, excluding its line terminator. This is
+  deliberately far above ordinary OUTCAR rows while preventing an unterminated or
+  adversarial row from growing without bound.
+- The streaming reader checks each segment before extending its row buffer. Tests
+  cover the exact accepted boundary, a rejection crossing several read chunks, and
+  oversized terminated and unterminated rows with original line mapping.
+- Validated `NIONS` is capped at `100,000` atoms, a practical ceiling well above
+  supported interactive analysis sizes.
+- Emitted rows staged for all-or-nothing block projection are additionally capped
+  at `64 MiB`. This independently bounds memory even when many maximum-size input
+  rows project to valid six-column output.
+
+### Context-Manager Exception Policy
+
+When no body exception exists, close-time security audit or cleanup failures are
+raised normally. When parser/body code is already failing, that original exception
+remains primary. Any source mutation/identity audit failure and temporary cleanup
+failure are attached as exception notes. This prevents a secondary cleanup problem
+from hiding the parser diagnosis while retaining security-audit evidence.
+
+Tests cover a body error plus cleanup failure and a body error combined with source
+mutation audit and cleanup failures.
+
+### Final TDD and Verification
+
+- Final-findings RED:
+  `python -m pytest tests/unit/normalizers/test_transform.py -q`
+  - 8 failed, 38 passed, 2 skipped.
+- Current focused:
+  `python -m pytest tests/unit/normalizers/test_transform.py -q`
+  - 46 passed, 2 skipped.
+- Current all normalizers:
+  `python -m pytest tests/unit/normalizers -q`
+  - 98 passed, 2 skipped.
+- `python -m ruff check src tests`
+  - all checks passed.
+- `git diff --check`
+  - exit 0.
+
+The two skips remain the previously documented Windows capability limitations;
+they are unrelated to these final findings.
