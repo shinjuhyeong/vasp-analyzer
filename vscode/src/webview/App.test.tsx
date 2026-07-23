@@ -36,9 +36,11 @@ describe("Initial comparison flow", () => {
     const frame = await screen.findByLabelText("Ionic step number");
     const primary = screen.getByTestId("structure-toolbar-primary");
     const dock = screen.getByTestId("structure-toolbar-secondary");
+    expect(primary).toHaveClass("toolbar-primary-grid");
     expect(within(primary).getByText("Structure")).toBeVisible();
     expect(within(primary).getByText("calculation")).toBeVisible();
-    expect(within(primary).getByLabelText("Ionic step slider")).toBeVisible();
+    const step = within(primary).getByLabelText("Ionic step slider");
+    expect(step).toBeVisible();
     const fullScreen = within(primary).getByRole("button", { name: "Enter structure full-screen" });
     expect(fullScreen).toBeVisible();
     await user.click(fullScreen);
@@ -47,10 +49,11 @@ describe("Initial comparison flow", () => {
     await user.click(restore);
     expect(dock).toHaveClass("toolbar-secondary-dock");
     expect(within(dock).getByLabelText("Force components")).toBeVisible();
-    await user.clear(frame); await user.type(frame, "0{Enter}");
+    fireEvent.change(screen.getByLabelText("Ionic step number"), { target: { value: "0" } });
+    fireEvent.blur(frame);
     expect(screen.getByTestId("structure-toolbar-primary")).toBe(primary);
     expect(screen.getByTestId("structure-toolbar-secondary")).toBe(dock);
-    expect(within(primary).getByLabelText("Ionic step slider")).toBeVisible();
+    expect(within(primary).getByLabelText("Ionic step slider")).toBe(step);
     expect(within(primary).getByRole("button", { name: "Enter structure full-screen" })).toBeVisible();
     expect(screen.getByText("Initial / 2")).toBeVisible();
     expect(within(dock).queryByLabelText("Force components")).not.toBeInTheDocument();

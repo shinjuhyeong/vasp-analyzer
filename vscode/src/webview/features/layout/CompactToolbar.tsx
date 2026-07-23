@@ -52,7 +52,7 @@ export function CompactToolbar({
   };
   return (
     <header className="workspace-toolbar">
-      <div className="toolbar-primary-row" data-testid="structure-toolbar-primary">
+      <div className="toolbar-primary-row toolbar-primary-grid" data-testid="structure-toolbar-primary">
         {title}
         <div className="toolbar-control toolbar-step-control">
           <IonicStepControl
