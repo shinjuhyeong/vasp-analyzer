@@ -109,7 +109,10 @@ class FiniteFloatColumn(_StrictModel):
 class LiteralColumn(_StrictModel):
     name: ColumnName
     type: Literal["literal"]
-    value: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    value: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=128, pattern=r"^\S+$"),
+    ]
 
     @field_validator("value")
     @classmethod
@@ -226,6 +229,13 @@ class NormalizerDefinition(_StrictModel):
     priority: Annotated[StrictInt, Field(ge=-10000, le=10000)]
     detect: DetectionSpec
     rules: tuple[ProjectionRule, ...]
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def validate_exact_schema_version_type(cls, value: object) -> object:
+        if type(value) is not int:
+            raise ValueError("schemaVersion must be the JSON integer 1")
+        return value
 
     @field_validator("priority")
     @classmethod

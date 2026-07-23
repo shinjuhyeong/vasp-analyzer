@@ -149,3 +149,33 @@ wheel/sdist schema resources and exact dependency contract: OK
 The final programmatic artifact check parsed the packaged schema JSON, verified
 it exists in both wheel and sdist, and verified wheel metadata still contains
 `Requires-Dist: vaspparser==0.0.7`. Final `git diff --check` exited 0.
+
+## Final JSON-boundary corrections
+
+Added JSON-level tests for the last two review findings. The focused RED run was:
+
+```text
+3 failed, 38 passed
+```
+
+It proved that JSON `1.0` and `true` were incorrectly coerced to schema version
+1, and that the generated schema did not expose the literal-column whitespace
+restriction. (`"1"` was already rejected.)
+
+The schema-version field now validates the raw input type before Literal
+equality, accepting only an actual JSON integer whose value is 1. Its generated
+schema remains the stronger `{"const": 1, "type": "integer"}` contract.
+`LiteralColumn.value` now uses the schema-visible `^\S+$` constraint in addition
+to its length bounds; JSON-level tests probe spaces, tabs, and newlines.
+
+Focused GREEN after regenerating the checked-in schema:
+
+```text
+41 passed in 1.37s
+All checks passed!
+```
+
+The final fresh gate repeated all 41 tests (1.36s), Ruff, wheel and sdist
+builds, then inspected the packaged schema-version integer contract, literal
+pattern, exact dependency pin, and both resource locations. All exited 0;
+`git diff --check` also exited 0.

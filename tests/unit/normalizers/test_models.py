@@ -162,6 +162,28 @@ def test_json_contract_accepts_alias_keys_only() -> None:
         NormalizerDefinition.model_validate_json(json.dumps(candidate))
 
 
+@pytest.mark.parametrize("schema_version", [1.0, True, "1"])
+def test_schema_version_requires_the_exact_json_integer_one(schema_version: object) -> None:
+    candidate = deepcopy(HOME_DEFINITION)
+    candidate["schemaVersion"] = schema_version
+
+    with pytest.raises(ValidationError, match="schemaVersion"):
+        NormalizerDefinition.model_validate_json(json.dumps(candidate))
+
+
+@pytest.mark.parametrize("value", ["two words", "tab\tvalue", "line\nvalue"])
+def test_literal_column_value_rejects_whitespace_at_the_json_boundary(value: str) -> None:
+    candidate = deepcopy(HOME_DEFINITION)
+    candidate["rules"][0]["input"]["columns"][1] = {
+        "name": "tag",
+        "type": "literal",
+        "value": value,
+    }
+
+    with pytest.raises(ValidationError):
+        NormalizerDefinition.model_validate_json(json.dumps(candidate))
+
+
 def test_public_schema_exposes_representable_and_semantic_constraints() -> None:
     schema = NormalizerDefinition.model_json_schema()
     definition_properties = schema["properties"]
@@ -188,6 +210,8 @@ def test_public_schema_exposes_representable_and_semantic_constraints() -> None:
     emit = schema["$defs"]["ProjectionOutput"]["properties"]["emit"]
     assert emit["minItems"] == 1
     assert emit["uniqueItems"] is True
+    literal_value = schema["$defs"]["LiteralColumn"]["properties"]["value"]
+    assert literal_value["pattern"] == r"^\S+$"
     assert schema["x-vasp-analyzer-semantic-validations"] == [
         "ruleIdsUnique",
         "columnNamesUniqueWithinRule",
