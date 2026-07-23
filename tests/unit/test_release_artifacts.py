@@ -42,6 +42,9 @@ def test_release_assets_accept_complete_kind_specific_surfaces() -> None:
     require_archive_assets(
         "wheel",
         {
+            "vasp_analyzer/normalizers/definitions/home_barrier.json",
+            "vasp_analyzer/normalizers/definitions/schema.json",
+            "vasp_analyzer/normalizers/definitions/standard.json",
             "vasp_analyzer/web_assets/index.js",
             "vasp_analyzer/web_assets/index.css",
             "vasp_analyzer/web_assets/contract.json",
@@ -50,6 +53,9 @@ def test_release_assets_accept_complete_kind_specific_surfaces() -> None:
     require_archive_assets(
         "sdist",
         {
+            "vasp-analyzer/src/vasp_analyzer/normalizers/definitions/home_barrier.json",
+            "vasp-analyzer/src/vasp_analyzer/normalizers/definitions/schema.json",
+            "vasp-analyzer/src/vasp_analyzer/normalizers/definitions/standard.json",
             "vasp-analyzer/vscode/dist/webview/index.js",
             "vasp-analyzer/vscode/dist/webview/index.css",
             "vasp-analyzer/vscode/dist/webview/contract.json",

@@ -49,6 +49,11 @@ def validate_stdio_output(
     result = envelope.get("result") if isinstance(envelope, dict) else None
     if not isinstance(result, dict) or result.get("schemaVersion") != 4:
         raise InstalledWheelSmokeError("installed stdio smoke did not return schema 4")
+    provenance = result.get("provenance")
+    if not isinstance(provenance, dict) or provenance.get("adapter") != "vaspparser":
+        raise InstalledWheelSmokeError(
+            "installed stdio smoke did not use the authoritative vaspparser adapter"
+        )
     ionic_steps = result.get("ionicSteps")
     if not isinstance(ionic_steps, list) or not ionic_steps:
         raise InstalledWheelSmokeError(

@@ -50,6 +50,9 @@ def require_archive_assets(kind: str, members: Set[str]) -> None:
 
     exact = {
         "wheel": {
+            "vasp_analyzer/normalizers/definitions/home_barrier.json",
+            "vasp_analyzer/normalizers/definitions/schema.json",
+            "vasp_analyzer/normalizers/definitions/standard.json",
             "vasp_analyzer/web_assets/index.js",
             "vasp_analyzer/web_assets/index.css",
             "vasp_analyzer/web_assets/contract.json",
@@ -63,6 +66,9 @@ def require_archive_assets(kind: str, members: Set[str]) -> None:
     }
     if kind == "sdist":
         suffixes = {
+            "/src/vasp_analyzer/normalizers/definitions/home_barrier.json",
+            "/src/vasp_analyzer/normalizers/definitions/schema.json",
+            "/src/vasp_analyzer/normalizers/definitions/standard.json",
             "/vscode/dist/webview/index.js",
             "/vscode/dist/webview/index.css",
             "/vscode/dist/webview/contract.json",

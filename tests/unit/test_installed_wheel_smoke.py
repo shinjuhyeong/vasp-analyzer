@@ -6,17 +6,19 @@ from scripts.verify_installed_wheel import (
     validate_stdio_output,
 )
 
+PROVENANCE = '"provenance":{"adapter":"vaspparser"},'
+
 
 def test_installed_stdio_smoke_requires_schema_4_result() -> None:
     validate_stdio_output(
-        '{"id":1,"result":{"schemaVersion":4,"initialStructure":null,'
+        '{"id":1,"result":{"schemaVersion":4,' + PROVENANCE + '"initialStructure":null,'
         '"ionicSteps":[{"scfIterations":1}]}}\n',
         expect_initial_structure=False,
     )
 
     with pytest.raises(InstalledWheelSmokeError, match="schema 4"):
         validate_stdio_output(
-            '{"id":1,"result":{"schemaVersion":2}}\n',
+            '{"id":1,"result":{"schemaVersion":2,' + PROVENANCE + '"ionicSteps":[]}}\n',
             expect_initial_structure=False,
         )
 
@@ -32,7 +34,7 @@ def test_installed_stdio_smoke_rejects_error_envelopes() -> None:
 def test_installed_stdio_smoke_requires_step_1_scf_iterations() -> None:
     with pytest.raises(InstalledWheelSmokeError, match="SCF iterations"):
         validate_stdio_output(
-            '{"id":1,"result":{"schemaVersion":4,"initialStructure":null,'
+            '{"id":1,"result":{"schemaVersion":4,' + PROVENANCE + '"initialStructure":null,'
             '"ionicSteps":[{"scfIterations":null}]}}\n',
             expect_initial_structure=False,
         )
@@ -40,7 +42,7 @@ def test_installed_stdio_smoke_requires_step_1_scf_iterations() -> None:
 
 def test_installed_stdio_smoke_requires_exact_step_count_and_all_scf_iterations() -> None:
     validate_stdio_output(
-        '{"id":1,"result":{"schemaVersion":4,"initialStructure":null,'
+        '{"id":1,"result":{"schemaVersion":4,' + PROVENANCE + '"initialStructure":null,'
         '"ionicSteps":[{"scfIterations":1},{"scfIterations":2}]}}\n',
         expect_initial_structure=False,
         expected_steps=2,
@@ -48,7 +50,7 @@ def test_installed_stdio_smoke_requires_exact_step_count_and_all_scf_iterations(
 
     with pytest.raises(InstalledWheelSmokeError, match="2 ionic steps"):
         validate_stdio_output(
-            '{"id":1,"result":{"schemaVersion":4,"initialStructure":null,'
+            '{"id":1,"result":{"schemaVersion":4,' + PROVENANCE + '"initialStructure":null,'
             '"ionicSteps":[{"scfIterations":1}]}}\n',
             expect_initial_structure=False,
             expected_steps=2,
@@ -56,7 +58,7 @@ def test_installed_stdio_smoke_requires_exact_step_count_and_all_scf_iterations(
 
     with pytest.raises(InstalledWheelSmokeError, match="SCF iterations"):
         validate_stdio_output(
-            '{"id":1,"result":{"schemaVersion":4,"initialStructure":null,'
+            '{"id":1,"result":{"schemaVersion":4,' + PROVENANCE + '"initialStructure":null,'
             '"ionicSteps":[{"scfIterations":1},{"scfIterations":null}]}}\n',
             expect_initial_structure=False,
             expected_steps=2,
@@ -65,7 +67,7 @@ def test_installed_stdio_smoke_requires_exact_step_count_and_all_scf_iterations(
 
 def test_installed_stdio_smoke_requires_poscar_initial_structure() -> None:
     validate_stdio_output(
-        '{"id":1,"result":{"schemaVersion":4,'
+        '{"id":1,"result":{"schemaVersion":4,' + PROVENANCE +
         '"initialStructure":{"source":"POSCAR"},'
         '"ionicSteps":[{"scfIterations":1}]}}\n',
         expect_initial_structure=True,
@@ -73,7 +75,7 @@ def test_installed_stdio_smoke_requires_poscar_initial_structure() -> None:
 
     with pytest.raises(InstalledWheelSmokeError, match="POSCAR"):
         validate_stdio_output(
-            '{"id":1,"result":{"schemaVersion":4,"initialStructure":null,'
+            '{"id":1,"result":{"schemaVersion":4,' + PROVENANCE + '"initialStructure":null,'
             '"ionicSteps":[{"scfIterations":1}]}}\n',
             expect_initial_structure=True,
         )
@@ -82,7 +84,7 @@ def test_installed_stdio_smoke_requires_poscar_initial_structure() -> None:
 def test_installed_stdio_smoke_requires_outcar_only_initial_structure_to_be_null() -> None:
     with pytest.raises(InstalledWheelSmokeError, match="OUTCAR-only"):
         validate_stdio_output(
-            '{"id":1,"result":{"schemaVersion":4,'
+            '{"id":1,"result":{"schemaVersion":4,' + PROVENANCE +
             '"initialStructure":{"source":"POSCAR"},'
             '"ionicSteps":[{"scfIterations":1}]}}\n',
             expect_initial_structure=False,
@@ -90,7 +92,7 @@ def test_installed_stdio_smoke_requires_outcar_only_initial_structure_to_be_null
 
     with pytest.raises(InstalledWheelSmokeError, match="OUTCAR-only"):
         validate_stdio_output(
-            '{"id":1,"result":{"schemaVersion":4,'
+            '{"id":1,"result":{"schemaVersion":4,' + PROVENANCE +
             '"ionicSteps":[{"scfIterations":1}]}}\n',
             expect_initial_structure=False,
         )
