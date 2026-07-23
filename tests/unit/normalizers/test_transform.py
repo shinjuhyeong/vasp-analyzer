@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -278,8 +279,249 @@ def test_failure_path_checks_source_sha_and_removes_temporary_output(
     )
     monkeypatch.setattr(transform, "_transform", mutate_then_fail)
 
-    with pytest.raises(OutcarNormalizationError, match="source SHA-256 changed"):
+    with pytest.raises(OutcarNormalizationError, match="source content changed"):
         normalize_outcar(source, _home_match())
 
     assert temporary_roots
     assert all(not path.exists() for path in temporary_roots)
+
+
+def test_lone_cr_lines_and_no_final_newline_are_preserved(tmp_path: Path) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_bytes(
+        b"vasp.5.4.1-barrier\rNIONS = 1 ions\rPOSITION TOTAL-FORCE\r"
+        b"----------\rO_ 1 0 1 2 3 4 5"
+    )
+    with normalize_outcar(source, _home_match()) as session:
+        assert session.parser_path.read_bytes() == (
+            b"vasp.5.4.1-barrier\rNIONS = 1 ions\rPOSITION TOTAL-FORCE\r"
+            b"----------\r0  1  2  3  4  5"
+        )
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        "NIONS = 0 ions",
+        "NIONS = -1 ions",
+        "NIONS = +1 ions",
+        "NIONS = 01 ions",
+        "prefix NIONS = 1 ions",
+        "NIONS = 1 ions trailing",
+        "NIONS = one ions",
+    ],
+)
+def test_rejects_malformed_or_noncanonical_nions(
+    tmp_path: Path, metadata: str
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_text(
+        f"vasp.5.4.1-barrier\n{metadata}\nPOSITION TOTAL-FORCE\n"
+        "----------\nO_ 1 0 1 2 3 4 5\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(OutcarNormalizationError, match="NIONS"):
+        normalize_outcar(source, _home_match())
+
+
+def test_one_validated_nions_applies_to_multiple_ionic_blocks(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "OUTCAR"
+    block = "POSITION TOTAL-FORCE\n----------\nO_ 1 0 1 2 3 4 5\n"
+    source.write_text(
+        f"vasp.5.4.1-barrier\nNIONS = 1 ions\n{block}{block}",
+        encoding="utf-8",
+    )
+    with normalize_outcar(source, _home_match()) as session:
+        assert session.manifest.changed_line_count == 2
+
+
+def test_repeated_unconsumed_nions_is_rejected(tmp_path: Path) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_text(
+        "vasp.5.4.1-barrier\nNIONS = 1 ions\nNIONS = 1 ions\n"
+        "POSITION TOTAL-FORCE\n----------\nO_ 1 0 1 2 3 4 5\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(OutcarNormalizationError, match="repeated NIONS"):
+        normalize_outcar(source, _home_match())
+
+
+@pytest.mark.parametrize("separator", ["---", "-----x-----"])
+def test_rejects_short_or_embedded_dashed_separator(
+    tmp_path: Path, separator: str
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_text(
+        "vasp.5.4.1-barrier\nNIONS = 1 ions\nPOSITION TOTAL-FORCE\n"
+        f"{separator}\nO_ 1 0 1 2 3 4 5\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(OutcarNormalizationError, match="dashed separator"):
+        normalize_outcar(source, _home_match())
+
+
+def test_transform_boundary_requires_exactly_six_finite_float_emits(
+    tmp_path: Path,
+) -> None:
+    definition = {
+        "schemaVersion": 1,
+        "id": "unsafe",
+        "displayName": "Unsafe",
+        "priority": 1,
+        "detect": {"all": [], "any": [], "none": []},
+        "rules": [
+            {
+                "id": "bad",
+                "scope": {
+                    "start": {"containsAll": ["POSITION", "TOTAL-FORCE"]},
+                    "after": {"type": "dashedSeparator"},
+                    "rowCount": {"source": "atomCount"},
+                },
+                "input": {
+                    "tokenizer": "whitespace",
+                    "columns": [
+                        {"name": "label", "type": "elementLabel"},
+                        {"name": "x", "type": "finiteFloat"},
+                    ],
+                },
+                "output": {"emit": ["label", "x"], "separator": "  "},
+            }
+        ],
+    }
+    source = tmp_path / "OUTCAR"
+    source.write_text("ordinary", encoding="utf-8")
+    with pytest.raises(OutcarNormalizationError, match="six finiteFloat"):
+        normalize_outcar(source, NormalizerMatch.from_definition(definition))
+
+
+def test_rejects_symlink_source(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.write_text("ordinary", encoding="utf-8")
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this platform")
+    with pytest.raises(OutcarNormalizationError, match="symlink"):
+        normalize_outcar(link, _standard_match())
+
+
+def test_rejects_non_regular_source(tmp_path: Path) -> None:
+    with pytest.raises(OutcarNormalizationError, match="regular file"):
+        normalize_outcar(tmp_path, _standard_match())
+
+
+def test_standard_session_detects_source_mutation_on_close(tmp_path: Path) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_bytes(b"ordinary\n")
+    session = normalize_outcar(source, _standard_match())
+    source.write_bytes(b"changed\n")
+    with pytest.raises(OutcarNormalizationError, match="source.*changed"):
+        session.close()
+
+
+def test_path_replacement_does_not_change_pinned_source_audit(tmp_path: Path) -> None:
+    if os.name == "nt":
+        pytest.skip("Windows does not permit replacing an open file")
+    source = tmp_path / "OUTCAR"
+    source.write_bytes(b"ordinary\n")
+    session = normalize_outcar(source, _standard_match())
+    replacement = tmp_path / "replacement"
+    replacement.write_bytes(b"different\n")
+    replacement.replace(source)
+    with pytest.raises(OutcarNormalizationError, match="identity"):
+        session.close()
+
+
+def test_audit_runs_and_is_primary_when_temporary_cleanup_also_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_bytes((FIXTURES / "home-small.OUTCAR").read_bytes())
+    session = normalize_outcar(source, _home_match())
+    source.write_bytes(source.read_bytes() + b"changed\n")
+
+    def cleanup_failure() -> None:
+        raise OSError("cleanup injected")
+
+    assert session._temporary_directory is not None
+    monkeypatch.setattr(session._temporary_directory, "cleanup", cleanup_failure)
+    with pytest.raises(OutcarNormalizationError, match="source content changed") as caught:
+        session.close()
+    assert any("cleanup injected" in note for note in caught.value.__notes__)
+
+
+def test_transform_failure_still_audits_when_cleanup_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_bytes((FIXTURES / "home-small.OUTCAR").read_bytes())
+    audits: list[Path] = []
+    real_audit = transform._audit_source
+    real_temporary = transform.tempfile.TemporaryDirectory
+
+    class CleanupFailure:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self._real = real_temporary(*args, **kwargs)
+            self.name = self._real.name
+
+        def cleanup(self) -> None:
+            self._real.cleanup()
+            raise OSError("cleanup injected")
+
+    def audited(*args: object, **kwargs: object) -> None:
+        audits.append(source)
+        real_audit(*args, **kwargs)
+
+    def write_failure(*args: object, **kwargs: object) -> None:
+        raise OSError("write injected")
+
+    monkeypatch.setattr(transform.tempfile, "TemporaryDirectory", CleanupFailure)
+    monkeypatch.setattr(transform, "_audit_source", audited)
+    monkeypatch.setattr(transform, "_transform", write_failure)
+
+    with pytest.raises(OSError, match="write injected") as caught:
+        normalize_outcar(source, _home_match())
+    assert audits
+    assert any("cleanup injected" in note for note in caught.value.__notes__)
+
+
+def test_standard_hash_audit_failure_is_mapped_and_handle_is_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_bytes(b"ordinary\n")
+    real_hash = transform._hash_handle
+    calls = 0
+
+    def failing_second_hash(handle) -> str:
+        nonlocal calls
+        calls += 1
+        if calls >= 2:
+            raise OSError("hash injected")
+        return real_hash(handle)
+
+    monkeypatch.setattr(transform, "_hash_handle", failing_second_hash)
+    with pytest.raises(OutcarNormalizationError, match="audit.*hash"):
+        normalize_outcar(source, _standard_match())
+    assert calls >= 3
+
+
+def test_open_rejects_descriptor_identity_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "OUTCAR"
+    source.write_bytes(b"ordinary\n")
+    real_fstat = transform.os.fstat
+
+    def mismatched_fstat(descriptor: int):
+        result = real_fstat(descriptor)
+        values = list(result)
+        values[1] += 1
+        return os.stat_result(values)
+
+    monkeypatch.setattr(transform.os, "fstat", mismatched_fstat)
+    with pytest.raises(OutcarNormalizationError, match="identity changed"):
+        normalize_outcar(source, _standard_match())

@@ -1,31 +1,68 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import stat
 import tempfile
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
+from typing import BinaryIO
 
 from .fields import FieldValueError, parse_fields
 from .manifest import LineChange, NormalizationManifest, bounded_excerpt
 from .models import ProjectionRule
 from .registry import NormalizerMatch
 
-_NIONS = re.compile(r"\bNIONS\s*=\s*([0-9]+)\b")
+_NIONS = re.compile(r"^\s*NIONS\s*=\s*([1-9][0-9]*)\s+ions\s*$")
 _HASH_CHUNK_SIZE = 64 * 1024
+_MIN_DASHES = 10
 
 
 class OutcarNormalizationError(ValueError):
     """An OUTCAR cannot be safely normalized by the selected definition."""
 
 
-def _sha256(path: Path) -> str:
+def _hash_handle(source: BinaryIO) -> str:
+    source.seek(0)
     digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(_HASH_CHUNK_SIZE), b""):
-            digest.update(chunk)
+    for chunk in iter(lambda: source.read(_HASH_CHUNK_SIZE), b""):
+        digest.update(chunk)
+    source.seek(0)
     return digest.hexdigest()
+
+
+def _logical_lines(source: BinaryIO) -> Iterator[bytes]:
+    source.seek(0)
+    pending = bytearray()
+    eof = False
+    while not eof:
+        chunk = source.read(_HASH_CHUNK_SIZE)
+        eof = not chunk
+        pending.extend(chunk)
+        start = 0
+        index = 0
+        while index < len(pending):
+            byte = pending[index]
+            if byte == 0x0A:
+                yield bytes(pending[start : index + 1])
+                start = index + 1
+            elif byte == 0x0D:
+                if index + 1 == len(pending) and not eof:
+                    break
+                end = index + 2 if pending[index + 1 : index + 2] == b"\n" else index + 1
+                yield bytes(pending[start:end])
+                start = end
+                index = end - 1
+            index += 1
+        if start:
+            del pending[:start]
+        if eof and pending:
+            yield bytes(pending)
+            pending.clear()
+    source.seek(0)
 
 
 def _split_newline(line: bytes) -> tuple[bytes, bytes]:
@@ -47,19 +84,128 @@ def _decode(content: bytes, line_number: int) -> str:
 
 def _is_dashed_separator(text: str) -> bool:
     stripped = text.strip()
-    return len(stripped) >= 3 and set(stripped) == {"-"}
+    return len(stripped) >= _MIN_DASHES and set(stripped) == {"-"}
+
+
+def _identity(file_stat: os.stat_result) -> tuple[int, int]:
+    return file_stat.st_dev, file_stat.st_ino
+
+
+def _open_source(path: Path) -> tuple[BinaryIO, os.stat_result]:
+    try:
+        path_stat = path.lstat()
+    except OSError as error:
+        raise OutcarNormalizationError(f"cannot inspect OUTCAR source: {error}") from error
+    if stat.S_ISLNK(path_stat.st_mode):
+        raise OutcarNormalizationError("OUTCAR source symlink is not allowed")
+    if not stat.S_ISREG(path_stat.st_mode):
+        raise OutcarNormalizationError("OUTCAR source must be a regular file")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise OutcarNormalizationError(f"cannot open OUTCAR source read-only: {error}") from error
+    try:
+        descriptor_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(descriptor_stat.st_mode):
+            raise OutcarNormalizationError("OUTCAR source must be a regular file")
+        if _identity(path_stat) != _identity(descriptor_stat):
+            raise OutcarNormalizationError("OUTCAR source identity changed while opening")
+        return os.fdopen(descriptor, "rb", closefd=True), descriptor_stat
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _validate_rules(rules: tuple[ProjectionRule, ...]) -> None:
+    for rule in rules:
+        columns = {column.name: column for column in rule.input.columns}
+        if len(rule.output.emit) != 6 or any(
+            columns[name].type != "finiteFloat" for name in rule.output.emit
+        ):
+            raise OutcarNormalizationError(
+                f"rule {rule.id!r} must emit exactly six finiteFloat fields"
+            )
+
+
+def _audit_source(
+    source: BinaryIO,
+    source_path: Path,
+    initial_sha256: str,
+    initial_identity: tuple[int, int],
+) -> None:
+    try:
+        current_sha256 = _hash_handle(source)
+    except (OSError, ValueError) as error:
+        raise OutcarNormalizationError("source audit hash failed") from error
+    if current_sha256 != initial_sha256:
+        raise OutcarNormalizationError("source content changed during normalization session")
+    try:
+        current_path_stat = source_path.lstat()
+    except OSError as error:
+        raise OutcarNormalizationError(
+            "source identity changed during normalization session"
+        ) from error
+    if (
+        stat.S_ISLNK(current_path_stat.st_mode)
+        or _identity(current_path_stat) != initial_identity
+    ):
+        raise OutcarNormalizationError(
+            "source identity changed during normalization session"
+        )
+
+
+def _cleanup_temporary(
+    temporary_directory: tempfile.TemporaryDirectory[str] | None,
+) -> BaseException | None:
+    if temporary_directory is None:
+        return None
+    try:
+        temporary_directory.cleanup()
+    except BaseException as error:
+        return error
+    return None
 
 
 @dataclass
 class NormalizedOutcarSession:
     parser_path: Path
     manifest: NormalizationManifest
+    _source: BinaryIO
+    _source_path: Path
+    _source_identity: tuple[int, int]
     _temporary_directory: tempfile.TemporaryDirectory[str] | None = None
+    _closed: bool = False
 
     def close(self) -> None:
-        if self._temporary_directory is not None:
-            self._temporary_directory.cleanup()
-            self._temporary_directory = None
+        if self._closed:
+            return
+        self._closed = True
+        audit_error: BaseException | None = None
+        try:
+            _audit_source(
+                self._source,
+                self._source_path,
+                self.manifest.source_sha256,
+                self._source_identity,
+            )
+        except BaseException as error:
+            audit_error = error
+        cleanup_error = _cleanup_temporary(self._temporary_directory)
+        try:
+            self._source.close()
+        except BaseException as error:
+            if audit_error is None:
+                audit_error = error
+            else:
+                audit_error.add_note(f"source close also failed: {error!r}")
+        self._temporary_directory = None
+        if audit_error is not None:
+            if cleanup_error is not None:
+                audit_error.add_note(f"temporary cleanup also failed: {cleanup_error!r}")
+            raise audit_error
+        if cleanup_error is not None:
+            raise OutcarNormalizationError("temporary cleanup failed") from cleanup_error
 
     def __enter__(self) -> NormalizedOutcarSession:
         return self
@@ -74,22 +220,22 @@ class NormalizedOutcarSession:
 
 
 def _manifest(
-    source: Path,
+    source_path: Path,
+    source_stat: os.stat_result,
     match: NormalizerMatch,
     source_sha256: str,
     changes: tuple[LineChange, ...],
 ) -> NormalizationManifest:
-    stat = source.stat()
     definition = match.definition
     return NormalizationManifest(
         normalizer_id=definition.id,
         display_name=definition.display_name,
         schema_version=definition.schema_version,
         definition_sha256=match.definition_hash,
-        source_path=source,
+        source_path=source_path,
         source_sha256=source_sha256,
-        source_size=stat.st_size,
-        source_mtime_ns=stat.st_mtime_ns,
+        source_size=source_stat.st_size,
+        source_mtime_ns=source_stat.st_mtime_ns,
         changes=changes,
     )
 
@@ -106,8 +252,7 @@ def _project_row(
     except FieldValueError as error:
         raise OutcarNormalizationError(str(error)) from error
     emitted = rule.output.separator.join(parsed[name] for name in rule.output.emit)
-    emitted_bytes = emitted.encode("utf-8") + newline
-    return emitted_bytes, LineChange(
+    return emitted.encode("utf-8") + newline, LineChange(
         source_line=line_number,
         rule_id=rule.id,
         original_excerpt=bounded_excerpt(text),
@@ -116,44 +261,47 @@ def _project_row(
 
 
 def _transform(
-    source: Path,
+    source: BinaryIO,
     destination: Path,
     rules: tuple[ProjectionRule, ...],
 ) -> tuple[LineChange, ...]:
     changes: list[LineChange] = []
     atom_count: int | None = None
-    waiting_rule: ProjectionRule | None = None
-
-    with source.open("rb") as input_stream, destination.open("wb") as output_stream:
-        lines = enumerate(input_stream, start=1)
+    with destination.open("wb") as output_stream:
+        lines = enumerate(_logical_lines(source), start=1)
         for line_number, line in lines:
-            content, newline = _split_newline(line)
+            content, _ = _split_newline(line)
             text = _decode(content, line_number)
-            nions = _NIONS.search(text)
-            if nions is not None:
-                candidate = int(nions.group(1))
-                if candidate <= 0:
+            if "NIONS" in text:
+                matched_nions = _NIONS.fullmatch(text)
+                if matched_nions is None:
                     raise OutcarNormalizationError(
-                        f"invalid NIONS positive integer at line {line_number}"
+                        f"invalid NIONS metadata at line {line_number}"
                     )
-                atom_count = candidate
+                if atom_count is not None:
+                    raise OutcarNormalizationError(
+                        f"repeated NIONS before block at line {line_number}"
+                    )
+                atom_count = int(matched_nions.group(1))
 
-            waiting_rule = next(
+            rule = next(
                 (
-                    rule
-                    for rule in rules
-                    if all(literal in text for literal in rule.scope.start.contains_all)
+                    candidate
+                    for candidate in rules
+                    if all(
+                        literal in text
+                        for literal in candidate.scope.start.contains_all
+                    )
                 ),
                 None,
             )
             output_stream.write(line)
-            if waiting_rule is None:
+            if rule is None:
                 continue
             if atom_count is None:
                 raise OutcarNormalizationError(
                     f"NIONS must be established before block at line {line_number}"
                 )
-
             try:
                 separator_number, separator_line = next(lines)
             except StopIteration as error:
@@ -161,8 +309,7 @@ def _transform(
                     f"partial block after line {line_number}: missing dashed separator"
                 ) from error
             separator_content, _ = _split_newline(separator_line)
-            separator_text = _decode(separator_content, separator_number)
-            if not _is_dashed_separator(separator_text):
+            if not _is_dashed_separator(_decode(separator_content, separator_number)):
                 raise OutcarNormalizationError(
                     f"line {separator_number}: expected dashed separator"
                 )
@@ -179,64 +326,98 @@ def _transform(
                     ) from error
                 row_content, row_newline = _split_newline(row)
                 projected, change = _project_row(
-                    row_content, row_newline, waiting_rule, row_number
+                    row_content, row_newline, rule, row_number
                 )
                 staged_rows.append(projected)
                 staged_changes.append(change)
-
             output_stream.write(separator_line)
-            for projected in staged_rows:
-                output_stream.write(projected)
+            output_stream.writelines(staged_rows)
             changes.extend(staged_changes)
-            waiting_rule = None
-
     return tuple(changes)
+
+
+def _raise_failed_normalization(
+    error: BaseException,
+    source: BinaryIO,
+    source_path: Path,
+    source_sha256: str,
+    source_identity: tuple[int, int],
+    temporary_directory: tempfile.TemporaryDirectory[str] | None,
+) -> None:
+    audit_error: BaseException | None = None
+    try:
+        _audit_source(source, source_path, source_sha256, source_identity)
+    except BaseException as caught:
+        audit_error = caught
+    cleanup_error = _cleanup_temporary(temporary_directory)
+    try:
+        source.close()
+    except BaseException as close_error:
+        if audit_error is None:
+            audit_error = close_error
+        else:
+            audit_error.add_note(f"source close also failed: {close_error!r}")
+    primary = audit_error or error
+    if primary is not error:
+        primary.add_note(f"normalization also failed: {error!r}")
+    if cleanup_error is not None:
+        primary.add_note(f"temporary cleanup also failed: {cleanup_error!r}")
+    raise primary
 
 
 def normalize_outcar(
     source: str | Path,
     match: NormalizerMatch,
 ) -> NormalizedOutcarSession:
-    source_path = Path(source).resolve(strict=True)
-    source_sha256 = _sha256(source_path)
-    if not match.definition.rules:
-        after_sha256 = _sha256(source_path)
-        if source_sha256 != after_sha256:
-            raise OutcarNormalizationError("source SHA-256 changed during normalization")
-        return NormalizedOutcarSession(
-            parser_path=source_path,
-            manifest=_manifest(source_path, match, source_sha256, ()),
-        )
-
+    source_path = Path(source).absolute()
+    _validate_rules(match.definition.rules)
+    source_handle, source_stat = _open_source(source_path)
+    source_identity = _identity(source_stat)
     temporary_directory: tempfile.TemporaryDirectory[str] | None = None
     try:
+        source_sha256 = _hash_handle(source_handle)
+        if not match.definition.rules:
+            _audit_source(
+                source_handle, source_path, source_sha256, source_identity
+            )
+            return NormalizedOutcarSession(
+                parser_path=source_path,
+                manifest=_manifest(
+                    source_path, source_stat, match, source_sha256, ()
+                ),
+                _source=source_handle,
+                _source_path=source_path,
+                _source_identity=source_identity,
+            )
+
         temporary_directory = tempfile.TemporaryDirectory(
             prefix="vasp-analyzer-normalized-"
         )
         destination = Path(temporary_directory.name) / "OUTCAR"
-        changes = _transform(source_path, destination, match.definition.rules)
-        after_sha256 = _sha256(source_path)
-        if source_sha256 != after_sha256:
-            raise OutcarNormalizationError("source SHA-256 changed during normalization")
+        changes = _transform(source_handle, destination, match.definition.rules)
+        _audit_source(source_handle, source_path, source_sha256, source_identity)
         return NormalizedOutcarSession(
             parser_path=destination,
-            manifest=_manifest(source_path, match, source_sha256, changes),
+            manifest=_manifest(
+                source_path, source_stat, match, source_sha256, changes
+            ),
+            _source=source_handle,
+            _source_path=source_path,
+            _source_identity=source_identity,
             _temporary_directory=temporary_directory,
         )
-    except Exception as error:
-        if temporary_directory is not None:
-            temporary_directory.cleanup()
-        try:
-            failure_sha256 = _sha256(source_path)
-        except OSError as hash_error:
-            raise OutcarNormalizationError(
-                "source SHA-256 could not be verified after normalization failure"
-            ) from hash_error
-        if source_sha256 != failure_sha256:
-            raise OutcarNormalizationError(
-                "source SHA-256 changed during failed normalization"
-            ) from error
-        raise
+    except BaseException as error:
+        if "source_sha256" not in locals():
+            source_handle.close()
+            raise
+        _raise_failed_normalization(
+            error,
+            source_handle,
+            source_path,
+            source_sha256,
+            source_identity,
+            temporary_directory,
+        )
 
 
 __all__ = [

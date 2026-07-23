@@ -67,3 +67,68 @@ The public Task 3 interface accepts an already selected `NormalizerMatch`.
 Consequently, the future orchestration caller must open the source and read at most
 1 MiB before calling `select_normalizer`; it must not use `read_bytes()` to create
 that prefix. The transform implementation itself performs no detection.
+
+---
+
+## Review-Finding Remediation
+
+### Root Cause and TDD Record
+
+The review findings traced to two shared assumptions in the first implementation:
+pathname reopening was treated as stable source identity, and Python binary-file
+iteration was treated as supporting every OUTCAR newline convention.
+
+The first review regression run produced 9 expected failures: lone-CR lines,
+noncanonical or unanchored `NIONS`, repeated/stale metadata, short separators,
+nonstandard custom emits, and standard-session mutation detection. After those
+reached green, a separate injected hash-audit regression failed because raw
+`OSError` escaped; that audit failure is now mapped.
+
+### Source and Line Invariants
+
+- One read-only descriptor is pinned for the session. `lstat` and `fstat` identity
+  must agree; symlinks and non-regular files are rejected.
+- Initial hash, transform, metadata, success/failure audit, and close audit all use
+  that descriptor. Normalization never reopens the source pathname.
+- Close compares current pathname identity with the pinned identity, detecting
+  replacement/removal and in-place mutation.
+- The streaming logical-line reader handles LF, CRLF, lone CR, chunk-boundary
+  delimiters, and an unterminated final row while preserving exact endings.
+
+### Metadata and Projection Invariants
+
+- Metadata must match the full logical line:
+  `^\s*NIONS\s*=\s*([1-9][0-9]*)\s+ions\s*$`.
+- Zero, signs, leading zeroes, malformed values, prefixes, suffixes, and repeated
+  declarations are rejected.
+- One validated count applies to later ionic blocks, matching real OUTCAR ownership
+  where one header precedes many steps; every block requires it to occur first.
+- Separators require at least ten pure dashes after surrounding whitespace.
+- Each rule must emit exactly six declared `finiteFloat` columns, and row parsing
+  independently validates every value.
+
+### Failure Composition
+
+Audit, cleanup, and descriptor close are attempted independently. Source audit
+errors remain primary when cleanup also fails; cleanup is attached as a note.
+Transform/write errors remain primary when audit succeeds. Injected hash failures
+are mapped and failure audit is attempted on the standard path.
+
+### Review Verification
+
+- Initial RED focused run: 9 failed, 24 passed, 2 skipped.
+- Hash-audit RED focused run: 1 failed, 37 passed, 2 skipped.
+- Final focused: `38 passed, 2 skipped`.
+- Final normalizers: `90 passed, 2 skipped`.
+- `python -m ruff check src tests`: all checks passed.
+- `git diff --check`: exit 0.
+- `rg -n "read_bytes\(|read_text\(" src/vasp_analyzer/normalizers`: only registry
+  JSON loading uses `read_text`; source OUTCAR code uses neither API.
+
+### Platform Limitations
+
+The verification host is Windows. Symlink creation requires an unavailable
+privilege, so the real symlink test is capability-skipped; non-regular rejection
+runs. Windows also prevents replacing this pinned open source file, so that real
+replacement test is skipped. A portable injected `fstat` mismatch still exercises
+descriptor identity-race rejection. Both real tests run on permitting platforms.
