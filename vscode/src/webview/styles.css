@@ -70,8 +70,16 @@ select {
 
 .title-group {
   display: grid;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
   gap: 2px;
-  margin-right: auto;
+}
+.title-group strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .eyebrow {
   color: var(--vscode-descriptionForeground, #9ca3af);
@@ -98,11 +106,18 @@ select {
   accent-color: var(--vscode-focusBorder, #4ca6ea);
 }
 .fullscreen-toggle {
+  flex: 0 0 auto;
   padding: 4px 8px;
   border: 1px solid var(--vscode-button-border, #454a53);
   border-radius: 3px;
   background: var(--vscode-button-secondaryBackground, #31353c);
   white-space: nowrap;
+}
+.toolbar-step-control {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .toolbar-control,
 .toolbar-control > div {

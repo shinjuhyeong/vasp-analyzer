@@ -2,6 +2,7 @@
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
+import { readFile } from "node:fs/promises";
 import type { ComponentType } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -35,13 +36,22 @@ describe("Initial comparison flow", () => {
     const frame = await screen.findByLabelText("Ionic step number");
     const primary = screen.getByTestId("structure-toolbar-primary");
     const dock = screen.getByTestId("structure-toolbar-secondary");
+    expect(within(primary).getByText("Structure")).toBeVisible();
+    expect(within(primary).getByText("calculation")).toBeVisible();
     expect(within(primary).getByLabelText("Ionic step slider")).toBeVisible();
+    const fullScreen = within(primary).getByRole("button", { name: "Enter structure full-screen" });
+    expect(fullScreen).toBeVisible();
+    await user.click(fullScreen);
+    const restore = within(primary).getByRole("button", { name: "Exit structure full-screen" });
+    expect(restore).toHaveTextContent("Restore");
+    await user.click(restore);
     expect(dock).toHaveClass("toolbar-secondary-dock");
     expect(within(dock).getByLabelText("Force components")).toBeVisible();
     await user.clear(frame); await user.type(frame, "0{Enter}");
     expect(screen.getByTestId("structure-toolbar-primary")).toBe(primary);
     expect(screen.getByTestId("structure-toolbar-secondary")).toBe(dock);
     expect(within(primary).getByLabelText("Ionic step slider")).toBeVisible();
+    expect(within(primary).getByRole("button", { name: "Enter structure full-screen" })).toBeVisible();
     expect(screen.getByText("Initial / 2")).toBeVisible();
     expect(within(dock).queryByLabelText("Force components")).not.toBeInTheDocument();
     const compare = within(dock).getByLabelText("Compare structures");
@@ -71,6 +81,15 @@ describe("Initial comparison flow", () => {
     await user.clear(frame); await user.type(frame, "1{Enter}");
     expect(screen.queryByLabelText("Compare structures")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Force vector scale slider")).toBeVisible();
+  });
+
+  it("reserves reachable primary-row space for the step and full-screen controls", async () => {
+    const styles = await readFile("src/webview/styles.css", "utf8");
+
+    expect(styles).toMatch(/\.title-group\s*{[^}]*flex:\s*1 1 0[^}]*min-width:\s*0[^}]*overflow:\s*hidden/s);
+    expect(styles).toMatch(/\.title-group strong\s*{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s);
+    expect(styles).toMatch(/\.toolbar-step-control\s*{[^}]*min-width:\s*0[^}]*overflow-x:\s*auto/s);
+    expect(styles).toMatch(/\.fullscreen-toggle\s*{[^}]*flex:\s*0 0 auto/s);
   });
 });
 
