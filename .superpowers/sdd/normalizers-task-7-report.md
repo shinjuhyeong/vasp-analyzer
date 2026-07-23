@@ -42,3 +42,10 @@ Fresh follow-up verification:
 - `python -m pytest --import-mode=importlib -q`: 620 passed, 7 skipped.
 - `pnpm --dir vscode test`: 34 files, 345 tests passed.
 - Ruff, typecheck, build, Chromium layout (2 tests), and diff checks passed.
+
+Final report UI follow-up:
+
+- Added labelled rule-change and warning lists with React-escaped text.
+- Added explicit empty states for rule changes, warnings, and changed lines.
+- `pnpm --dir vscode test`: 34 files, 347 tests passed.
+- Typecheck, build, Chromium layout (2 tests), and diff checks passed.
