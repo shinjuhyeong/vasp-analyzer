@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import type { ComponentType } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -33,13 +33,23 @@ describe("Initial comparison flow", () => {
       fractionalPositions: first.fractionalPositions, cartesianPositions: first.cartesianPositions } };
     render(<App host={new MemoryHost(dataset)} structure={FakeStructure} convergence={FakeConvergence} />);
     const frame = await screen.findByLabelText("Ionic step number");
+    const primary = screen.getByTestId("structure-toolbar-primary");
+    const dock = screen.getByTestId("structure-toolbar-secondary");
+    expect(within(primary).getByLabelText("Ionic step slider")).toBeVisible();
+    expect(dock).toHaveClass("toolbar-secondary-dock");
+    expect(within(dock).getByLabelText("Force components")).toBeVisible();
     await user.clear(frame); await user.type(frame, "0{Enter}");
+    expect(screen.getByTestId("structure-toolbar-primary")).toBe(primary);
+    expect(screen.getByTestId("structure-toolbar-secondary")).toBe(dock);
+    expect(within(primary).getByLabelText("Ionic step slider")).toBeVisible();
     expect(screen.getByText("Initial / 2")).toBeVisible();
-    const compare = screen.getByLabelText("Compare structures");
+    expect(within(dock).queryByLabelText("Force components")).not.toBeInTheDocument();
+    const compare = within(dock).getByLabelText("Compare structures");
     await user.click(compare);
-    expect(screen.getByLabelText("Comparison target number")).toHaveValue(1);
-    expect(screen.getByLabelText("Comparison target slider")).toHaveValue("1");
-    expect(screen.getByLabelText("Displacement arrow multiplier slider")).toBeVisible();
+    expect(screen.getByTestId("structure-toolbar-secondary")).toBe(dock);
+    expect(within(dock).getByLabelText("Comparison target number")).toHaveValue(1);
+    expect(within(dock).getByLabelText("Comparison target slider")).toHaveValue("1");
+    expect(within(dock).getByLabelText("Displacement arrow multiplier slider")).toBeVisible();
     expect(screen.queryByLabelText("Force vector scale slider")).not.toBeInTheDocument();
     const targetNumber = screen.getByLabelText("Comparison target number");
     await user.clear(targetNumber);

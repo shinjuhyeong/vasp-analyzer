@@ -46,13 +46,26 @@ select {
 
 .workspace-toolbar {
   z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 38px;
-  padding: 4px 10px;
+  display: grid;
+  grid-template-rows: 38px 36px;
+  gap: 0;
+  min-height: 74px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--vscode-panel-border, #343840);
   background: var(--vscode-sideBar-background, #202328);
+}
+.toolbar-primary-row,
+.toolbar-secondary-dock {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+.toolbar-secondary-dock {
+  height: 36px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
 }
 
 .title-group {
@@ -704,15 +717,8 @@ select {
 }
 
 @media (max-width: 720px) {
-  .workspace-toolbar {
-    flex-wrap: wrap;
-    gap: 8px 12px;
-  }
-  .title-group {
-    flex-basis: 100%;
-  }
-  .toolbar-control { flex: 1 1 280px; }
-  .toolbar-control > div { flex-wrap: wrap; }
+  .toolbar-primary-row,
+  .toolbar-secondary-dock { flex-wrap: nowrap; }
   .tab-list {
     overflow-x: auto;
   }
