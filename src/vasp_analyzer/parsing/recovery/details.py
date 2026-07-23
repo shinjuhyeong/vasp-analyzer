@@ -24,18 +24,12 @@ _ANNOTATED_INTEGER_PARAMETERS = frozenset({"kblock", "nblock"})
 _INTEGER_OPTION_LEGEND = re.compile(
     rb"^(?P<value>[+-]?\d+)[ \t]{2,}(?P<legend>[+-]?\d+=[^\r\n]+)$"
 )
-_UNIT = re.compile(rb"^[A-Za-z][A-Za-z0-9_./^*-]{0,31}$")
-_KNOWN_PARAMETER_UNITS = {
-    b"a",
-    b"angstrom",
-    b"ev",
-    b"ev/angstrom",
-    b"fs",
-    b"k",
-    b"kb",
-    b"rad",
-    b"s",
-    b"sec",
+_NORMALIZED_PARAMETER_UNITS = {
+    b"ev": "eV",
+    b"ev/angstrom": "eV/angstrom",
+    b"k": "K",
+    b"fs": "fs",
+    b"kb": "kB",
 }
 
 # Canonical VASP metadata enriches only presentation fields. The exact key and
@@ -240,9 +234,22 @@ def parse_stress_rows(
     return parsed[0], parsed[1], parsed[2]
 
 
-def _coerce_parameter_value(
+def _semantic_parameter_unit(
+    key: str,
+    value: bool | int | float | str | tuple[float, ...],
+    explicit_unit: str | None,
+) -> str | None:
+    """Return a normalized explicit unit or a known parameter semantic unit."""
+    if explicit_unit is not None:
+        return explicit_unit
+    metadata = _parameter_metadata(key, value)
+    return metadata[2] if metadata is not None else None
+
+
+def _leading_parameter_value(
     raw: bytes, *, key: str
 ) -> tuple[bool | int | float | str | tuple[float, ...], str | None]:
+    """Interpret only the leading value expression and preserve unknown text."""
     text = _decode(raw, context="parameter value").strip()
     option_legend = _INTEGER_OPTION_LEGEND.fullmatch(raw)
     if option_legend is not None:
@@ -251,28 +258,29 @@ def _coerce_parameter_value(
         annotated_integer = _ANNOTATED_INTEGER.fullmatch(raw)
         if annotated_integer is not None:
             return int(annotated_integer.group("value")), None
-    folded = text.casefold()
+    tokens = raw.split()
+    if not tokens:
+        return text, None
+    folded = tokens[0].decode("ascii", errors="ignore").casefold()
     if folded in {"t", ".true.", "true"}:
         return True, None
     if folded in {"f", ".false.", "false"}:
         return False, None
-    tokens = raw.split()
-    unit: str | None = None
-    numeric_tokens = tokens
-    if (
-        len(tokens) >= 2
-        and _NUMBER.fullmatch(tokens[0]) is not None
-        and _UNIT.fullmatch(tokens[-1]) is not None
-        and tokens[-1].lower() in _KNOWN_PARAMETER_UNITS
-    ):
-        numeric_tokens = tokens[:-1]
-        unit = tokens[-1].decode("ascii")
-    if numeric_tokens and all(
-        _NUMBER.fullmatch(token) is not None for token in numeric_tokens
-    ):
+    if _NUMBER.fullmatch(tokens[0]) is not None:
+        numeric_tokens: list[bytes] = []
+        for token in tokens:
+            if _NUMBER.fullmatch(token) is None:
+                break
+            numeric_tokens.append(token)
         values = tuple(
             _finite_float(token, context="parameter value") for token in numeric_tokens
         )
+        explicit_unit: str | None = None
+        next_index = len(numeric_tokens)
+        if next_index < len(tokens):
+            unit_token = tokens[next_index].lower()
+            explicit_unit = _NORMALIZED_PARAMETER_UNITS.get(unit_token)
+        unit = _semantic_parameter_unit(key, values[0], explicit_unit)
         if len(values) > 1:
             return values, unit
         token_text = numeric_tokens[0].decode("ascii")
@@ -318,7 +326,7 @@ def parse_parameter_assignments(
         ):
             raise OutcarFormatError("parameter assignment is malformed")
         raw_value = _decode(raw_bytes, context="parameter value").strip()
-        value, unit = _coerce_parameter_value(raw_bytes, key=key)
+        value, unit = _leading_parameter_value(raw_bytes, key=key)
         metadata = _parameter_metadata(key, value)
         parsed.append(
             ParameterOccurrence(
@@ -326,7 +334,7 @@ def parse_parameter_assignments(
                 raw_key=raw_key,
                 raw_value=raw_value,
                 value=value,
-                unit=metadata[2] if metadata is not None else unit,
+                unit=unit,
                 category=metadata[0] if metadata is not None else None,
                 description=metadata[1] if metadata is not None else None,
                 ordinal=start_ordinal + len(parsed),

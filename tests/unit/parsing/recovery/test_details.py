@@ -225,10 +225,49 @@ def test_parameter_parser_extracts_a_numeric_unit_without_losing_raw_value() -> 
     assert parsed[0].raw_value == "520.0 eV"
 
 
+@pytest.mark.parametrize(
+    ("line", "value", "unit"),
+    [
+        (b" ISPIN = 1 spin polarized calculation?\n", 1, None),
+        (b" ENCUT = 600.0 eV 44.10 Ry 6.64 a.u.\n", 600.0, "eV"),
+        (b" EDIFFG = -.1D-01 stopping-criterion for IOM\n", -0.01, "eV/angstrom"),
+        (b" LREAL = F real-space projection\n", False, None),
+        (b" MAGMOM = 1 1 0 0\n", (1.0, 1.0, 0.0, 0.0), None),
+    ],
+)
+def test_parameter_interpreter_uses_leading_value_expression(
+    line: bytes,
+    value: object,
+    unit: str | None,
+) -> None:
+    occurrence = parse_parameter_assignments(line)[0]
+    assert occurrence.value == value
+    assert occurrence.unit == unit
+    assert occurrence.raw_value == line.split(b"=", 1)[1].decode().strip()
+
+
 def test_parameter_parser_rejects_non_finite_numeric_values() -> None:
     for token in (b"NaN", b"Inf", b"1D999", b"NaN eV"):
         with pytest.raises(OutcarFormatError, match="non-finite"):
             parse_parameter_assignments(b"HOME = " + token + b"\n")
+
+
+def test_option_legend_is_not_a_numeric_vector() -> None:
+    item = parse_parameter_assignments(
+        b" ICHARG = 2 charge: 1-file 2-atom 10-const\n"
+    )[0]
+    assert item.value == 2
+
+
+def test_unknown_home_value_remains_string() -> None:
+    item = parse_parameter_assignments(b" HOME_MODE = alpha-beta custom mode\n")[0]
+    assert item.value == "alpha-beta custom mode"
+
+
+@pytest.mark.parametrize("token", [b"nan", b"inf", b"-inf"])
+def test_nonfinite_leading_number_is_rejected(token: bytes) -> None:
+    with pytest.raises(OutcarFormatError, match="non-finite"):
+        parse_parameter_assignments(b" CUSTOM = " + token + b"\n")
 
 
 def test_parameter_parser_fails_closed_on_malformed_assignment() -> None:
@@ -236,10 +275,11 @@ def test_parameter_parser_fails_closed_on_malformed_assignment() -> None:
         parse_parameter_assignments(b"HOME == 1\n")
 
 
-def test_parameter_parser_keeps_ambiguous_mixed_value_as_raw_string() -> None:
+def test_parameter_parser_interprets_leading_scalar_before_annotation() -> None:
     parsed = parse_parameter_assignments(b"HOME = 1.0 alpha\n")
 
-    assert parsed[0].value == "1.0 alpha"
+    assert parsed[0].value == 1.0
+    assert parsed[0].raw_value == "1.0 alpha"
     assert math.isfinite(float(parsed[0].raw_value.split()[0]))
 
 
