@@ -10,6 +10,7 @@ from vasp_analyzer.calculation.dataset import load_dataset
 from vasp_analyzer.calculation.session import CalculationSession
 from vasp_analyzer.core import DatasetConsistencyError, OutcarFormatError
 from vasp_analyzer.parsing.adapters.vaspparser_outcar import ParsedTrajectory
+from vasp_analyzer.parsing.outcar_metadata import OutcarMetadata
 
 
 def _write_outcar(path: Path, suffix: bytes = b"") -> None:
@@ -181,6 +182,40 @@ def test_malformed_metadata_is_isolated_with_warning(
         "MetadataParseFailure",
         "MetadataParseFailure",
     ]
+
+
+def test_parameter_scan_failure_does_not_block_valid_trajectory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _calculation(tmp_path / "calc")
+
+    def fail_metadata(*_args: object, **_kwargs: object) -> OutcarMetadata:
+        raise OSError("private absolute path must not escape")
+
+    monkeypatch.setattr(dataset_module, "read_outcar_metadata", fail_metadata)
+
+    dataset = load_dataset(root)
+
+    assert dataset.ionic_steps
+    assert dataset.parameters == ()
+    assert any(w.category == "MetadataParseFailure" for w in dataset.warnings)
+    assert all("private absolute path" not in w.message for w in dataset.warnings)
+
+
+def test_parameter_scan_memory_error_propagates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _calculation(tmp_path / "calc")
+
+    def fail_metadata(*_args: object, **_kwargs: object) -> OutcarMetadata:
+        raise MemoryError
+
+    monkeypatch.setattr(dataset_module, "read_outcar_metadata", fail_metadata)
+
+    with pytest.raises(MemoryError):
+        load_dataset(root)
 
 
 def test_missing_pressure_detail_does_not_shift_pulay_to_wrong_step(

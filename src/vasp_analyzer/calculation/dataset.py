@@ -33,8 +33,9 @@ from vasp_analyzer.normalizers import (
 from vasp_analyzer.parsing.adapters.poscar_pymatgen import ParsedStructure, parse_poscar
 from vasp_analyzer.parsing.adapters.vaspparser_outcar import parse_vaspparser_outcar
 from vasp_analyzer.parsing.dialects import Dialect, detect_dialect
-from vasp_analyzer.parsing.outcar_metadata import read_outcar_metadata
+from vasp_analyzer.parsing.outcar_metadata import OutcarMetadata, read_outcar_metadata
 from vasp_analyzer.parsing.profiles import CompatibilityProfile
+from vasp_analyzer.parsing.profiles.models import OutcarRule
 
 from .discovery import DiscoveredCalculation, discover_calculation
 
@@ -213,6 +214,22 @@ def _energy_terms(
     )
 
 
+def _optional_outcar_metadata(path: Path, rule: OutcarRule) -> OutcarMetadata:
+    try:
+        return read_outcar_metadata(path, rule)
+    except MemoryError:
+        raise
+    except Exception:
+        return OutcarMetadata(
+            warnings=(
+                ParserWarning(
+                    category="MetadataParseFailure",
+                    message="OUTCAR parameter metadata is unavailable",
+                ),
+            )
+        )
+
+
 def _assemble(
     path: Path,
     profile: CompatibilityProfile | None = None,
@@ -228,7 +245,7 @@ def _assemble(
     selected = poscar or contcar
     sites = selected.sites if selected else outcar_sites
     match = _select_outcar_normalizer(discovered.outcar)
-    metadata = read_outcar_metadata(discovered.outcar, dialect.profile.outcar)
+    metadata = _optional_outcar_metadata(discovered.outcar, dialect.profile.outcar)
 
     provenance = ParserProvenance(
         adapter="vaspparser",

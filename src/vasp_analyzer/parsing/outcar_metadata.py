@@ -34,17 +34,18 @@ def _contains(line: bytes, markers: tuple[str, ...]) -> bool:
     return any(marker.encode("utf-8").lower() in folded for marker in markers)
 
 
-def _warning(message: str, line_number: int) -> ParserWarning:
+def _bounded_metadata_warning(
+    message: str, line_number: int | None = None
+) -> ParserWarning:
+    safe = "".join(character for character in message if character.isprintable())[:512]
     return ParserWarning(
         category="MetadataParseFailure",
-        message=message,
+        message=safe or "OUTCAR metadata could not be interpreted",
         line_number=line_number,
     )
 
 
-def read_outcar_metadata(path: Path, rule: OutcarRule) -> OutcarMetadata:
-    """Read ordered parameters and pressure details without parsing trajectories."""
-
+def _read_outcar_metadata(path: Path, rule: OutcarRule) -> OutcarMetadata:
     parameters: list[ParameterOccurrence] = []
     pressure_details: list[tuple[float | None, float | None]] = []
     warnings: list[ParserWarning] = []
@@ -58,7 +59,7 @@ def read_outcar_metadata(path: Path, rule: OutcarRule) -> OutcarMetadata:
             line_number += 1
             if len(raw) > _MAX_LINE_BYTES and not raw.endswith((b"\n", b"\r")):
                 warnings.append(
-                    _warning(
+                    _bounded_metadata_warning(
                         f"OUTCAR metadata line exceeds {_MAX_LINE_BYTES} bytes",
                         line_number,
                     )
@@ -84,16 +85,37 @@ def read_outcar_metadata(path: Path, rule: OutcarRule) -> OutcarMetadata:
                             line_number=line_number,
                         )
                     )
-                except (AnalyzerError, ValueError) as error:
+                except MemoryError:
+                    raise
+                except (AnalyzerError, UnicodeError, ValueError, TypeError):
                     warnings.append(
-                        _warning(f"ignored malformed parameter metadata: {error}", line_number)
+                        _bounded_metadata_warning(
+                            "ignored malformed parameter metadata", line_number
+                        )
+                    )
+                except Exception:
+                    warnings.append(
+                        _bounded_metadata_warning(
+                            "ignored unavailable parameter metadata", line_number
+                        )
                     )
 
             try:
                 pressure = parse_pressure_line(raw, rule)
-            except (AnalyzerError, ValueError) as error:
+            except MemoryError:
+                raise
+            except (AnalyzerError, UnicodeError, ValueError, TypeError):
                 warnings.append(
-                    _warning(f"ignored malformed pressure metadata: {error}", line_number)
+                    _bounded_metadata_warning(
+                        "ignored malformed pressure metadata", line_number
+                    )
+                )
+                pressure_details.append((None, None))
+            except Exception:
+                warnings.append(
+                    _bounded_metadata_warning(
+                        "ignored unavailable pressure metadata", line_number
+                    )
                 )
                 pressure_details.append((None, None))
             else:
@@ -105,6 +127,21 @@ def read_outcar_metadata(path: Path, rule: OutcarRule) -> OutcarMetadata:
         pressure_details=tuple(pressure_details),
         warnings=tuple(warnings),
     )
+
+
+def read_outcar_metadata(path: Path, rule: OutcarRule) -> OutcarMetadata:
+    """Read optional metadata without allowing ordinary failures to veto trajectories."""
+
+    try:
+        return _read_outcar_metadata(path, rule)
+    except MemoryError:
+        raise
+    except Exception:
+        return OutcarMetadata(
+            warnings=(
+                _bounded_metadata_warning("OUTCAR parameter metadata is unavailable"),
+            )
+        )
 
 
 __all__ = ["OutcarMetadata", "read_outcar_metadata"]
