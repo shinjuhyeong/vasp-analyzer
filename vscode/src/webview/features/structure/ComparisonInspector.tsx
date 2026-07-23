@@ -1,0 +1,33 @@
+import type { InitialStructure, IonicStep, Site } from "../../core/contracts.js";
+import type { StructureComparison } from "./comparison.js";
+
+const vector = (values: readonly number[]): string => `[${values.map((value) => value.toFixed(6)).join(", ")}]`;
+const magnitude = (values: readonly number[]): string => Math.hypot(...values).toFixed(6);
+
+export function ComparisonInspector({ site, sitePosition, initial, target, comparison, multiplier, mode = "both" }: {
+  readonly site: Site | null; readonly sitePosition: number; readonly initial: InitialStructure;
+  readonly target: IonicStep; readonly comparison: StructureComparison; readonly multiplier: number;
+  readonly mode?: "both" | "summary" | "detail";
+}) {
+  const detail = comparison.sites[sitePosition];
+  const summary = comparison.summary;
+  return <aside className="atom-detail comparison-inspector" aria-label={detail && site ? "Selected atom comparison details" : "Global comparison summary"}>
+    {mode !== "summary" && detail && site && <>
+      <header><strong>{site.element} {site.siteIndex + 1}</strong><span>siteIndex {site.siteIndex}</span></header>
+      <p>Initial fractional {vector(initial.fractionalPositions[sitePosition]!)}</p>
+      <p>Target fractional {vector(target.fractionalPositions[sitePosition]!)}</p>
+      <p>Initial Cartesian {vector(detail.initialCartesian)} Å</p>
+      <p>Aligned target Cartesian {vector(detail.alignedTargetCartesian)} Å</p>
+      <p>Raw displacement {vector(detail.rawDisplacement)} Å; |raw| = {magnitude(detail.rawDisplacement)} Å</p>
+      <p>Display displacement {vector(detail.displacement)} Å; |d| = {magnitude(detail.displacement)} Å</p>
+      <p>Periodic image shift {vector(detail.imageShift)}</p><p>Displacement rank {detail.rank}</p>
+      <p>Displacement arrow multiplier {multiplier}×</p>
+    </>}
+    {mode !== "detail" && <><h3>Comparison summary</h3>
+    <p>Removed drift {vector(comparison.removedDrift)} Å; |t| = {magnitude(comparison.removedDrift)} Å</p>
+    <p>Maximum displacement {summary.largestDisplacement.toFixed(6)} Å</p><p>Mean displacement {summary.meanDisplacement.toFixed(6)} Å</p>
+    <p>Cell vector changes {vector(summary.cellDeltaMagnitudes)} Å</p><p>Cell length changes {vector(summary.lengthChanges)} Å</p>
+    {comparison.cellDeltas.map((delta, axis) => <p key={axis}>Delta {(["a", "b", "c"] as const)[axis]} vector {vector(delta)} Å; magnitude {magnitude(delta)} Å</p>)}
+    <p>Cell angle changes {vector(summary.angleChanges)} degrees</p><p>Cell volume change {summary.volumeChange.toFixed(6)} Å³ ({(summary.relativeVolumeChange * 100).toFixed(6)}%)</p></>}
+  </aside>;
+}

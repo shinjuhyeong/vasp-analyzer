@@ -1,0 +1,39 @@
+schema_version = 1
+id = "home-example"
+display_name = "Home example"
+
+[detection]
+outcar_contains = ["vasp.5.4.1-barrier"]
+priority = 100
+
+[poscar]
+drop_exact_line_after = "Selective dynamics"
+drop_exact_line = "0"
+
+[outcar.markers]
+position_force = ["POSITION", "TOTAL-FORCE"]
+total_energy = ["free energy", "TOTEN"]
+converged = ["reached required accuracy"]
+
+[outcar.details]
+energy_section = ["FREE ENERGIE OF THE ION-ELECTRON SYSTEM", "HOME FREE ENERGY SUMMARY"]
+stress_section = ["FORCE on cell =-STRESS"]
+external_pressure = ["external pressure"]
+cell_volume = ["volume of cell"]
+parameter_sections = ["INCAR:", "Startparameter for this Run", "HOME PARAMETERS:"]
+parameter_section_end = ["VRHFIN", "------------------------------", "HOME HEADER END"]
+
+[[outcar.energy_terms]]
+key = "ewald"
+labels = ["alpha Z PSCENC", "Ewald energy TEWEN"]
+kind = "contribution"
+
+[[outcar.energy_terms]]
+key = "home_correction"
+labels = ["home correction"]
+kind = "contribution"
+
+[validation]
+expected_force_columns = 6
+force_prefix_columns = 2
+allow_incomplete_tail = true

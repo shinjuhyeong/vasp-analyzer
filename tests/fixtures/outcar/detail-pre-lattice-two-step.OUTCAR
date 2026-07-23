@@ -1,0 +1,34 @@
+ vasp.5.4.1-barrier
+ INCAR:
+ ENCUT = 520
+
+ VRHFIN =H: s1
+ ions per type = 1
+ NIONS = 1 ions
+ volume of cell : 125.0
+ direct lattice vectors                 reciprocal lattice vectors
+   5.000000 0.000000 0.000000  0.200000 0.000000 0.000000
+   0.000000 5.000000 0.000000  0.000000 0.200000 0.000000
+   0.000000 0.000000 5.000000  0.000000 0.000000 0.200000
+ FORCE on cell =-STRESS in cart. coord. units (eV):
+ in kB  1 2 3 0.1 0.2 0.3
+ external pressure = 7.0 kB Pullay stress = 0.7 kB
+ POSITION                                       TOTAL-FORCE (eV/Angst)
+ -----------------------------------------------------------------------------------
+   0.000000 0.000000 0.000000  0.100000 0.000000 0.000000
+ FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)
+ free energy TOTEN = -30.000000 eV
+ volume of cell : 216.0
+ direct lattice vectors                 reciprocal lattice vectors
+   6.000000 0.000000 0.000000  0.166667 0.000000 0.000000
+   0.000000 6.000000 0.000000  0.000000 0.166667 0.000000
+   0.000000 0.000000 6.000000  0.000000 0.000000 0.166667
+ FORCE on cell =-STRESS in cart. coord. units (eV):
+ in kB  4 5 6 0.4 0.5 0.6
+ external pressure = -4.0 kB Pullay stress = 0.4 kB
+ POSITION                                       TOTAL-FORCE (eV/Angst)
+ -----------------------------------------------------------------------------------
+   0.010000 0.000000 0.000000  0.050000 0.000000 0.000000
+ FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)
+ free energy TOTEN = -31.000000 eV
+ General timing and accounting informations for this job:

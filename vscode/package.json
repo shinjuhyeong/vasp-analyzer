@@ -1,0 +1,99 @@
+{
+  "name": "vasp-analyzer",
+  "displayName": "VASP Analyzer",
+  "description": "Standalone VASP analysis for local and Remote SSH workspaces",
+  "version": "0.1.0",
+  "publisher": "shinjuhyeong",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shinjuhyeong/vasp-analyzer.git"
+  },
+  "type": "module",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": ["Visualization", "Other"],
+  "extensionKind": ["workspace"],
+  "main": "./dist/extension.cjs",
+  "activationEvents": ["onStartupFinished", "onCommand:vaspAnalyzer.open", "onCommand:vaspAnalyzer.openNormalizedOutcar", "onCommand:vaspAnalyzer.compareNormalizedOutcar"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "vaspAnalyzer.open",
+        "title": "VASP Analyzer: Open Calculation"
+      },
+      {
+        "command": "vaspAnalyzer.openNormalizedOutcar",
+        "title": "VASP Analyzer: Open Normalized OUTCAR",
+        "enablement": "vaspAnalyzer.normalizationAvailable"
+      },
+      {
+        "command": "vaspAnalyzer.compareNormalizedOutcar",
+        "title": "VASP Analyzer: Compare Original and Normalized OUTCAR",
+        "enablement": "vaspAnalyzer.normalizationAvailable"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "vaspAnalyzer.open",
+          "when": "resourceFilename =~ /^outcar$/i",
+          "group": "navigation@50"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "VASP Analyzer",
+      "properties": {
+        "vaspAnalyzer.executablePath": {
+          "type": "string",
+          "default": "analyzer",
+          "description": "Analyzer executable on the workspace/Remote SSH host. The default supports pipx installation. Ignored when pythonPath is explicitly set."
+        },
+        "vaspAnalyzer.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Explicit Python interpreter override. When set, launches 'python -m vasp_analyzer.cli' and takes precedence over executablePath."
+        },
+        "vaspAnalyzer.requestTimeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 1000,
+          "maximum": 120000,
+          "description": "Maximum analyzer stdio request duration in milliseconds."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "vitest run --exclude tests/layout/**",
+    "test:layout": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "build": "node esbuild.mjs",
+    "package": "pnpm run build && vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "3dmol": "2.5.5",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
+    "@types/adm-zip": "0.5.8",
+    "@types/node": "^24.0.0",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@types/vscode": "^1.100.0",
+    "@vscode/vsce": "^3.6.0",
+    "adm-zip": "0.6.0",
+    "esbuild": "^0.25.0",
+    "jsdom": "27.4.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "packageManager": "pnpm@11.9.0"
+}

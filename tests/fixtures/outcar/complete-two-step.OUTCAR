@@ -1,0 +1,24 @@
+ vasp.5.4.1-barrier synthetic fixture
+ VRHFIN =H: s1
+ ions per type = 2
+ NIONS =      2 ions
+ direct lattice vectors                 reciprocal lattice vectors
+   3.000000 0.000000 0.000000  0.333333 0.000000 0.000000
+   0.000000 3.000000 0.000000  0.000000 0.333333 0.000000
+   0.000000 0.000000 3.000000  0.000000 0.000000 0.333333
+ POSITION                                       TOTAL-FORCE (eV/Angst)
+ -----------------------------------------------------------------------------------
+   0.000000 0.000000 0.000000  0.100000 0.000000 0.000000
+   1.500000 1.500000 1.500000 -0.100000 0.000000 0.000000
+ free energy    TOTEN  =       -10.000000 eV
+ direct lattice vectors                 reciprocal lattice vectors
+   3.010000 0.000000 0.000000  0.332226 0.000000 0.000000
+   0.000000 3.010000 0.000000  0.000000 0.332226 0.000000
+   0.000000 0.000000 3.010000  0.000000 0.000000 0.332226
+ POSITION                                       TOTAL-FORCE (eV/Angst)
+ -----------------------------------------------------------------------------------
+   0.010000 0.000000 0.000000  0.050000 0.000000 0.000000
+   1.490000 1.500000 1.500000 -0.050000 0.000000 0.000000
+ free energy    TOTEN  =       -10.100000 eV
+ reached required accuracy - stopping structural energy minimisation
+ General timing and accounting informations for this job:
