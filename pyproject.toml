@@ -14,6 +14,7 @@ dependencies = [
   "typer>=0.16",
   "fastapi>=0.116",
   "uvicorn>=0.35",
+  "vaspparser==0.0.7",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +25,7 @@ analyzer = "vasp_analyzer.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vasp_analyzer"]
+artifacts = ["/src/vasp_analyzer/normalizers/definitions/*.json"]
 
 [tool.hatch.build.hooks.custom]
 path = "hatch_build.py"
@@ -37,6 +39,7 @@ include = [
   "/vscode/dist/webview",
   "/README.md",
   "/pyproject.toml",
+  "/src/vasp_analyzer/normalizers/definitions/*.json",
 ]
 
 [tool.pytest.ini_options]
