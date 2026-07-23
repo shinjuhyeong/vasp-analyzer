@@ -21,6 +21,9 @@ class FakeRenderer implements CrystalRenderer {
   setViewDirection = vi.fn();
   setOrthographic = vi.fn();
   setLayerVisible = vi.fn();
+  get layerCalls(): readonly (readonly [LayerName, boolean])[] {
+    return this.setLayerVisible.mock.calls as [LayerName, boolean][];
+  }
   setVolumetricLayer = vi.fn();
   setSelectedSite = vi.fn();
   resetView = vi.fn();
@@ -220,6 +223,20 @@ describe("CrystalPanel", () => {
       [1, 1, 0],
       "plane-normal",
     );
+  });
+
+  it("toggles lattice vectors independently of the cell", () => {
+    const { renderer: fakeRenderer } = setup();
+    const vectors = screen.getByLabelText("Show lattice vectors");
+    const cell = screen.getByLabelText("Show cell");
+
+    expect(vectors).toBeChecked();
+    expect(cell).toBeChecked();
+    fireEvent.click(vectors);
+    expect(vectors).not.toBeChecked();
+    expect(cell).toBeChecked();
+    expect(fakeRenderer.layerCalls).toContainEqual(["axes", false]);
+    expect(fakeRenderer.layerCalls).not.toContainEqual(["cell", false]);
   });
 
   it("marks the exact strongest free component and never treats unknown constraints as free", () => {

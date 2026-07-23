@@ -54,14 +54,40 @@ const ignoreWidth = (): void => undefined;
 const LAYERS: readonly {
   readonly name: LayerName;
   readonly label: string;
+  readonly accessibleLabel: string;
   readonly initial: boolean;
 }[] = [
-  { name: "cell", label: "cell", initial: true },
-  { name: "axes", label: "axes", initial: true },
-  { name: "bonds", label: "bonds", initial: true },
-  { name: "forces", label: "forces", initial: true },
-  { name: "constraints", label: "constraints", initial: true },
-  { name: "volumetric", label: "volumetric", initial: false },
+  { name: "cell", label: "cell", accessibleLabel: "Show cell", initial: true },
+  {
+    name: "axes",
+    label: "lattice vectors",
+    accessibleLabel: "Show lattice vectors",
+    initial: true,
+  },
+  {
+    name: "bonds",
+    label: "bonds",
+    accessibleLabel: "Show bonds",
+    initial: true,
+  },
+  {
+    name: "forces",
+    label: "forces",
+    accessibleLabel: "Show forces",
+    initial: true,
+  },
+  {
+    name: "constraints",
+    label: "constraints",
+    accessibleLabel: "Show constraints",
+    initial: true,
+  },
+  {
+    name: "volumetric",
+    label: "volumetric",
+    accessibleLabel: "Show volumetric",
+    initial: false,
+  },
 ];
 
 const validRepeat = (value: string): boolean => /^[1-8]$/.test(value);
@@ -357,10 +383,10 @@ export function CrystalPanel({
         )}
         <fieldset>
           <legend>Layers</legend>
-          {LAYERS.map(({ name, label }) => (
+          {LAYERS.map(({ name, label, accessibleLabel }) => (
             <label key={name}>
               <input
-                aria-label={`Show ${label}`}
+                aria-label={accessibleLabel}
                 type="checkbox"
                 checked={layers[name]}
                 onChange={(event) =>
@@ -370,7 +396,7 @@ export function CrystalPanel({
                   }))
                 }
               />
-              {label}
+              {name === "axes" ? "Lattice vectors (a, b, c)" : label}
             </label>
           ))}
         </fieldset>
