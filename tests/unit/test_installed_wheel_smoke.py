@@ -2,6 +2,7 @@ import pytest
 
 from scripts.verify_installed_wheel import (
     InstalledWheelSmokeError,
+    validate_normalizer_cli_outputs,
     validate_no_browser_result,
     validate_stdio_output,
 )
@@ -106,3 +107,43 @@ def test_installed_default_smoke_requires_handoff_error_without_loopback_url() -
 
     with pytest.raises(InstalledWheelSmokeError, match="browser"):
         validate_no_browser_result(0, "http://127.0.0.1:8765")
+
+
+def test_installed_normalizer_cli_requires_resources_and_safe_test_report() -> None:
+    listed = {
+        "schemaVersion": 1,
+        "normalizers": [
+            {"id": "home-barrier", "builtIn": True},
+            {"id": "standard", "builtIn": True},
+        ],
+    }
+    validated = {
+        "schemaVersion": 1,
+        "id": "candidate",
+        "valid": True,
+    }
+    tested = {
+        "schemaVersion": 1,
+        "sourceHashVerified": True,
+        "temporaryCleaned": True,
+        "summary": {"adapter": "vaspparser", "ionicSteps": 1, "atomCount": 2},
+        "manifest": {"normalizerId": "candidate", "sourceSha256": "abc"},
+    }
+
+    validate_normalizer_cli_outputs(
+        listed,
+        validated,
+        tested,
+        candidate_id="candidate",
+        source_sha256="abc",
+    )
+
+    tested["temporaryCleaned"] = False
+    with pytest.raises(InstalledWheelSmokeError, match="safely wired"):
+        validate_normalizer_cli_outputs(
+            listed,
+            validated,
+            tested,
+            candidate_id="candidate",
+            source_sha256="abc",
+        )

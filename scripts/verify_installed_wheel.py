@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -27,6 +28,54 @@ Direct
 0 0 0
 0.5 0.5 0.5
 """
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def validate_normalizer_cli_outputs(
+    listed: object,
+    validated: object,
+    tested: object,
+    *,
+    candidate_id: str,
+    source_sha256: str,
+) -> None:
+    if not isinstance(listed, dict) or listed.get("schemaVersion") != 1:
+        raise InstalledWheelSmokeError("installed normalizer list returned invalid JSON")
+    entries = listed.get("normalizers")
+    if not isinstance(entries, list):
+        raise InstalledWheelSmokeError("installed normalizer list omitted resources")
+    built_ins = {
+        item.get("id")
+        for item in entries
+        if isinstance(item, dict) and item.get("builtIn") is True
+    }
+    if built_ins != {"home-barrier", "standard"}:
+        raise InstalledWheelSmokeError("installed normalizer list omitted packaged resources")
+    if (
+        not isinstance(validated, dict)
+        or validated.get("valid") is not True
+        or validated.get("id") != candidate_id
+        or validated.get("schemaVersion") != 1
+    ):
+        raise InstalledWheelSmokeError("installed normalizer validate was not wired")
+    summary = tested.get("summary") if isinstance(tested, dict) else None
+    manifest = tested.get("manifest") if isinstance(tested, dict) else None
+    if (
+        tested.get("schemaVersion") != 1
+        or tested.get("sourceHashVerified") is not True
+        or tested.get("temporaryCleaned") is not True
+        or not isinstance(summary, dict)
+        or summary.get("adapter") != "vaspparser"
+        or summary.get("ionicSteps") != 1
+        or summary.get("atomCount") != 2
+        or not isinstance(manifest, dict)
+        or manifest.get("normalizerId") != candidate_id
+        or manifest.get("sourceSha256") != source_sha256
+    ):
+        raise InstalledWheelSmokeError("installed normalizer test was not safely wired")
 
 
 def validate_stdio_output(
@@ -172,6 +221,74 @@ def verify_installed_wheel(
         )
         if help_result.returncode or "Usage:" not in help_result.stdout:
             raise InstalledWheelSmokeError("installed CLI help smoke failed")
+
+        isolated_config = root / "config"
+        environment = dict(os.environ)
+        environment["XDG_CONFIG_HOME"] = str(isolated_config)
+        candidate_id = "installed-wheel-candidate"
+        candidate = root / "candidate.json"
+        candidate.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "id": candidate_id,
+                    "displayName": "Installed Wheel Candidate",
+                    "priority": 50,
+                    "detect": {"all": ["VRHFIN"], "any": [], "none": []},
+                    "rules": [],
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        normalizer_source = without_poscar / "OUTCAR"
+        source_before = _sha256(normalizer_source)
+        temporary_before = set(
+            Path(tempfile.gettempdir()).glob("vasp-analyzer-normalized-*")
+        )
+        normalizer_results = []
+        for arguments in (
+            ["normalizer", "list"],
+            ["normalizer", "list"],
+            ["normalizer", "validate", str(candidate)],
+            ["normalizer", "test", str(candidate), str(normalizer_source)],
+        ):
+            result = _run_console(
+                console,
+                arguments,
+                cwd=root,
+                environment=environment,
+            )
+            if result.returncode:
+                raise InstalledWheelSmokeError(
+                    f"installed {' '.join(arguments[:2])} command failed"
+                )
+            try:
+                normalizer_results.append(json.loads(result.stdout))
+            except json.JSONDecodeError:
+                raise InstalledWheelSmokeError(
+                    "installed normalizer command returned invalid JSON"
+                ) from None
+        if normalizer_results[0] != normalizer_results[1]:
+            raise InstalledWheelSmokeError(
+                "installed normalizer list output is not deterministic"
+            )
+        validate_normalizer_cli_outputs(
+            normalizer_results[0],
+            normalizer_results[2],
+            normalizer_results[3],
+            candidate_id=candidate_id,
+            source_sha256=source_before,
+        )
+        if _sha256(normalizer_source) != source_before:
+            raise InstalledWheelSmokeError("installed normalizer test changed its source")
+        temporary_after = set(
+            Path(tempfile.gettempdir()).glob("vasp-analyzer-normalized-*")
+        )
+        if temporary_after != temporary_before:
+            raise InstalledWheelSmokeError(
+                "installed normalizer test leaked temporary output"
+            )
 
         request = '{"id":1,"method":"getDataset","params":{}}\n'
         for calculation, expect_initial_structure in (
