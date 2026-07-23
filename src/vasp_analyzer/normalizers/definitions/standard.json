@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "standard",
+  "displayName": "Standard VASP",
+  "priority": 0,
+  "detect": {
+    "all": [],
+    "any": [],
+    "none": []
+  },
+  "rules": []
+}

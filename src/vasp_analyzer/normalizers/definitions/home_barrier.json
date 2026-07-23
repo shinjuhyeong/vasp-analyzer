@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "home-barrier",
+  "displayName": "Home VASP Barrier",
+  "priority": 100,
+  "detect": {
+    "all": ["vasp.5.4.1-barrier"],
+    "any": ["POSITION", "TOTAL-FORCE"],
+    "none": []
+  },
+  "rules": [
+    {
+      "id": "named-position-force-row",
+      "scope": {
+        "start": {"containsAll": ["POSITION", "TOTAL-FORCE"]},
+        "after": {"type": "dashedSeparator"},
+        "rowCount": {"source": "atomCount"}
+      },
+      "input": {
+        "tokenizer": "whitespace",
+        "columns": [
+          {"name": "species", "type": "elementLabel", "allowedSuffixes": ["_"]},
+          {"name": "localIndex", "type": "positiveInteger"},
+          {"name": "x", "type": "finiteFloat"},
+          {"name": "y", "type": "finiteFloat"},
+          {"name": "z", "type": "finiteFloat"},
+          {"name": "fx", "type": "finiteFloat"},
+          {"name": "fy", "type": "finiteFloat"},
+          {"name": "fz", "type": "finiteFloat"}
+        ]
+      },
+      "output": {
+        "emit": ["x", "y", "z", "fx", "fy", "fz"],
+        "separator": "  "
+      }
+    }
+  ]
+}
