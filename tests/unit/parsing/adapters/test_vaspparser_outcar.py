@@ -217,6 +217,8 @@ def test_rejects_nonfinite_values(
         IndexError("missing row"),
         OSError("cannot read"),
         FileNotFoundError("gone"),
+        TypeError("unexpected type"),
+        RuntimeError("third-party failure"),
     ],
 )
 def test_maps_parser_failures_to_analyzer_owned_error(
@@ -278,11 +280,14 @@ def test_realistic_empty_optional_containers_map_to_none(
     assert trajectory.cbm is None
 
 
-def test_rejects_pressure_when_stresses_are_absent(
+def test_ignores_fabricated_pressure_when_stresses_are_absent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     data = _parse_dict()
     data["stresses"] = np.array([])
+    data["pressures"] = np.zeros(2)
 
-    with pytest.raises(DatasetConsistencyError, match="pressures.*stresses"):
-        _parse(monkeypatch, data)
+    trajectory = _parse(monkeypatch, data)
+
+    assert trajectory.stresses is None
+    assert trajectory.pressures is None

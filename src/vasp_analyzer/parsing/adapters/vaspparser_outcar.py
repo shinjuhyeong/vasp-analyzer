@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from vaspparser.vasp.parser.outcar import Outcar, OutcarCollectError
+from vaspparser.vasp.parser.outcar import Outcar
 
 from vasp_analyzer.core import (
     DatasetConsistencyError,
@@ -198,7 +198,9 @@ def parse_vaspparser_outcar(
     parser = Outcar()
     try:
         parser.from_file(str(path))
-    except (OutcarCollectError, ValueError, IndexError, OSError) as error:
+    except MemoryError:
+        raise
+    except Exception as error:
         raise OutcarFormatError(
             f"vaspparser failed to parse OUTCAR {path}: {error}"
         ) from error
@@ -242,11 +244,11 @@ def parse_vaspparser_outcar(
         _array(raw_steps, key="steps", shape=(step_count,))
 
     stresses = _optional_array(parsed, "stresses", (step_count, 3, 3))
-    pressures = _optional_array(parsed, "pressures", (step_count, 3))
-    if stresses is None and pressures is not None:
-        raise DatasetConsistencyError(
-            "vaspparser pressures cannot be present when stresses are absent"
-        )
+    pressures = (
+        None
+        if stresses is None
+        else _optional_array(parsed, "pressures", (step_count, 3))
+    )
     fermi_levels = _optional_array(parsed, "e_fermi_list", (step_count,))
 
     vbm = parsed.get("vbm_list")
