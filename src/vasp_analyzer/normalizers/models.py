@@ -7,6 +7,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictInt,
     StringConstraints,
     field_validator,
     model_validator,
@@ -20,11 +21,25 @@ Identifier = Annotated[
         pattern=r"^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$",
     ),
 ]
+# Canonical definition examples use lowerCamelCase. Existing custom definitions may
+# use snake_case; both forms remain bounded to ASCII identifiers with no mixed separators.
 ColumnName = Annotated[
     str,
-    StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]*$"),
+    StringConstraints(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z][A-Za-z0-9]*(?:_[a-z0-9]+)*$",
+    ),
 ]
 DisplayName = Annotated[str, StringConstraints(min_length=1, max_length=128)]
+PrintableLiteral = Annotated[
+    str,
+    StringConstraints(min_length=1, pattern=r"^[\x20-\x7e]+$"),
+]
+SafeSuffix = Annotated[
+    str,
+    StringConstraints(min_length=1, pattern=r"^[A-Za-z0-9_+-]+$"),
+]
 _SAFE_SUFFIX = re.compile(r"^[A-Za-z0-9_+-]+$")
 
 
@@ -39,14 +54,15 @@ class _StrictModel(BaseModel):
         }.get(name, name),
         extra="forbid",
         frozen=True,
-        populate_by_name=True,
+        validate_by_alias=True,
+        validate_by_name=False,
     )
 
 
 class DetectionSpec(_StrictModel):
-    all: tuple[str, ...] = ()
-    any: tuple[str, ...] = ()
-    none: tuple[str, ...] = ()
+    all: Annotated[tuple[PrintableLiteral, ...], Field(json_schema_extra={"uniqueItems": True})] = ()
+    any: Annotated[tuple[PrintableLiteral, ...], Field(json_schema_extra={"uniqueItems": True})] = ()
+    none: Annotated[tuple[PrintableLiteral, ...], Field(json_schema_extra={"uniqueItems": True})] = ()
 
     @field_validator("all", "any", "none")
     @classmethod
@@ -54,8 +70,7 @@ class DetectionSpec(_StrictModel):
         for literal in values:
             if (
                 not literal
-                or not literal.isascii()
-                or any(character in "\r\n\0" for character in literal)
+                or any(not 0x20 <= ord(character) <= 0x7E for character in literal)
             ):
                 raise ValueError("detection literal must be nonempty printable ASCII")
         if len(values) != len(set(values)):
@@ -66,7 +81,10 @@ class DetectionSpec(_StrictModel):
 class ElementLabelColumn(_StrictModel):
     name: ColumnName
     type: Literal["elementLabel"]
-    allowed_suffixes: tuple[str, ...] = ()
+    allowed_suffixes: Annotated[
+        tuple[SafeSuffix, ...],
+        Field(json_schema_extra={"uniqueItems": True}),
+    ] = ()
 
     @field_validator("allowed_suffixes")
     @classmethod
@@ -117,14 +135,20 @@ ColumnSpec = Annotated[
 
 
 class BlockStart(_StrictModel):
-    contains_all: tuple[Annotated[str, StringConstraints(min_length=1)], ...]
+    contains_all: Annotated[
+        tuple[PrintableLiteral, ...],
+        Field(min_length=1, json_schema_extra={"uniqueItems": True}),
+    ]
 
     @field_validator("contains_all")
     @classmethod
     def validate_contains_all(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if not values or len(values) != len(set(values)):
             raise ValueError("containsAll literals must be nonempty and unique")
-        if any(not value.isascii() or "\n" in value or "\r" in value for value in values):
+        if any(
+            any(not 0x20 <= ord(character) <= 0x7E for character in value)
+            for value in values
+        ):
             raise ValueError("containsAll literal must be printable ASCII")
         return values
 
@@ -145,7 +169,7 @@ class ProjectionScope(_StrictModel):
 
 class ProjectionInput(_StrictModel):
     tokenizer: Literal["whitespace"]
-    columns: tuple[ColumnSpec, ...]
+    columns: Annotated[tuple[ColumnSpec, ...], Field(min_length=1)]
 
     @field_validator("columns")
     @classmethod
@@ -159,7 +183,10 @@ class ProjectionInput(_StrictModel):
 
 
 class ProjectionOutput(_StrictModel):
-    emit: tuple[ColumnName, ...]
+    emit: Annotated[
+        tuple[ColumnName, ...],
+        Field(min_length=1, json_schema_extra={"uniqueItems": True}),
+    ]
     separator: Literal["  "] = "  "
 
     @field_validator("emit")
@@ -191,10 +218,12 @@ class ProjectionRule(_StrictModel):
 
 
 class NormalizerDefinition(_StrictModel):
+    # This public validation model accepts schema aliases only; internal field names
+    # are deliberately not an alternate JSON vocabulary.
     schema_version: Literal[1]
     id: Identifier
     display_name: DisplayName
-    priority: Annotated[int, Field(ge=-10000, le=10000)]
+    priority: Annotated[StrictInt, Field(ge=-10000, le=10000)]
     detect: DetectionSpec
     rules: tuple[ProjectionRule, ...]
 
@@ -212,3 +241,14 @@ class NormalizerDefinition(_StrictModel):
         if len(ids) != len(set(ids)):
             raise ValueError("rule IDs must be unique")
         return rules
+
+    @classmethod
+    def model_json_schema(cls, *args: object, **kwargs: object) -> dict[str, object]:
+        schema = super().model_json_schema(*args, **kwargs)
+        schema["x-vasp-analyzer-semantic-validations"] = [
+            "ruleIdsUnique",
+            "columnNamesUniqueWithinRule",
+            "emitReferencesDeclaredColumns",
+            "textColumnsNotEmitted",
+        ]
+        return schema
