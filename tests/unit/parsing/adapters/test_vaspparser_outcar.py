@@ -7,6 +7,7 @@ import pytest
 
 from vasp_analyzer.core import (
     DatasetConsistencyError,
+    OutcarFormatError,
     ParserProvenance,
     SelectiveMask,
     Site,
@@ -140,6 +141,8 @@ def test_absent_optional_quantities_map_to_none(
 ) -> None:
     data = _parse_dict()
     data.pop(key)
+    if key == "stresses":
+        data.pop("pressures")
 
     trajectory = _parse(monkeypatch, data)
 
@@ -204,4 +207,82 @@ def test_rejects_nonfinite_values(
     mutate(data)
 
     with pytest.raises(DatasetConsistencyError, match=f"{key}.*finite"):
+        _parse(monkeypatch, data)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ValueError("bad value"),
+        IndexError("missing row"),
+        OSError("cannot read"),
+        FileNotFoundError("gone"),
+    ],
+)
+def test_maps_parser_failures_to_analyzer_owned_error(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    import vasp_analyzer.parsing.adapters.vaspparser_outcar as adapter
+
+    class FailingParser:
+        def from_file(self, filename: str) -> None:
+            raise error
+
+    monkeypatch.setattr(adapter, "Outcar", FailingParser)
+
+    with pytest.raises(OutcarFormatError, match="vaspparser failed") as raised:
+        parse_vaspparser_outcar(Path("OUTCAR"), _sites(), _provenance())
+    assert raised.value.__cause__ is error
+
+
+@pytest.mark.parametrize("error", [KeyboardInterrupt(), SystemExit(), MemoryError()])
+def test_does_not_swallow_process_control_or_memory_errors(
+    monkeypatch: pytest.MonkeyPatch, error: BaseException
+) -> None:
+    import vasp_analyzer.parsing.adapters.vaspparser_outcar as adapter
+
+    class FailingParser:
+        def from_file(self, filename: str) -> None:
+            raise error
+
+    monkeypatch.setattr(adapter, "Outcar", FailingParser)
+
+    with pytest.raises(type(error)):
+        parse_vaspparser_outcar(Path("OUTCAR"), _sites(), _provenance())
+
+
+def test_realistic_empty_optional_containers_map_to_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data = _parse_dict()
+    data.update(
+        {
+            "energy_components": [],
+            "stresses": np.array([]),
+            "pressures": np.array([]),
+            "scf_energies": [],
+            "e_fermi_list": np.array([]),
+            "vbm_list": np.array([]),
+            "cbm_list": np.array([]),
+        }
+    )
+
+    trajectory = _parse(monkeypatch, data)
+
+    assert trajectory.energy_components is None
+    assert trajectory.stresses is None
+    assert trajectory.pressures is None
+    assert trajectory.scf_energies is None
+    assert trajectory.fermi_levels is None
+    assert trajectory.vbm is None
+    assert trajectory.cbm is None
+
+
+def test_rejects_pressure_when_stresses_are_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data = _parse_dict()
+    data["stresses"] = np.array([])
+
+    with pytest.raises(DatasetConsistencyError, match="pressures.*stresses"):
         _parse(monkeypatch, data)

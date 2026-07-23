@@ -7,12 +7,13 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from vaspparser.vasp.parser.outcar import Outcar
+from vaspparser.vasp.parser.outcar import Outcar, OutcarCollectError
 
 from vasp_analyzer.core import (
     DatasetConsistencyError,
     FrozenModel,
     Mat3,
+    OutcarFormatError,
     ParserProvenance,
     Site,
     Vec3,
@@ -75,9 +76,19 @@ def _optional_array(
     shape: tuple[int, ...],
 ) -> np.ndarray | None:
     values = parsed.get(key)
-    if values is None:
+    if _is_absent_optional(values):
         return None
     return _array(values, key=key, shape=shape)
+
+
+def _is_absent_optional(values: object) -> bool:
+    if values is None:
+        return True
+    if isinstance(values, np.ndarray):
+        return values.size == 0
+    if isinstance(values, (Sequence, Mapping)) and not isinstance(values, (str, bytes)):
+        return len(values) == 0
+    return False
 
 
 def _vec3(values: np.ndarray) -> Vec3:
@@ -104,7 +115,7 @@ def _ragged_groups(
     dimensions: int,
 ) -> tuple[Any, ...] | None:
     values = parsed.get(key)
-    if values is None:
+    if _is_absent_optional(values):
         return None
     if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
         raise DatasetConsistencyError(f"vaspparser {key} must contain {step_count} groups")
@@ -185,7 +196,12 @@ def parse_vaspparser_outcar(
     """Parse an OUTCAR and immediately copy VaspParser values into frozen models."""
 
     parser = Outcar()
-    parser.from_file(str(path))
+    try:
+        parser.from_file(str(path))
+    except (OutcarCollectError, ValueError, IndexError, OSError) as error:
+        raise OutcarFormatError(
+            f"vaspparser failed to parse OUTCAR {path}: {error}"
+        ) from error
     parsed = _require_mapping(parser.parse_dict)
 
     try:
@@ -227,10 +243,14 @@ def parse_vaspparser_outcar(
 
     stresses = _optional_array(parsed, "stresses", (step_count, 3, 3))
     pressures = _optional_array(parsed, "pressures", (step_count, 3))
+    if stresses is None and pressures is not None:
+        raise DatasetConsistencyError(
+            "vaspparser pressures cannot be present when stresses are absent"
+        )
     fermi_levels = _optional_array(parsed, "e_fermi_list", (step_count,))
 
     vbm = parsed.get("vbm_list")
-    if vbm is not None:
+    if not _is_absent_optional(vbm):
         try:
             vbm_array = np.asarray(vbm, dtype=float)
         except (TypeError, ValueError, OverflowError) as error:
@@ -246,7 +266,7 @@ def parse_vaspparser_outcar(
         vbm_array = None
 
     cbm = parsed.get("cbm_list")
-    if cbm is not None:
+    if not _is_absent_optional(cbm):
         try:
             cbm_array = np.asarray(cbm, dtype=float)
         except (TypeError, ValueError, OverflowError) as error:
