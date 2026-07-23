@@ -25,11 +25,13 @@
       },
       {
         "command": "vaspAnalyzer.openNormalizedOutcar",
-        "title": "VASP Analyzer: Open Normalized OUTCAR"
+        "title": "VASP Analyzer: Open Normalized OUTCAR",
+        "enablement": "vaspAnalyzer.normalizationAvailable"
       },
       {
         "command": "vaspAnalyzer.compareNormalizedOutcar",
-        "title": "VASP Analyzer: Compare Original and Normalized OUTCAR"
+        "title": "VASP Analyzer: Compare Original and Normalized OUTCAR",
+        "enablement": "vaspAnalyzer.normalizationAvailable"
       }
     ],
     "menus": {

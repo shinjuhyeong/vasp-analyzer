@@ -42,6 +42,8 @@ interface ProtocolErrorShape {
 }
 
 const INVALID_RESPONSE_MESSAGE = "Analyzer returned an invalid response";
+const MAX_NORMALIZATION_CHANGES = 10_000;
+const MAX_NORMALIZED_OUTCAR_BYTES = 64 * 1024 * 1024;
 
 function invalidResponse(): HostRequestError {
   return new HostRequestError("invalid_response", INVALID_RESPONSE_MESSAGE);
@@ -241,7 +243,12 @@ function isCapability(value: unknown): boolean {
 
 function isWarning(value: unknown): boolean {
   return isRecordWith(value, ["category", "message", "byteOffset", "lineNumber"])
-    && (value.category === "IncompleteTail" || value.category === "IgnoredCompatibilityMetadata")
+    && (
+      value.category === "IncompleteTail"
+      || value.category === "IgnoredCompatibilityMetadata"
+      || value.category === "GrowingFileParseFailure"
+      || value.category === "MetadataParseFailure"
+    )
     && typeof value.message === "string"
     && isNullable(value.byteOffset, isNonNegativeInteger)
     && isNullable(value.lineNumber, isNonNegativeInteger);
@@ -282,6 +289,7 @@ function isNormalizationManifest(value: unknown): value is NormalizationManifest
     "sourceSha256", "sourceSize", "sourceMtimeNs", "changedLineCount", "firstChangedLine",
     "lastChangedLine", "ruleChangedLineCounts", "warnings", "changes",
   ])) return false;
+  const changes = value.changes as readonly unknown[];
   return typeof value.manifestReference === "string"
     && typeof value.normalizerId === "string" && typeof value.displayName === "string"
     && isNonNegativeInteger(value.schemaVersion)
@@ -292,12 +300,15 @@ function isNormalizationManifest(value: unknown): value is NormalizationManifest
     && isNullable(value.lastChangedLine, isNonNegativeInteger)
     && isRecord(value.ruleChangedLineCounts)
     && Object.values(value.ruleChangedLineCounts).every(isNonNegativeInteger)
-    && isStringArray(value.warnings) && isArrayOf(value.changes, isNormalizationChange);
+    && isStringArray(value.warnings) && isArrayOf(changes, isNormalizationChange)
+    && value.changedLineCount <= MAX_NORMALIZATION_CHANGES
+    && changes.length === value.changedLineCount;
 }
 
 function isNormalizedOutcar(value: unknown): value is NormalizedOutcar {
   return isRecordWith(value, ["manifestReference", "content"])
-    && typeof value.manifestReference === "string" && typeof value.content === "string";
+    && typeof value.manifestReference === "string" && typeof value.content === "string"
+    && new TextEncoder().encode(value.content).byteLength <= MAX_NORMALIZED_OUTCAR_BYTES;
 }
 
 function isCalculationDataset(value: unknown): value is CalculationDataset {

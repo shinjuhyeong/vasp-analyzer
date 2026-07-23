@@ -146,6 +146,10 @@ class DeferredHost extends MemoryHost {
 }
 
 describe("analysis workspace", () => {
+  it("renders the loading status as clean accessible text", () => {
+    render(<App host={new DeferredHost()} rendererFactory={inertRendererFactory} />);
+    expect(screen.getByText("Loading VASP calculation…")).toHaveAttribute("aria-live", "polite");
+  });
   it("starts Energy-only and synchronizes workspace and toolbar step controls", async () => {
     render(<App host={new MemoryHost(twoStepDataset)} rendererFactory={inertRendererFactory} />);
     expect(await screen.findByRole("button", { name: "Energy module" })).toHaveAttribute("aria-pressed", "true");

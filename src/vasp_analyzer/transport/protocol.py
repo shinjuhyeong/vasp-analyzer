@@ -30,6 +30,7 @@ class NormalizationParams(FrozenModel):
 RequestParams: TypeAlias = DatasetParams | StepParams | VolumetricParams | NormalizationParams
 RequestId: TypeAlias = Annotated[int, Field(strict=True, ge=0)]
 _REQUEST_ID_ADAPTER = TypeAdapter(RequestId)
+_MAX_NORMALIZATION_CHANGES = 10_000
 
 
 class Request(FrozenModel):
@@ -152,6 +153,12 @@ def dispatch(session: CalculationSession, request: Request) -> Response:
                 ),
             )
         manifest = artifact.manifest
+        if manifest.changed_line_count > _MAX_NORMALIZATION_CHANGES:
+            return error_response(
+                request.id,
+                "normalization_payload_too_large",
+                "Normalization report exceeds the line-change limit",
+            )
         return SuccessResponse(
             id=request.id,
             result=NormalizationManifestResult(

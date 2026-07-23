@@ -12,6 +12,15 @@ describe("extension manifest", () => {
       expect.arrayContaining(["onStartupFinished", "onCommand:vaspAnalyzer.open"]),
     );
     expect(manifest.contributes.commands).toContainEqual(expect.objectContaining({ command: "vaspAnalyzer.open" }));
+    for (const command of [
+      "vaspAnalyzer.openNormalizedOutcar",
+      "vaspAnalyzer.compareNormalizedOutcar",
+    ]) {
+      expect(manifest.contributes.commands).toContainEqual(expect.objectContaining({
+        command,
+        enablement: "vaspAnalyzer.normalizationAvailable",
+      }));
+    }
     const menu = manifest.contributes.menus["explorer/context"].find(
       (entry: { command?: string }) => entry.command === "vaspAnalyzer.open",
     );

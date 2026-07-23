@@ -18,6 +18,8 @@ from vasp_analyzer.core import (
     ParserProvenance,
 )
 from vasp_analyzer.normalizers import load_registry, normalize_outcar, select_normalizer
+from vasp_analyzer.normalizers.manifest import LineChange, NormalizationManifest
+from vasp_analyzer.calculation.session import NormalizationArtifact
 from vasp_analyzer.transport.protocol import Request, dispatch
 
 
@@ -260,6 +262,50 @@ def test_normalization_operation_rejects_changed_source(tmp_path: Path) -> None:
     ).model_dump(mode="json", by_alias=True)
 
     assert response["error"]["code"] == "normalization_session_expired"
+
+
+def test_normalization_manifest_rejects_more_than_ten_thousand_changes(
+    tmp_path: Path,
+) -> None:
+    changes = tuple(
+        LineChange(
+            source_line=index + 1,
+            rule_id="named",
+            original_excerpt="old",
+            emitted_excerpt="new",
+        )
+        for index in range(10_001)
+    )
+    manifest = NormalizationManifest(
+        normalizer_id="home",
+        display_name="Home",
+        schema_version=1,
+        definition_sha256="a" * 64,
+        source_path=tmp_path / "OUTCAR",
+        source_sha256="b" * 64,
+        source_size=1,
+        source_mtime_ns=1,
+        changes=changes,
+    )
+
+    class OversizedSession:
+        def normalization_artifact(
+            self, manifest_reference: str, *, include_content: bool = False
+        ) -> NormalizationArtifact:
+            return NormalizationArtifact(manifest_reference, manifest, None)
+
+    response = dispatch(
+        cast(CalculationSession, OversizedSession()),
+        Request.model_validate(
+            {
+                "id": 1,
+                "method": "getNormalizationManifest",
+                "params": {"manifestReference": "c" * 64},
+            }
+        ),
+    ).model_dump(mode="json", by_alias=True)
+
+    assert response["error"]["code"] == "normalization_payload_too_large"
 
 
 def test_get_volumetric_returns_typed_capability_error(tmp_path: Path) -> None:

@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
     reveal: ReturnType<typeof vi.fn>;
     receiveMessage: (message: unknown) => Promise<void>;
     messages: unknown[];
+    active: boolean;
+    changeViewState: (active: boolean) => void;
   }>,
   showOpenDialog: vi.fn(),
   showErrorMessage: vi.fn(),
@@ -47,9 +49,15 @@ vi.mock("vscode", () => ({
     createWebviewPanel: vi.fn(() => {
       let onDispose: (() => void) | undefined;
       let onMessage: (message: unknown) => Promise<void> = async () => undefined;
+      let onViewState: ((event: { webviewPanel: { active: boolean } }) => void) | undefined;
       let disposed = false;
       const messages: unknown[] = [];
       const panel = {
+        active: true,
+        changeViewState: (active: boolean) => {
+          panel.active = active;
+          onViewState?.({ webviewPanel: panel });
+        },
         reveal: vi.fn(),
         dispose: vi.fn(() => {
           if (disposed) return;
@@ -73,6 +81,10 @@ vi.mock("vscode", () => ({
         },
         onDidDispose: vi.fn((callback: () => void) => {
           onDispose = callback;
+          return { dispose: vi.fn() };
+        }),
+        onDidChangeViewState: vi.fn((callback: typeof onViewState) => {
+          onViewState = callback;
           return { dispose: vi.fn() };
         }),
       };
@@ -273,6 +285,73 @@ describe("VASP Analyzer extension wiring", () => {
       expect.objectContaining({ fsPath: "/work/calc/OUTCAR" }),
       expect.objectContaining({ scheme: "vasp-analyzer-normalized" }),
       expect.any(String),
+    );
+  });
+
+  it("routes normalized commands to the actually active panel across two sessions", async () => {
+    const firstRequest = vi.fn(async (method: string) => method === "getDataset"
+      ? { provenance: { normalizationChangedLineCount: 1, normalizationManifestReference: "a".repeat(64) } }
+      : { manifestReference: "a".repeat(64), content: "first" });
+    const secondRequest = vi.fn(async (method: string) => method === "getDataset"
+      ? { provenance: { normalizationChangedLineCount: 1, normalizationManifestReference: "b".repeat(64) } }
+      : { manifestReference: "b".repeat(64), content: "second" });
+    mocks.spawnAnalyzer
+      .mockReturnValueOnce({ request: firstRequest, dispose: vi.fn() })
+      .mockReturnValueOnce({ request: secondRequest, dispose: vi.fn() });
+    await activate(extensionContext() as never);
+    const signal = new AbortController().signal;
+    await mocks.endpointOnOpen?.({ root: "/first", calculationPath: "/first/OUTCAR", profilePath: null }, signal);
+    await mocks.endpointOnOpen?.({ root: "/second", calculationPath: "/second/OUTCAR", profilePath: null }, signal);
+    mocks.panels[1]!.changeViewState(false);
+    mocks.panels[0]!.changeViewState(true);
+
+    await mocks.commands.get("vaspAnalyzer.openNormalizedOutcar")?.();
+
+    expect(firstRequest).toHaveBeenCalledWith("getNormalizedOutcar", expect.anything());
+    expect(secondRequest).not.toHaveBeenCalled();
+    mocks.panels[0]!.dispose();
+    expect(mocks.executeCommand).toHaveBeenCalledWith(
+      "setContext", "vaspAnalyzer.normalizationAvailable", false,
+    );
+  });
+
+  it("maps expired normalization command failures to a safe user message", async () => {
+    const { AnalyzerProtocolError } = await import("../analyzerProcess.js");
+    const request = vi.fn(async (method: string) => {
+      if (method === "getDataset") return {
+        provenance: { normalizationChangedLineCount: 1, normalizationManifestReference: "a".repeat(64) },
+      };
+      throw new AnalyzerProtocolError("normalization_session_expired", "secret source path");
+    });
+    mocks.spawnAnalyzer.mockReturnValue({ request, dispose: vi.fn() });
+    await activate(extensionContext() as never);
+    await mocks.command?.({ fsPath: "/work/calc/OUTCAR" });
+
+    await mocks.commands.get("vaspAnalyzer.openNormalizedOutcar")?.();
+
+    expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringMatching(/expired.*OUTCAR changed/i),
+    );
+    expect(JSON.stringify(mocks.showErrorMessage.mock.calls)).not.toContain("secret source path");
+  });
+
+  it("sets command availability from the active panel dataset and lifecycle", async () => {
+    const request = vi.fn().mockResolvedValue({
+      provenance: { normalizationChangedLineCount: 2, normalizationManifestReference: "a".repeat(64) },
+    });
+    mocks.spawnAnalyzer.mockReturnValue({ request, dispose: vi.fn() });
+    await activate(extensionContext() as never);
+    await mocks.command?.({ fsPath: "/work/calc/OUTCAR" });
+    await mocks.panels[0]!.receiveMessage({
+      type: "request", requestId: 1, method: "getDataset", params: {},
+    });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith(
+      "setContext", "vaspAnalyzer.normalizationAvailable", true,
+    );
+    mocks.panels[0]!.changeViewState(false);
+    expect(mocks.executeCommand).toHaveBeenLastCalledWith(
+      "setContext", "vaspAnalyzer.normalizationAvailable", false,
     );
   });
 });

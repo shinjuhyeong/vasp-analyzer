@@ -77,6 +77,49 @@ describe("analysis hosts", () => {
     await expect(oversized).rejects.toMatchObject({ code: "invalid_response" });
     host.dispose();
   });
+
+  it.each(["GrowingFileParseFailure", "MetadataParseFailure"])(
+    "accepts the schema-4 %s warning category",
+    async (category) => {
+      const result: any = detailedDatasetResult();
+      result.warnings = [{ category, message: "warning", byteOffset: null, lineNumber: null }];
+      const fetcher = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: 1, result }),
+      });
+
+      await expect(new HttpHost("http://local", fetcher).request("getDataset", {})).resolves.toEqual(result);
+    },
+  );
+
+  it("rejects oversized normalization manifests and normalized UTF-8 content", async () => {
+    const base = {
+      manifestReference: "a".repeat(64), normalizerId: "home-barrier", displayName: "Home",
+      schemaVersion: 1, definitionSha256: "b".repeat(64), sourceSha256: "c".repeat(64),
+      sourceSize: 10, sourceMtimeNs: 20, changedLineCount: 10_001, firstChangedLine: 1,
+      lastChangedLine: 10_001, ruleChangedLineCounts: { named: 10_001 }, warnings: [],
+      changes: Array.from({ length: 10_001 }, (_, index) => ({
+        sourceLine: index + 1, ruleId: "named", originalExcerpt: "", emittedExcerpt: "",
+      })),
+    };
+    const manifestFetcher = vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ id: 1, result: base }),
+    });
+    await expect(new HttpHost("http://local", manifestFetcher).request(
+      "getNormalizationManifest", { manifestReference: "a".repeat(64) },
+    )).rejects.toMatchObject({ code: "invalid_response" });
+
+    const contentFetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 1,
+        result: { manifestReference: "a".repeat(64), content: "가".repeat(22_369_622) },
+      }),
+    });
+    await expect(new HttpHost("http://local", contentFetcher).request(
+      "getNormalizedOutcar", { manifestReference: "a".repeat(64) },
+    )).rejects.toMatchObject({ code: "invalid_response" });
+  });
   it.each([
     ["VS Code", (state: unknown) => new VsCodeHost({ postMessage: vi.fn(), getState: () => state, setState: vi.fn() }, window)],
     ["HTTP", (state: unknown) => new HttpHost("http://local", vi.fn(), {

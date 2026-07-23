@@ -24,3 +24,21 @@
 - `git diff --check`: passed.
 
 The skipped Python tests are the optional local corpus and Windows filesystem capability cases already marked by their suites.
+
+## Review Follow-Up
+
+- Accepted all four schema-4 warning categories in the Webview validator.
+- Added independent backend/Webview manifest limits of 10,000 changed rows.
+- Added independent Webview UTF-8 validation for the 64 MiB normalized-content limit.
+- Made view-state events authoritative for multi-panel normalized commands.
+- Cached normalization availability per panel and wired command enablement through
+  `vaspAnalyzer.normalizationAvailable`.
+- Sanitized expired-session and oversized-payload command failures.
+- Added an exact accessible loading-text DOM assertion; the production ellipsis was
+  confirmed to be valid UTF-8 and required no production edit.
+
+Fresh follow-up verification:
+
+- `python -m pytest --import-mode=importlib -q`: 620 passed, 7 skipped.
+- `pnpm --dir vscode test`: 34 files, 345 tests passed.
+- Ruff, typecheck, build, Chromium layout (2 tests), and diff checks passed.
